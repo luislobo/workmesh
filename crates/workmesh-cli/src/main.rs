@@ -5,6 +5,7 @@ use anyhow::Result;
 use clap::{ArgAction, Parser, Subcommand, ValueEnum};
 
 use workmesh_core::backlog::resolve_backlog_dir;
+use workmesh_core::gantt::{plantuml_gantt, render_plantuml_svg, write_text_file, PlantumlRenderError};
 use workmesh_core::task::{load_tasks, Task};
 use workmesh_core::task_ops::{
     append_note, create_task_file, filter_tasks, next_task, now_timestamp, render_task_line,
@@ -170,6 +171,35 @@ enum Command {
     Validate {
         #[arg(long, action = ArgAction::SetTrue)]
         json: bool,
+    },
+    /// Render PlantUML gantt text
+    Gantt {
+        #[arg(long)]
+        start: Option<String>,
+        #[arg(long, default_value_t = 3)]
+        zoom: i32,
+    },
+    /// Write PlantUML gantt to a file
+    GanttFile {
+        #[arg(long)]
+        start: Option<String>,
+        #[arg(long, default_value_t = 3)]
+        zoom: i32,
+        #[arg(long)]
+        output: PathBuf,
+    },
+    /// Render gantt SVG via PlantUML
+    GanttSvg {
+        #[arg(long)]
+        start: Option<String>,
+        #[arg(long, default_value_t = 3)]
+        zoom: i32,
+        #[arg(long)]
+        output: Option<PathBuf>,
+        #[arg(long)]
+        plantuml_cmd: Option<String>,
+        #[arg(long)]
+        plantuml_jar: Option<PathBuf>,
     },
 }
 
@@ -430,6 +460,44 @@ fn main() -> Result<()> {
                 if !report.errors.is_empty() {
                     std::process::exit(1);
                 }
+            }
+        }
+        Command::Gantt { start, zoom } => {
+            let text = plantuml_gantt(&tasks, start.as_deref(), None, zoom, None, true);
+            print!("{}", text);
+        }
+        Command::GanttFile { start, zoom, output } => {
+            let text = plantuml_gantt(&tasks, start.as_deref(), None, zoom, None, true);
+            let path = write_text_file(&output, &text)?;
+            println!("{}", path.display());
+        }
+        Command::GanttSvg {
+            start,
+            zoom,
+            output,
+            plantuml_cmd,
+            plantuml_jar,
+        } => {
+            let text = plantuml_gantt(&tasks, start.as_deref(), None, zoom, None, true);
+            let cmd = match plantuml_cmd {
+                Some(cmd) => Some(shell_words::split(&cmd).map_err(anyhow::Error::msg)?),
+                None => None,
+            };
+            let svg = render_plantuml_svg(
+                &text,
+                cmd,
+                plantuml_jar.as_deref(),
+                None,
+            )
+            .map_err(|err| match err {
+                PlantumlRenderError::RenderFailed(msg) => anyhow::Error::msg(msg),
+                other => anyhow::Error::msg(other.to_string()),
+            })?;
+            if let Some(output) = output {
+                let path = write_text_file(&output, &svg)?;
+                println!("{}", path.display());
+            } else {
+                print!("{}", svg);
             }
         }
     }

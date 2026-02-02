@@ -11,5 +11,6 @@ clap = { version = "4.5", features = ["derive"] }
 rust-mcp-sdk = { version = "0.8.3", default-features = true }
 serde = { version = "1.0", features = ["derive"] }
 serde_json.workspace = true
+shell-words = "1.1"
 tokio = { version = "1.39", features = ["macros", "rt-multi-thread"] }
 workmesh-core = { path = "../workmesh-core" }

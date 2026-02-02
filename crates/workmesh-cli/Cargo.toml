@@ -9,3 +9,4 @@ anyhow.workspace = true
 clap = { version = "4.5", features = ["derive"] }
 serde_json.workspace = true
 workmesh-core = { path = "../workmesh-core" }
+shell-words = "1.1"

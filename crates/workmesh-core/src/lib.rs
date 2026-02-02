@@ -3,6 +3,7 @@
 pub mod backlog;
 pub mod task;
 pub mod task_ops;
+pub mod gantt;
 
 pub fn version() -> &'static str {
     env!("CARGO_PKG_VERSION")
