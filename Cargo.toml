@@ -1,0 +1,21 @@
+[workspace]
+resolver = "2"
+members = [
+  "crates/workmesh-core",
+  "crates/workmesh-cli",
+  "crates/workmesh-mcp",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+
+[workspace.dependencies]
+anyhow = "1.0"
+serde = { version = "1.0", features = ["derive"] }
+serde_yaml = "0.9"
+serde_json = "1.0"
+thiserror = "1.0"
+regex = "1.10"
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
