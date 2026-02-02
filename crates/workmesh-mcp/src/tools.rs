@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use async_trait::async_trait;
 use rust_mcp_sdk::macros::{mcp_tool, JsonSchema};
@@ -11,6 +11,7 @@ use rust_mcp_sdk::{mcp_server::ServerHandler, McpServer};
 use serde::{Deserialize, Serialize};
 
 use workmesh_core::backlog::{locate_backlog_dir, resolve_backlog_dir, BacklogError};
+use workmesh_core::gantt::{plantuml_gantt, render_plantuml_svg, write_text_file};
 use workmesh_core::task::{load_tasks, Task};
 use workmesh_core::task_ops::{
     append_note, create_task_file, filter_tasks, next_task, now_timestamp, render_task_line,
@@ -138,6 +139,9 @@ fn tool_catalog() -> Vec<serde_json::Value> {
         serde_json::json!({"name": "set_section", "summary": "Replace a named section in the task body."}),
         serde_json::json!({"name": "add_task", "summary": "Create a new task file."}),
         serde_json::json!({"name": "validate", "summary": "Validate task metadata and dependencies."}),
+        serde_json::json!({"name": "gantt_text", "summary": "Return PlantUML gantt text."}),
+        serde_json::json!({"name": "gantt_file", "summary": "Write PlantUML gantt to a file."}),
+        serde_json::json!({"name": "gantt_svg", "summary": "Render gantt SVG via PlantUML."}),
         serde_json::json!({"name": "help", "summary": "Show available tools and best practices."}),
         serde_json::json!({"name": "project_management_skill", "summary": "Return project management guide."}),
     ]
@@ -308,6 +312,37 @@ pub struct ValidateTool {
     pub root: Option<String>,
 }
 
+#[mcp_tool(name = "gantt_text", description = "Return PlantUML gantt text for current tasks.")]
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct GanttTextTool {
+    pub root: Option<String>,
+    pub start: Option<String>,
+    #[serde(default = "default_zoom")]
+    pub zoom: i32,
+}
+
+#[mcp_tool(name = "gantt_file", description = "Write PlantUML gantt text to a file and return the path.")]
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct GanttFileTool {
+    pub output: String,
+    pub root: Option<String>,
+    pub start: Option<String>,
+    #[serde(default = "default_zoom")]
+    pub zoom: i32,
+}
+
+#[mcp_tool(name = "gantt_svg", description = "Render gantt SVG via PlantUML; return SVG or a file path.")]
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct GanttSvgTool {
+    pub root: Option<String>,
+    pub start: Option<String>,
+    #[serde(default = "default_zoom")]
+    pub zoom: i32,
+    pub output: Option<String>,
+    pub plantuml_cmd: Option<String>,
+    pub plantuml_jar: Option<String>,
+}
+
 #[mcp_tool(name = "help", description = "Show available tools and best practices.")]
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct HelpTool {
@@ -359,6 +394,10 @@ fn default_phase() -> String {
     "Phase1".to_string()
 }
 
+fn default_zoom() -> i32 {
+    3
+}
+
 // Generates enum WorkmeshTools with variants for each tool
 tool_box!(
     WorkmeshTools,
@@ -378,6 +417,9 @@ tool_box!(
         SetSectionTool,
         AddTaskTool,
         ValidateTool,
+        GanttTextTool,
+        GanttFileTool,
+        GanttSvgTool,
         HelpTool,
         ProjectManagementSkillTool
     ]
@@ -423,6 +465,9 @@ impl ServerHandler for WorkmeshServerHandler {
             WorkmeshTools::SetSectionTool(tool) => tool.call(&self.context),
             WorkmeshTools::AddTaskTool(tool) => tool.call(&self.context),
             WorkmeshTools::ValidateTool(tool) => tool.call(&self.context),
+            WorkmeshTools::GanttTextTool(tool) => tool.call(&self.context),
+            WorkmeshTools::GanttFileTool(tool) => tool.call(&self.context),
+            WorkmeshTools::GanttSvgTool(tool) => tool.call(&self.context),
             WorkmeshTools::HelpTool(tool) => tool.call(&self.context),
             WorkmeshTools::ProjectManagementSkillTool(tool) => tool.call(&self.context),
         }
@@ -774,6 +819,80 @@ impl ValidateTool {
         let tasks = load_tasks(&backlog_dir);
         let report = validate_tasks(&tasks);
         ok_json(serde_json::to_value(report).unwrap_or_default())
+    }
+}
+
+impl GanttTextTool {
+    fn call(&self, context: &McpContext) -> Result<CallToolResult, CallToolError> {
+        let backlog_dir = match resolve_root(context, self.root.as_deref()) {
+            Ok(dir) => dir,
+            Err(err) => return ok_json(err),
+        };
+        let tasks = load_tasks(&backlog_dir);
+        let text = plantuml_gantt(
+            &tasks,
+            self.start.as_deref(),
+            None,
+            self.zoom,
+            None,
+            true,
+        );
+        ok_text(text)
+    }
+}
+
+impl GanttFileTool {
+    fn call(&self, context: &McpContext) -> Result<CallToolResult, CallToolError> {
+        let backlog_dir = match resolve_root(context, self.root.as_deref()) {
+            Ok(dir) => dir,
+            Err(err) => return ok_json(err),
+        };
+        let tasks = load_tasks(&backlog_dir);
+        let text = plantuml_gantt(
+            &tasks,
+            self.start.as_deref(),
+            None,
+            self.zoom,
+            None,
+            true,
+        );
+        let path = write_text_file(Path::new(&self.output), &text)
+            .map_err(CallToolError::new)?;
+        ok_json(serde_json::json!({"ok": true, "path": path}))
+    }
+}
+
+impl GanttSvgTool {
+    fn call(&self, context: &McpContext) -> Result<CallToolResult, CallToolError> {
+        let backlog_dir = match resolve_root(context, self.root.as_deref()) {
+            Ok(dir) => dir,
+            Err(err) => return ok_json(err),
+        };
+        let tasks = load_tasks(&backlog_dir);
+        let text = plantuml_gantt(
+            &tasks,
+            self.start.as_deref(),
+            None,
+            self.zoom,
+            None,
+            true,
+        );
+        let cmd = match &self.plantuml_cmd {
+            Some(cmd) => Some(shell_words::split(cmd).map_err(CallToolError::new)?),
+            None => None,
+        };
+        let jar_path = self.plantuml_jar.as_ref().map(Path::new);
+        let svg = match render_plantuml_svg(&text, cmd, jar_path, None) {
+            Ok(svg) => svg,
+            Err(err) => {
+                return ok_json(serde_json::json!({"error": err.to_string()}));
+            }
+        };
+        if let Some(output) = &self.output {
+            let path = write_text_file(Path::new(output), &svg).map_err(CallToolError::new)?;
+            return ok_json(serde_json::json!({"ok": true, "path": path}));
+        }
+        ok_text(svg)
     }
 }
 
