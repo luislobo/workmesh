@@ -1,6 +1,7 @@
 //! Core domain types for WorkMesh.
 
 pub mod backlog;
+pub mod task;
 
 pub fn version() -> &'static str {
     env!("CARGO_PKG_VERSION")
