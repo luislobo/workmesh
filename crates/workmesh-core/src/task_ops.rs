@@ -472,22 +472,28 @@ pub fn validate_tasks(tasks: &[Task]) -> ValidationResult {
 }
 
 pub fn tasks_to_json(tasks: &[Task], include_body: bool) -> String {
-    let payload: Vec<HashMap<&str, serde_json::Value>> = tasks
+    let payload: Vec<serde_json::Value> = tasks
         .iter()
-        .map(|task| task_to_json_map(task, include_body))
+        .map(|task| task_to_json_value(task, include_body))
         .collect();
     serde_json::to_string_pretty(&payload).unwrap_or_else(|_| "[]".to_string())
 }
 
-fn task_to_json_map(task: &Task, include_body: bool) -> HashMap<&str, serde_json::Value> {
-    let mut map = HashMap::new();
-    map.insert("id", serde_json::Value::String(task.id.clone()));
-    map.insert("title", serde_json::Value::String(task.title.clone()));
-    map.insert("status", serde_json::Value::String(task.status.clone()));
-    map.insert("priority", serde_json::Value::String(task.priority.clone()));
-    map.insert("phase", serde_json::Value::String(task.phase.clone()));
+pub fn task_to_json_value(task: &Task, include_body: bool) -> serde_json::Value {
+    let mut map = serde_json::Map::new();
+    map.insert("id".to_string(), serde_json::Value::String(task.id.clone()));
+    map.insert("title".to_string(), serde_json::Value::String(task.title.clone()));
     map.insert(
-        "dependencies",
+        "status".to_string(),
+        serde_json::Value::String(task.status.clone()),
+    );
+    map.insert(
+        "priority".to_string(),
+        serde_json::Value::String(task.priority.clone()),
+    );
+    map.insert("phase".to_string(), serde_json::Value::String(task.phase.clone()));
+    map.insert(
+        "dependencies".to_string(),
         serde_json::Value::Array(
             task.dependencies
                 .iter()
@@ -496,7 +502,7 @@ fn task_to_json_map(task: &Task, include_body: bool) -> HashMap<&str, serde_json
         ),
     );
     map.insert(
-        "labels",
+        "labels".to_string(),
         serde_json::Value::Array(
             task.labels
                 .iter()
@@ -505,7 +511,7 @@ fn task_to_json_map(task: &Task, include_body: bool) -> HashMap<&str, serde_json
         ),
     );
     map.insert(
-        "assignee",
+        "assignee".to_string(),
         serde_json::Value::Array(
             task.assignee
                 .iter()
@@ -514,25 +520,25 @@ fn task_to_json_map(task: &Task, include_body: bool) -> HashMap<&str, serde_json
         ),
     );
     map.insert(
-        "created_date",
+        "created_date".to_string(),
         task.created_date
             .clone()
             .map(serde_json::Value::String)
             .unwrap_or(serde_json::Value::Null),
     );
     map.insert(
-        "updated_date",
+        "updated_date".to_string(),
         task.updated_date
             .clone()
             .map(serde_json::Value::String)
             .unwrap_or(serde_json::Value::Null),
     );
     map.insert(
-        "extra",
+        "extra".to_string(),
         serde_json::to_value(&task.extra).unwrap_or(serde_json::Value::Object(Default::default())),
     );
     map.insert(
-        "path",
+        "path".to_string(),
         task.file_path
             .as_ref()
             .and_then(|path| path.to_str())
@@ -540,9 +546,9 @@ fn task_to_json_map(task: &Task, include_body: bool) -> HashMap<&str, serde_json
             .unwrap_or(serde_json::Value::Null),
     );
     if include_body {
-        map.insert("body", serde_json::Value::String(task.body.clone()));
+        map.insert("body".to_string(), serde_json::Value::String(task.body.clone()));
     }
-    map
+    serde_json::Value::Object(map)
 }
 
 fn should_warn_missing_dependencies(task: &Task) -> bool {

@@ -1,13 +1,14 @@
 ---
 id: task-005
 title: Phase 1: Implement CLI write ops (set-status/field, labels, deps, notes)
-status: To Do
+status: In Progress
 priority: P1
 phase: Phase1
 dependencies: [task-003]
 labels: [phase1, rust, cli]
 assignee: []
 prd: docs/projects/workmesh/prds/phase-1-conversion.md
+updated_date: 2026-02-01 18:16
 ---
 
 Description:
