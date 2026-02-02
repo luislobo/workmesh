@@ -4,10 +4,11 @@ use std::path::{Path, PathBuf};
 
 use chrono::Local;
 use regex::Regex;
+use serde::Serialize;
 
 use crate::task::{split_front_matter, Task, TaskParseError};
 
-#[derive(Debug)]
+#[derive(Debug, Serialize)]
 pub struct ValidationResult {
     pub errors: Vec<String>,
     pub warnings: Vec<String>,
