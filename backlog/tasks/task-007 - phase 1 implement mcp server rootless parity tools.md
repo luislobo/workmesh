@@ -8,9 +8,8 @@ dependencies: [task-004, task-005]
 labels: [phase1, rust, mcp]
 assignee: []
 prd: docs/projects/workmesh/prds/phase-1-conversion.md
-updated_date: 2026-02-01 18:19
+updated_date: 2026-02-01 18:31
 ---
-
 Description:
 --------------------------------------------------
 - 
@@ -23,3 +22,6 @@ Definition of Done:
 --------------------------------------------------
 - Code/config committed.
 - Docs updated if needed.
+
+Notes:
+- Implemented MCP server with rust-mcp-sdk (list/show/next/stats/set-field/labels/deps/notes/add/validate/help), rootless resolution; gantt tools pending task-006.
