@@ -172,6 +172,8 @@ enum Command {
         #[arg(long, action = ArgAction::SetTrue)]
         json: bool,
     },
+    /// Show backlog best practices
+    BestPractices,
     /// Render PlantUML gantt text
     Gantt {
         #[arg(long)]
@@ -462,6 +464,9 @@ fn main() -> Result<()> {
                 }
             }
         }
+        Command::BestPractices => {
+            println!("{}", best_practices_text());
+        }
         Command::Gantt { start, zoom } => {
             let text = plantuml_gantt(&tasks, start.as_deref(), None, zoom, None, true);
             print!("{}", text);
@@ -549,6 +554,10 @@ fn stats(tasks: &[Task]) -> std::collections::HashMap<String, usize> {
         *counts.entry(key).or_insert(0) += 1;
     }
     counts
+}
+
+fn best_practices_text() -> &'static str {
+    "workmesh best practices\n\nDependencies:\n- Add dependencies whenever a task is blocked by other work.\n- Prefer explicit task ids (task-042) over vague references.\n- Update dependencies as status changes to avoid stale blockers.\n- Use validate to catch missing or broken dependency chains.\n\nLabels:\n- Use labels to group work (docs, infra, ops).\n- Keep labels short and consistent.\n\nNotes:\n- Capture blockers or decisions in notes for future context.\n"
 }
 
 fn next_id(tasks: &[Task]) -> String {
