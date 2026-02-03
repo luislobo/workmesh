@@ -12,10 +12,35 @@ This repository is the Rust rewrite and evolution of xh-tasks.
 - Markdown task format with tolerant front-matter parsing.
 - Backlog discovery supports `tasks/`, `backlog/tasks/`, or `project/tasks/`.
 - Gantt output (PlantUML text/file/svg) with dependency links.
+- Graph export command (property-graph JSON for nodes + edges).
 - Docs-first project model under `docs/projects/<project-id>/`.
 - Project scaffolding via `project-init` (CLI) / `project_init` (MCP).
 - Validation for required fields, missing dependencies, and missing project docs.
 - JSON output for CLI/MCP for easy automation.
+
+## Graph export (JSON schema)
+CLI: `workmesh --root <path> graph-export --pretty`
+
+Output shape:
+```json
+{
+  "nodes": [
+    {
+      "id": "task-012",
+      "node_type": "task",
+      "title": "Ready work query",
+      "status": "To Do",
+      "priority": "P2",
+      "phase": "Phase3",
+      "project": null,
+      "initiative": null
+    }
+  ],
+  "edges": [
+    { "from": "task-012", "to": "task-011", "edge_type": "blocked_by" }
+  ]
+}
+```
 
 ## Repo layout
 - `docs/` - project documentation, PRDs, decisions, and updates.
