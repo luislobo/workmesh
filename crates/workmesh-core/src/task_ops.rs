@@ -546,6 +546,15 @@ pub fn task_to_json_value(task: &Task, include_body: bool) -> serde_json::Value 
         ),
     );
     map.insert(
+        "relationships".to_string(),
+        serde_json::json!({
+            "blocked_by": task.relationships.blocked_by.clone(),
+            "parent": task.relationships.parent.clone(),
+            "child": task.relationships.child.clone(),
+            "discovered_from": task.relationships.discovered_from.clone(),
+        }),
+    );
+    map.insert(
         "project".to_string(),
         task.project
             .clone()
@@ -633,6 +642,11 @@ fn task_template(
     front.push(format!("dependencies: {}", FieldValue::List(dependencies.to_vec()).as_formatted()));
     front.push(format!("labels: {}", FieldValue::List(labels.to_vec()).as_formatted()));
     front.push(format!("assignee: {}", FieldValue::List(assignee.to_vec()).as_formatted()));
+    front.push("relationships:".to_string());
+    front.push("  blocked_by: []".to_string());
+    front.push("  parent: []".to_string());
+    front.push("  child: []".to_string());
+    front.push("  discovered_from: []".to_string());
     front.push("---".to_string());
     front.push(String::new());
     front.push("Description:".to_string());
@@ -788,6 +802,7 @@ mod tests {
             dependencies: Vec::new(),
             labels: Vec::new(),
             assignee: Vec::new(),
+            relationships: Default::default(),
             project: None,
             initiative: None,
             created_date: None,
@@ -861,6 +876,7 @@ mod tests {
                 dependencies: Vec::new(),
                 labels: Vec::new(),
                 assignee: Vec::new(),
+                relationships: Default::default(),
                 project: None,
                 initiative: None,
                 created_date: None,
@@ -878,6 +894,7 @@ mod tests {
                 dependencies: Vec::new(),
                 labels: Vec::new(),
                 assignee: Vec::new(),
+                relationships: Default::default(),
                 project: None,
                 initiative: None,
                 created_date: None,
@@ -895,6 +912,7 @@ mod tests {
                 dependencies: Vec::new(),
                 labels: Vec::new(),
                 assignee: Vec::new(),
+                relationships: Default::default(),
                 project: None,
                 initiative: None,
                 created_date: None,

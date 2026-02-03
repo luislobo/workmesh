@@ -14,6 +14,7 @@ fn task_with_project(project: &str) -> Task {
         dependencies: Vec::new(),
         labels: Vec::new(),
         assignee: Vec::new(),
+        relationships: Default::default(),
         project: Some(project.to_string()),
         initiative: None,
         created_date: None,
@@ -58,4 +59,3 @@ fn validate_errors_when_project_docs_missing() {
     let report = validate_tasks(&[task_with_project("alpha")], Some(&backlog_dir));
     assert!(report.errors.iter().all(|err| !err.contains("project docs missing")));
 }
-
