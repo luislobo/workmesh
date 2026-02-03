@@ -11,6 +11,7 @@ use rust_mcp_sdk::{mcp_server::ServerHandler, McpServer};
 use serde::{Deserialize, Serialize};
 
 use workmesh_core::backlog::{locate_backlog_dir, resolve_backlog_dir, BacklogError};
+use workmesh_core::project::{ensure_project_docs, repo_root_from_backlog};
 use workmesh_core::gantt::{plantuml_gantt, render_plantuml_svg, write_text_file};
 use workmesh_core::task::{load_tasks, Task};
 use workmesh_core::task_ops::{
@@ -138,6 +139,7 @@ fn tool_catalog() -> Vec<serde_json::Value> {
         serde_json::json!({"name": "set_body", "summary": "Replace full task body (after front matter)."}),
         serde_json::json!({"name": "set_section", "summary": "Replace a named section in the task body."}),
         serde_json::json!({"name": "add_task", "summary": "Create a new task file."}),
+        serde_json::json!({"name": "project_init", "summary": "Create project docs scaffold."}),
         serde_json::json!({"name": "validate", "summary": "Validate task metadata and dependencies."}),
         serde_json::json!({"name": "gantt_text", "summary": "Return PlantUML gantt text."}),
         serde_json::json!({"name": "gantt_file", "summary": "Write PlantUML gantt to a file."}),
@@ -306,6 +308,14 @@ pub struct AddTaskTool {
     pub assignee: Option<ListInput>,
 }
 
+#[mcp_tool(name = "project_init", description = "Create project docs scaffold.")]
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct ProjectInitTool {
+    pub project_id: String,
+    pub root: Option<String>,
+    pub name: Option<String>,
+}
+
 #[mcp_tool(name = "validate", description = "Validate task metadata and dependencies.")]
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct ValidateTool {
@@ -416,6 +426,7 @@ tool_box!(
         SetBodyTool,
         SetSectionTool,
         AddTaskTool,
+        ProjectInitTool,
         ValidateTool,
         GanttTextTool,
         GanttFileTool,
@@ -464,6 +475,7 @@ impl ServerHandler for WorkmeshServerHandler {
             WorkmeshTools::SetBodyTool(tool) => tool.call(&self.context),
             WorkmeshTools::SetSectionTool(tool) => tool.call(&self.context),
             WorkmeshTools::AddTaskTool(tool) => tool.call(&self.context),
+            WorkmeshTools::ProjectInitTool(tool) => tool.call(&self.context),
             WorkmeshTools::ValidateTool(tool) => tool.call(&self.context),
             WorkmeshTools::GanttTextTool(tool) => tool.call(&self.context),
             WorkmeshTools::GanttFileTool(tool) => tool.call(&self.context),
@@ -806,6 +818,23 @@ impl AddTaskTool {
     }
 }
 
+impl ProjectInitTool {
+    fn call(&self, context: &McpContext) -> Result<CallToolResult, CallToolError> {
+        let backlog_dir = match resolve_root(context, self.root.as_deref()) {
+            Ok(dir) => dir,
+            Err(err) => return ok_json(err),
+        };
+        let repo_root = repo_root_from_backlog(&backlog_dir);
+        let path = ensure_project_docs(&repo_root, &self.project_id, self.name.as_deref())
+            .map_err(CallToolError::new)?;
+        ok_json(serde_json::json!({
+            "ok": true,
+            "project_id": self.project_id,
+            "path": path,
+        }))
+    }
+}
+
 impl ValidateTool {
     fn call(&self, context: &McpContext) -> Result<CallToolResult, CallToolError> {
         let backlog_dir = match resolve_root(context, self.root.as_deref()) {
@@ -813,7 +842,7 @@ impl ValidateTool {
             Err(err) => return ok_json(err),
         };
         let tasks = load_tasks(&backlog_dir);
-        let report = validate_tasks(&tasks);
+        let report = validate_tasks(&tasks, Some(&backlog_dir));
         ok_json(serde_json::to_value(report).unwrap_or_default())
     }
 }
