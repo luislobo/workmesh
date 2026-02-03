@@ -6,6 +6,7 @@ use chrono::Local;
 use regex::Regex;
 use serde::Serialize;
 
+use crate::project::{project_docs_dir, repo_root_from_backlog};
 use crate::task::{split_front_matter, Task, TaskParseError};
 
 #[derive(Debug, Serialize)]
@@ -394,9 +395,10 @@ pub fn next_task(tasks: &[Task]) -> Option<Task> {
     ready.first().map(|task| (*task).clone())
 }
 
-pub fn validate_tasks(tasks: &[Task]) -> ValidationResult {
+pub fn validate_tasks(tasks: &[Task], backlog_dir: Option<&Path>) -> ValidationResult {
     let mut errors = Vec::new();
     let mut warnings = Vec::new();
+    let repo_root = backlog_dir.map(repo_root_from_backlog);
     let ids: Vec<String> = tasks
         .iter()
         .filter(|task| !task.id.is_empty())
@@ -456,6 +458,15 @@ pub fn validate_tasks(tasks: &[Task]) -> ValidationResult {
         for dep in &task.dependencies {
             if !existing_ids.contains(&dep.to_lowercase()) {
                 errors.push(format!("{} depends on missing task {}", task.id, dep));
+            }
+        }
+        if let (Some(project), Some(repo_root)) = (task.project.as_deref(), repo_root.as_ref()) {
+            let docs_dir = project_docs_dir(repo_root, project);
+            if !docs_dir.join("README.md").is_file() {
+                errors.push(format!(
+                    "{} project docs missing: {}",
+                    task.id, project
+                ));
             }
         }
         if should_warn_missing_dependencies(task) {
@@ -533,6 +544,20 @@ pub fn task_to_json_value(task: &Task, include_body: bool) -> serde_json::Value 
                 .map(|label| serde_json::Value::String(label.clone()))
                 .collect(),
         ),
+    );
+    map.insert(
+        "project".to_string(),
+        task.project
+            .clone()
+            .map(serde_json::Value::String)
+            .unwrap_or(serde_json::Value::Null),
+    );
+    map.insert(
+        "initiative".to_string(),
+        task.initiative
+            .clone()
+            .map(serde_json::Value::String)
+            .unwrap_or(serde_json::Value::Null),
     );
     map.insert(
         "created_date".to_string(),
@@ -763,6 +788,8 @@ mod tests {
             dependencies: Vec::new(),
             labels: Vec::new(),
             assignee: Vec::new(),
+            project: None,
+            initiative: None,
             created_date: None,
             updated_date: None,
             extra: HashMap::new(),
@@ -834,6 +861,8 @@ mod tests {
                 dependencies: Vec::new(),
                 labels: Vec::new(),
                 assignee: Vec::new(),
+                project: None,
+                initiative: None,
                 created_date: None,
                 updated_date: None,
                 extra: HashMap::new(),
@@ -849,6 +878,8 @@ mod tests {
                 dependencies: Vec::new(),
                 labels: Vec::new(),
                 assignee: Vec::new(),
+                project: None,
+                initiative: None,
                 created_date: None,
                 updated_date: None,
                 extra: HashMap::new(),
@@ -864,6 +895,8 @@ mod tests {
                 dependencies: Vec::new(),
                 labels: Vec::new(),
                 assignee: Vec::new(),
+                project: None,
+                initiative: None,
                 created_date: None,
                 updated_date: None,
                 extra: HashMap::new(),

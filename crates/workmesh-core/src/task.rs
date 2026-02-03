@@ -16,6 +16,8 @@ pub struct Task {
     pub dependencies: Vec<String>,
     pub labels: Vec<String>,
     pub assignee: Vec<String>,
+    pub project: Option<String>,
+    pub initiative: Option<String>,
     pub created_date: Option<String>,
     pub updated_date: Option<String>,
     pub extra: HashMap<String, Value>,
@@ -125,6 +127,16 @@ pub fn parse_task_file(path: &Path) -> Result<Task, TaskParseError> {
     let dependencies = parse_list_value(data.get("dependencies"));
     let labels = parse_list_value(data.get("labels"));
     let assignee = parse_list_value(data.get("assignee"));
+    let project = data
+        .get("project")
+        .and_then(value_to_string)
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty());
+    let initiative = data
+        .get("initiative")
+        .and_then(value_to_string)
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty());
     let created_date = data
         .get("created_date")
         .and_then(value_to_string)
@@ -145,6 +157,8 @@ pub fn parse_task_file(path: &Path) -> Result<Task, TaskParseError> {
         "dependencies",
         "labels",
         "assignee",
+        "project",
+        "initiative",
         "created_date",
         "updated_date",
     ];
@@ -164,6 +178,8 @@ pub fn parse_task_file(path: &Path) -> Result<Task, TaskParseError> {
         dependencies,
         labels,
         assignee,
+        project,
+        initiative,
         created_date,
         updated_date,
         extra,

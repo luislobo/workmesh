@@ -11,6 +11,8 @@ fn task(id: &str, status: &str, deps: Vec<&str>) -> Task {
         dependencies: deps.into_iter().map(|d| d.to_string()).collect(),
         labels: Vec::new(),
         assignee: Vec::new(),
+        project: None,
+        initiative: None,
         created_date: None,
         updated_date: None,
         extra: Default::default(),
@@ -22,7 +24,7 @@ fn task(id: &str, status: &str, deps: Vec<&str>) -> Task {
 #[test]
 fn validate_does_not_error_on_missing_dependencies() {
     let tasks = vec![task("task-001", "To Do", Vec::new())];
-    let report = validate_tasks(&tasks);
+    let report = validate_tasks(&tasks, None);
     assert!(report.errors.iter().all(|err| !err.contains("dependencies")));
     assert!(report
         .warnings

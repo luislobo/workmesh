@@ -7,6 +7,7 @@ use clap::{ArgAction, Parser, Subcommand, ValueEnum};
 use workmesh_core::backlog::resolve_backlog_dir;
 use workmesh_core::gantt::{plantuml_gantt, render_plantuml_svg, write_text_file, PlantumlRenderError};
 use workmesh_core::task::{load_tasks, Task};
+use workmesh_core::project::{ensure_project_docs, repo_root_from_backlog};
 use workmesh_core::task_ops::{
     append_note, create_task_file, filter_tasks, next_task, now_timestamp, render_task_line,
     replace_section, set_list_field, sort_tasks, status_counts, task_to_json_value, tasks_to_json,
@@ -166,6 +167,12 @@ enum Command {
         assignee: String,
         #[arg(long, action = ArgAction::SetTrue)]
         json: bool,
+    },
+    /// Create project docs scaffold
+    ProjectInit {
+        project_id: String,
+        #[arg(long)]
+        name: Option<String>,
     },
     /// Validate task files
     Validate {
@@ -452,8 +459,13 @@ fn main() -> Result<()> {
                 println!("Created {} -> {}", task_id, path.display());
             }
         }
+        Command::ProjectInit { project_id, name } => {
+            let repo_root = repo_root_from_backlog(&backlog_dir);
+            let path = ensure_project_docs(&repo_root, &project_id, name.as_deref())?;
+            println!("{}", path.display());
+        }
         Command::Validate { json } => {
-            let report = validate_tasks(&tasks);
+            let report = validate_tasks(&tasks, Some(&backlog_dir));
             if json {
                 println!("{}", serde_json::to_string_pretty(&report)?);
             } else {
