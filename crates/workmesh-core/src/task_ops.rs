@@ -469,6 +469,23 @@ pub fn validate_tasks(tasks: &[Task]) -> ValidationResult {
     ValidationResult { errors, warnings }
 }
 
+pub fn status_counts(tasks: &[Task]) -> Vec<(String, usize)> {
+    let mut counts: Vec<(String, usize)> = Vec::new();
+    for task in tasks {
+        let key = if task.status.is_empty() {
+            "(none)".to_string()
+        } else {
+            task.status.clone()
+        };
+        if let Some((_, count)) = counts.iter_mut().find(|(name, _)| *name == key) {
+            *count += 1;
+        } else {
+            counts.push((key, 1));
+        }
+    }
+    counts
+}
+
 pub fn tasks_to_json(tasks: &[Task], include_body: bool) -> String {
     let payload: Vec<serde_json::Value> = tasks
         .iter()
@@ -803,5 +820,62 @@ mod tests {
         let content = fs::read_to_string(path).expect("read");
         assert!(content.contains("id: task-001"));
         assert!(content.contains("Description:"));
+    }
+
+    #[test]
+    fn status_counts_preserves_first_seen_order() {
+        let tasks = vec![
+            Task {
+                id: "task-001".to_string(),
+                title: "One".to_string(),
+                status: "To Do".to_string(),
+                priority: "P2".to_string(),
+                phase: "Phase1".to_string(),
+                dependencies: Vec::new(),
+                labels: Vec::new(),
+                assignee: Vec::new(),
+                created_date: None,
+                updated_date: None,
+                extra: HashMap::new(),
+                file_path: None,
+                body: String::new(),
+            },
+            Task {
+                id: "task-002".to_string(),
+                title: "Two".to_string(),
+                status: "In Progress".to_string(),
+                priority: "P2".to_string(),
+                phase: "Phase1".to_string(),
+                dependencies: Vec::new(),
+                labels: Vec::new(),
+                assignee: Vec::new(),
+                created_date: None,
+                updated_date: None,
+                extra: HashMap::new(),
+                file_path: None,
+                body: String::new(),
+            },
+            Task {
+                id: "task-003".to_string(),
+                title: "Three".to_string(),
+                status: "To Do".to_string(),
+                priority: "P2".to_string(),
+                phase: "Phase1".to_string(),
+                dependencies: Vec::new(),
+                labels: Vec::new(),
+                assignee: Vec::new(),
+                created_date: None,
+                updated_date: None,
+                extra: HashMap::new(),
+                file_path: None,
+                body: String::new(),
+            },
+        ];
+
+        let counts = status_counts(&tasks);
+        assert_eq!(counts[0].0, "To Do");
+        assert_eq!(counts[0].1, 2);
+        assert_eq!(counts[1].0, "In Progress");
+        assert_eq!(counts[1].1, 1);
     }
 }
