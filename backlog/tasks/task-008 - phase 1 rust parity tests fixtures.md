@@ -1,14 +1,14 @@
 ---
 id: task-008
 title: Phase 1: Rust parity tests + fixtures
-status: In Progress
+status: Done
 priority: P1
 phase: Phase1
 dependencies: [task-003]
 labels: [phase1, rust, tests]
 assignee: []
 prd: docs/projects/workmesh/prds/phase-1-conversion.md
-updated_date: 2026-02-03 16:29
+updated_date: 2026-02-03 16:33
 ---
 Description:
 --------------------------------------------------
