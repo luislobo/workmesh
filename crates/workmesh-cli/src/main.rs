@@ -9,9 +9,10 @@ use workmesh_core::gantt::{plantuml_gantt, render_plantuml_svg, write_text_file,
 use workmesh_core::task::{load_tasks, Task};
 use workmesh_core::project::{ensure_project_docs, repo_root_from_backlog};
 use workmesh_core::task_ops::{
-    append_note, create_task_file, filter_tasks, next_task, now_timestamp, render_task_line,
-    replace_section, set_list_field, sort_tasks, status_counts, task_to_json_value, tasks_to_json,
-    update_body, update_task_field, update_task_field_or_section, validate_tasks,
+    append_note, create_task_file, filter_tasks, graph_export, next_task, now_timestamp,
+    render_task_line, replace_section, set_list_field, sort_tasks, status_counts,
+    task_to_json_value, tasks_to_json, update_body, update_task_field, update_task_field_or_section,
+    validate_tasks,
 };
 
 #[derive(Parser)]
@@ -68,6 +69,11 @@ enum Command {
     Stats {
         #[arg(long, action = ArgAction::SetTrue)]
         json: bool,
+    },
+    /// Export task graph as JSON
+    GraphExport {
+        #[arg(long, action = ArgAction::SetTrue)]
+        pretty: bool,
     },
     /// Export tasks as JSON
     Export {
@@ -334,6 +340,14 @@ fn main() -> Result<()> {
                 for (key, value) in stats {
                     println!("{}: {}", key, value);
                 }
+            }
+        }
+        Command::GraphExport { pretty } => {
+            let graph = graph_export(&tasks);
+            if pretty {
+                println!("{}", serde_json::to_string_pretty(&graph)?);
+            } else {
+                println!("{}", serde_json::to_string(&graph)?);
             }
         }
         Command::Export { pretty } => {
