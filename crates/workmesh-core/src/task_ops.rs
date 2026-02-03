@@ -432,9 +432,6 @@ pub fn validate_tasks(tasks: &[Task]) -> ValidationResult {
         if task.phase.is_empty() {
             missing.push("phase");
         }
-        if task.dependencies.is_empty() {
-            missing.push("dependencies");
-        }
         if task.labels.is_empty() {
             missing.push("labels");
         }
