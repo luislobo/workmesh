@@ -15,9 +15,9 @@ use workmesh_core::project::{ensure_project_docs, repo_root_from_backlog};
 use workmesh_core::gantt::{plantuml_gantt, render_plantuml_svg, write_text_file};
 use workmesh_core::task::{load_tasks, Task};
 use workmesh_core::task_ops::{
-    append_note, create_task_file, filter_tasks, next_task, now_timestamp, render_task_line,
-    replace_section, set_list_field, sort_tasks, status_counts, task_to_json_value, update_body,
-    update_task_field, update_task_field_or_section, validate_tasks,
+    append_note, create_task_file, filter_tasks, graph_export, next_task, now_timestamp,
+    render_task_line, replace_section, set_list_field, sort_tasks, status_counts,
+    task_to_json_value, update_body, update_task_field, update_task_field_or_section, validate_tasks,
 };
 
 const ROOT_REQUIRED_ERROR: &str = "root is required for MCP calls unless the server is started within a repo containing tasks/ or backlog/tasks";
@@ -141,6 +141,7 @@ fn tool_catalog() -> Vec<serde_json::Value> {
         serde_json::json!({"name": "add_task", "summary": "Create a new task file."}),
         serde_json::json!({"name": "project_init", "summary": "Create project docs scaffold."}),
         serde_json::json!({"name": "validate", "summary": "Validate task metadata and dependencies."}),
+        serde_json::json!({"name": "graph_export", "summary": "Export task graph as JSON."}),
         serde_json::json!({"name": "gantt_text", "summary": "Return PlantUML gantt text."}),
         serde_json::json!({"name": "gantt_file", "summary": "Write PlantUML gantt to a file."}),
         serde_json::json!({"name": "gantt_svg", "summary": "Render gantt SVG via PlantUML."}),
@@ -322,6 +323,14 @@ pub struct ValidateTool {
     pub root: Option<String>,
 }
 
+#[mcp_tool(name = "graph_export", description = "Export task graph as JSON.")]
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct GraphExportTool {
+    pub root: Option<String>,
+    #[serde(default)]
+    pub pretty: bool,
+}
+
 #[mcp_tool(name = "gantt_text", description = "Return PlantUML gantt text for current tasks.")]
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct GanttTextTool {
@@ -428,6 +437,7 @@ tool_box!(
         AddTaskTool,
         ProjectInitTool,
         ValidateTool,
+        GraphExportTool,
         GanttTextTool,
         GanttFileTool,
         GanttSvgTool,
@@ -477,6 +487,7 @@ impl ServerHandler for WorkmeshServerHandler {
             WorkmeshTools::AddTaskTool(tool) => tool.call(&self.context),
             WorkmeshTools::ProjectInitTool(tool) => tool.call(&self.context),
             WorkmeshTools::ValidateTool(tool) => tool.call(&self.context),
+            WorkmeshTools::GraphExportTool(tool) => tool.call(&self.context),
             WorkmeshTools::GanttTextTool(tool) => tool.call(&self.context),
             WorkmeshTools::GanttFileTool(tool) => tool.call(&self.context),
             WorkmeshTools::GanttSvgTool(tool) => tool.call(&self.context),
@@ -844,6 +855,22 @@ impl ValidateTool {
         let tasks = load_tasks(&backlog_dir);
         let report = validate_tasks(&tasks, Some(&backlog_dir));
         ok_json(serde_json::to_value(report).unwrap_or_default())
+    }
+}
+
+impl GraphExportTool {
+    fn call(&self, context: &McpContext) -> Result<CallToolResult, CallToolError> {
+        let backlog_dir = match resolve_root(context, self.root.as_deref()) {
+            Ok(dir) => dir,
+            Err(err) => return ok_json(err),
+        };
+        let tasks = load_tasks(&backlog_dir);
+        let graph = graph_export(&tasks);
+        if self.pretty {
+            ok_text(serde_json::to_string_pretty(&graph).unwrap_or_else(|_| "{}".to_string()))
+        } else {
+            ok_text(serde_json::to_string(&graph).unwrap_or_else(|_| "{}".to_string()))
+        }
     }
 }
 

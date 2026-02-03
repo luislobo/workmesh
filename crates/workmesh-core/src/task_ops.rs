@@ -9,6 +9,25 @@ use serde::Serialize;
 use crate::project::{project_docs_dir, repo_root_from_backlog};
 use crate::task::{split_front_matter, Task, TaskParseError};
 
+#[derive(Serialize)]
+struct GraphNode<'a> {
+    id: &'a str,
+    node_type: &'a str,
+    title: &'a str,
+    status: &'a str,
+    priority: &'a str,
+    phase: &'a str,
+    project: Option<&'a str>,
+    initiative: Option<&'a str>,
+}
+
+#[derive(Clone, Eq, PartialEq, Hash, Serialize)]
+struct GraphEdge {
+    from: String,
+    to: String,
+    edge_type: String,
+}
+
 #[derive(Debug, Serialize)]
 pub struct ValidationResult {
     pub errors: Vec<String>,
@@ -497,6 +516,60 @@ pub fn status_counts(tasks: &[Task]) -> Vec<(String, usize)> {
     counts
 }
 
+pub fn graph_export(tasks: &[Task]) -> serde_json::Value {
+    let nodes: Vec<GraphNode<'_>> = tasks
+        .iter()
+        .map(|task| GraphNode {
+            id: task.id.as_str(),
+            node_type: "task",
+            title: task.title.as_str(),
+            status: task.status.as_str(),
+            priority: task.priority.as_str(),
+            phase: task.phase.as_str(),
+            project: task.project.as_deref(),
+            initiative: task.initiative.as_deref(),
+        })
+        .collect();
+
+    let mut edges: Vec<GraphEdge> = Vec::new();
+    let mut seen: HashSet<GraphEdge> = HashSet::new();
+
+    for task in tasks {
+        let from = task.id.as_str();
+        let mut add_edge = |to: &str, edge_type: &str| {
+            let edge = GraphEdge {
+                from: from.to_string(),
+                to: to.to_string(),
+                edge_type: edge_type.to_string(),
+            };
+            if seen.insert(edge.clone()) {
+                edges.push(edge);
+            }
+        };
+
+        for dep in &task.dependencies {
+            add_edge(dep, "blocked_by");
+        }
+        for rel in &task.relationships.blocked_by {
+            add_edge(rel, "blocked_by");
+        }
+        for rel in &task.relationships.parent {
+            add_edge(rel, "parent");
+        }
+        for rel in &task.relationships.child {
+            add_edge(rel, "child");
+        }
+        for rel in &task.relationships.discovered_from {
+            add_edge(rel, "discovered_from");
+        }
+    }
+
+    serde_json::json!({
+        "nodes": nodes,
+        "edges": edges,
+    })
+}
+
 pub fn tasks_to_json(tasks: &[Task], include_body: bool) -> String {
     let payload: Vec<serde_json::Value> = tasks
         .iter()
@@ -928,5 +1001,39 @@ mod tests {
         assert_eq!(counts[0].1, 2);
         assert_eq!(counts[1].0, "In Progress");
         assert_eq!(counts[1].1, 1);
+    }
+
+    #[test]
+    fn graph_export_includes_relationships_and_dependencies() {
+        let task = Task {
+            id: "task-001".to_string(),
+            title: "One".to_string(),
+            status: "To Do".to_string(),
+            priority: "P2".to_string(),
+            phase: "Phase1".to_string(),
+            dependencies: vec!["task-002".to_string()],
+            labels: Vec::new(),
+            assignee: Vec::new(),
+            relationships: crate::task::Relationships {
+                blocked_by: vec!["task-003".to_string()],
+                parent: vec!["task-004".to_string()],
+                child: vec!["task-005".to_string()],
+                discovered_from: vec!["task-006".to_string()],
+            },
+            project: None,
+            initiative: None,
+            created_date: None,
+            updated_date: None,
+            extra: HashMap::new(),
+            file_path: None,
+            body: String::new(),
+        };
+        let graph = graph_export(&[task]);
+        let edges = graph.get("edges").and_then(|value| value.as_array()).unwrap();
+        assert!(edges.iter().any(|edge| edge["edge_type"] == "blocked_by" && edge["to"] == "task-002"));
+        assert!(edges.iter().any(|edge| edge["edge_type"] == "blocked_by" && edge["to"] == "task-003"));
+        assert!(edges.iter().any(|edge| edge["edge_type"] == "parent" && edge["to"] == "task-004"));
+        assert!(edges.iter().any(|edge| edge["edge_type"] == "child" && edge["to"] == "task-005"));
+        assert!(edges.iter().any(|edge| edge["edge_type"] == "discovered_from" && edge["to"] == "task-006"));
     }
 }
