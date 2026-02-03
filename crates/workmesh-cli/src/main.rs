@@ -9,8 +9,8 @@ use workmesh_core::gantt::{plantuml_gantt, render_plantuml_svg, write_text_file,
 use workmesh_core::task::{load_tasks, Task};
 use workmesh_core::task_ops::{
     append_note, create_task_file, filter_tasks, next_task, now_timestamp, render_task_line,
-    replace_section, set_list_field, sort_tasks, task_to_json_value, tasks_to_json, update_body,
-    update_task_field, update_task_field_or_section, validate_tasks,
+    replace_section, set_list_field, sort_tasks, status_counts, task_to_json_value, tasks_to_json,
+    update_body, update_task_field, update_task_field_or_section, validate_tasks,
 };
 
 #[derive(Parser)]
@@ -316,9 +316,13 @@ fn main() -> Result<()> {
             println!("{}", render_task_line(task));
         }
         Command::Stats { json } => {
-            let stats = stats(&tasks);
+            let stats = status_counts(&tasks);
             if json {
-                println!("{}", serde_json::to_string_pretty(&stats)?);
+                let mut map = serde_json::Map::new();
+                for (key, value) in stats {
+                    map.insert(key, serde_json::Value::from(value as u64));
+                }
+                println!("{}", serde_json::to_string_pretty(&serde_json::Value::Object(map))?);
             } else {
                 for (key, value) in stats {
                     println!("{}: {}", key, value);
@@ -541,19 +545,6 @@ fn split_csv(value: &str) -> Vec<String> {
 fn find_task<'a>(tasks: &'a [Task], task_id: &str) -> Option<&'a Task> {
     let target = task_id.to_lowercase();
     tasks.iter().find(|task| task.id.to_lowercase() == target)
-}
-
-fn stats(tasks: &[Task]) -> std::collections::HashMap<String, usize> {
-    let mut counts = std::collections::HashMap::new();
-    for task in tasks {
-        let key = if task.status.is_empty() {
-            "(none)".to_string()
-        } else {
-            task.status.clone()
-        };
-        *counts.entry(key).or_insert(0) += 1;
-    }
-    counts
 }
 
 fn best_practices_text() -> &'static str {

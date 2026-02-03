@@ -15,7 +15,7 @@ use workmesh_core::gantt::{plantuml_gantt, render_plantuml_svg, write_text_file}
 use workmesh_core::task::{load_tasks, Task};
 use workmesh_core::task_ops::{
     append_note, create_task_file, filter_tasks, next_task, now_timestamp, render_task_line,
-    replace_section, set_list_field, sort_tasks, task_to_json_value, update_body,
+    replace_section, set_list_field, sort_tasks, status_counts, task_to_json_value, update_body,
     update_task_field, update_task_field_or_section, validate_tasks,
 };
 
@@ -576,15 +576,7 @@ impl StatsTool {
             Err(err) => return ok_json(err),
         };
         let tasks = load_tasks(&backlog_dir);
-        let mut counts: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
-        for task in tasks {
-            let key = if task.status.is_empty() {
-                "(none)".to_string()
-            } else {
-                task.status
-            };
-            *counts.entry(key).or_insert(0) += 1;
-        }
+        let counts = status_counts(&tasks);
         if self.format == "text" {
             let body = counts
                 .iter()
@@ -593,7 +585,11 @@ impl StatsTool {
                 .join("\n");
             return ok_text(body);
         }
-        ok_json(serde_json::to_value(counts).unwrap_or_default())
+        let mut map = serde_json::Map::new();
+        for (key, value) in counts {
+            map.insert(key, serde_json::Value::from(value as u64));
+        }
+        ok_json(serde_json::Value::Object(map))
     }
 }
 
