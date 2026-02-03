@@ -2449,6 +2449,7 @@ dependencies = [
  "clap",
  "serde_json",
  "shell-words",
+ "tempfile",
  "workmesh-core",
 ]
 
