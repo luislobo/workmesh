@@ -16,6 +16,7 @@ pub struct Task {
     pub dependencies: Vec<String>,
     pub labels: Vec<String>,
     pub assignee: Vec<String>,
+    pub relationships: Relationships,
     pub project: Option<String>,
     pub initiative: Option<String>,
     pub created_date: Option<String>,
@@ -43,6 +44,14 @@ pub enum TaskParseError {
     MissingFrontMatterEnd,
     #[error("Invalid task file: {0}")]
     Invalid(String),
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct Relationships {
+    pub blocked_by: Vec<String>,
+    pub parent: Vec<String>,
+    pub child: Vec<String>,
+    pub discovered_from: Vec<String>,
 }
 
 pub fn split_front_matter(text: &str) -> Result<(String, String), TaskParseError> {
@@ -127,6 +136,7 @@ pub fn parse_task_file(path: &Path) -> Result<Task, TaskParseError> {
     let dependencies = parse_list_value(data.get("dependencies"));
     let labels = parse_list_value(data.get("labels"));
     let assignee = parse_list_value(data.get("assignee"));
+    let relationships = parse_relationships(&data);
     let project = data
         .get("project")
         .and_then(value_to_string)
@@ -157,6 +167,11 @@ pub fn parse_task_file(path: &Path) -> Result<Task, TaskParseError> {
         "dependencies",
         "labels",
         "assignee",
+        "blocked_by",
+        "parent",
+        "child",
+        "discovered_from",
+        "relationships",
         "project",
         "initiative",
         "created_date",
@@ -178,6 +193,7 @@ pub fn parse_task_file(path: &Path) -> Result<Task, TaskParseError> {
         dependencies,
         labels,
         assignee,
+        relationships,
         project,
         initiative,
         created_date,
@@ -343,6 +359,47 @@ fn value_to_string(value: &Value) -> Option<String> {
     }
 }
 
+fn parse_relationships(data: &HashMap<String, Value>) -> Relationships {
+    if let Some(Value::Mapping(map)) = data.get("relationships") {
+        let blocked_by = map
+            .get(&Value::String("blocked_by".to_string()))
+            .and_then(|value| value_to_list(value));
+        let parent = map
+            .get(&Value::String("parent".to_string()))
+            .and_then(|value| value_to_list(value));
+        let child = map
+            .get(&Value::String("child".to_string()))
+            .and_then(|value| value_to_list(value));
+        let discovered_from = map
+            .get(&Value::String("discovered_from".to_string()))
+            .and_then(|value| value_to_list(value));
+
+        if blocked_by.is_some() || parent.is_some() || child.is_some() || discovered_from.is_some() {
+            return Relationships {
+                blocked_by: blocked_by.unwrap_or_default(),
+                parent: parent.unwrap_or_default(),
+                child: child.unwrap_or_default(),
+                discovered_from: discovered_from.unwrap_or_default(),
+            };
+        }
+    }
+
+    Relationships {
+        blocked_by: parse_list_value(data.get("blocked_by")),
+        parent: parse_list_value(data.get("parent")),
+        child: parse_list_value(data.get("child")),
+        discovered_from: parse_list_value(data.get("discovered_from")),
+    }
+}
+
+fn value_to_list(value: &Value) -> Option<Vec<String>> {
+    match value {
+        Value::Sequence(_) => Some(parse_list_value(Some(value))),
+        Value::String(_) => Some(parse_list_value(Some(value))),
+        _ => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -377,6 +434,57 @@ mod tests {
         assert_eq!(task.id, "task-001");
         assert_eq!(task.dependencies, vec!["task-000"]);
         assert_eq!(task.labels, vec!["ops"]);
+    }
+
+    #[test]
+    fn parse_task_file_reads_relationships_mapping() {
+        let temp = TempDir::new().expect("tempdir");
+        let file_path = temp.path().join("task-002 - rel.md");
+        let content = "---\n"
+            .to_string()
+            + "id: task-002\n"
+            + "title: Example\n"
+            + "status: To Do\n"
+            + "priority: P2\n"
+            + "phase: Phase1\n"
+            + "relationships:\n"
+            + "  blocked_by: [task-001]\n"
+            + "  parent: [task-000]\n"
+            + "  child: [task-003]\n"
+            + "  discovered_from: [task-004]\n"
+            + "---\n";
+        fs::write(&file_path, content).expect("write");
+
+        let task = parse_task_file(&file_path).expect("parse");
+        assert_eq!(task.relationships.blocked_by, vec!["task-001"]);
+        assert_eq!(task.relationships.parent, vec!["task-000"]);
+        assert_eq!(task.relationships.child, vec!["task-003"]);
+        assert_eq!(task.relationships.discovered_from, vec!["task-004"]);
+    }
+
+    #[test]
+    fn parse_task_file_reads_flat_relationships() {
+        let temp = TempDir::new().expect("tempdir");
+        let file_path = temp.path().join("task-003 - rel-flat.md");
+        let content = "---\n"
+            .to_string()
+            + "id: task-003\n"
+            + "title: Example\n"
+            + "status: To Do\n"
+            + "priority: P2\n"
+            + "phase: Phase1\n"
+            + "blocked_by: [task-001]\n"
+            + "parent: [task-000]\n"
+            + "child: [task-004]\n"
+            + "discovered_from: [task-005]\n"
+            + "---\n";
+        fs::write(&file_path, content).expect("write");
+
+        let task = parse_task_file(&file_path).expect("parse");
+        assert_eq!(task.relationships.blocked_by, vec!["task-001"]);
+        assert_eq!(task.relationships.parent, vec!["task-000"]);
+        assert_eq!(task.relationships.child, vec!["task-004"]);
+        assert_eq!(task.relationships.discovered_from, vec!["task-005"]);
     }
 
     #[test]

@@ -11,6 +11,7 @@ fn task(id: &str, status: &str, deps: Vec<&str>) -> Task {
         dependencies: deps.into_iter().map(|d| d.to_string()).collect(),
         labels: Vec::new(),
         assignee: Vec::new(),
+        relationships: Default::default(),
         project: None,
         initiative: None,
         created_date: None,
