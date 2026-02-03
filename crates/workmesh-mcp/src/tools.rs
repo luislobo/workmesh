@@ -15,7 +15,8 @@ use workmesh_core::project::{ensure_project_docs, repo_root_from_backlog};
 use workmesh_core::gantt::{plantuml_gantt, render_plantuml_svg, write_text_file};
 use workmesh_core::task::{load_tasks, Task};
 use workmesh_core::task_ops::{
-    append_note, create_task_file, filter_tasks, graph_export, next_task, now_timestamp,
+    append_note, create_task_file, filter_tasks, graph_export, next_task, ready_tasks,
+    now_timestamp,
     render_task_line, replace_section, set_list_field, sort_tasks, status_counts,
     task_to_json_value, update_body, update_task_field, update_task_field_or_section, validate_tasks,
 };
@@ -129,6 +130,7 @@ fn tool_catalog() -> Vec<serde_json::Value> {
         serde_json::json!({"name": "list_tasks", "summary": "List tasks with filters and sorting."}),
         serde_json::json!({"name": "show_task", "summary": "Show a single task by id."}),
         serde_json::json!({"name": "next_task", "summary": "Get the next ready task (lowest id, deps satisfied)."}),
+        serde_json::json!({"name": "ready_tasks", "summary": "List tasks with deps satisfied (ready work)."}),
         serde_json::json!({"name": "set_status", "summary": "Update task status."}),
         serde_json::json!({"name": "set_field", "summary": "Update a front matter field."}),
         serde_json::json!({"name": "add_label", "summary": "Add a label to a task."}),
@@ -188,6 +190,15 @@ pub struct NextTaskTool {
     pub root: Option<String>,
     #[serde(default = "default_format")]
     pub format: String,
+}
+
+#[mcp_tool(name = "ready_tasks", description = "List ready tasks (deps satisfied, status To Do).")]
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct ReadyTasksTool {
+    pub root: Option<String>,
+    #[serde(default = "default_format")]
+    pub format: String,
+    pub limit: Option<u32>,
 }
 
 #[mcp_tool(name = "stats", description = "Return counts by status.")]
@@ -424,6 +435,7 @@ tool_box!(
         ListTasksTool,
         ShowTaskTool,
         NextTaskTool,
+        ReadyTasksTool,
         StatsTool,
         SetStatusTool,
         SetFieldTool,
@@ -474,6 +486,7 @@ impl ServerHandler for WorkmeshServerHandler {
             WorkmeshTools::ListTasksTool(tool) => tool.call(&self.context),
             WorkmeshTools::ShowTaskTool(tool) => tool.call(&self.context),
             WorkmeshTools::NextTaskTool(tool) => tool.call(&self.context),
+            WorkmeshTools::ReadyTasksTool(tool) => tool.call(&self.context),
             WorkmeshTools::StatsTool(tool) => tool.call(&self.context),
             WorkmeshTools::SetStatusTool(tool) => tool.call(&self.context),
             WorkmeshTools::SetFieldTool(tool) => tool.call(&self.context),
@@ -589,6 +602,33 @@ impl NextTaskTool {
             return ok_text(render_task_line(&task));
         }
         ok_json(task_to_json_value(&task, false))
+    }
+}
+
+impl ReadyTasksTool {
+    fn call(&self, context: &McpContext) -> Result<CallToolResult, CallToolError> {
+        let backlog_dir = match resolve_root(context, self.root.as_deref()) {
+            Ok(dir) => dir,
+            Err(err) => return ok_json(err),
+        };
+        let tasks = load_tasks(&backlog_dir);
+        let mut ready = ready_tasks(&tasks);
+        if let Some(limit) = self.limit {
+            ready.truncate(limit as usize);
+        }
+        if self.format == "text" {
+            let body = ready
+                .iter()
+                .map(|task| render_task_line(task))
+                .collect::<Vec<_>>()
+                .join("\n");
+            return ok_text(body);
+        }
+        let payload: Vec<serde_json::Value> = ready
+            .iter()
+            .map(|task| task_to_json_value(task, false))
+            .collect();
+        ok_json(serde_json::Value::Array(payload))
     }
 }
 

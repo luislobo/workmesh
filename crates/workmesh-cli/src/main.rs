@@ -10,7 +10,7 @@ use workmesh_core::task::{load_tasks, Task};
 use workmesh_core::project::{ensure_project_docs, repo_root_from_backlog};
 use workmesh_core::task_ops::{
     append_note, create_task_file, filter_tasks, graph_export, next_task, now_timestamp,
-    render_task_line, replace_section, set_list_field, sort_tasks, status_counts,
+    ready_tasks, render_task_line, replace_section, set_list_field, sort_tasks, status_counts,
     task_to_json_value, tasks_to_json, update_body, update_task_field, update_task_field_or_section,
     validate_tasks,
 };
@@ -56,6 +56,13 @@ enum Command {
     Next {
         #[arg(long, action = ArgAction::SetTrue)]
         json: bool,
+    },
+    /// List ready tasks
+    Ready {
+        #[arg(long, action = ArgAction::SetTrue)]
+        json: bool,
+        #[arg(long)]
+        limit: Option<usize>,
     },
     /// Show a task
     Show {
@@ -308,6 +315,20 @@ fn main() -> Result<()> {
                 }
             } else if let Some(task) = task {
                 println!("{}", render_task_line(&task));
+            }
+        }
+        Command::Ready { json, limit } => {
+            let mut ready = ready_tasks(&tasks);
+            if let Some(limit) = limit {
+                ready.truncate(limit);
+            }
+            if json {
+                let payload: Vec<_> = ready.iter().map(|task| (*task).clone()).collect();
+                println!("{}", tasks_to_json(&payload, false));
+                return Ok(());
+            }
+            for task in ready {
+                println!("{}", render_task_line(task));
             }
         }
         Command::Show { task_id, full, json } => {
