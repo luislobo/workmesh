@@ -77,6 +77,16 @@ pub fn deps_satisfied(task: &Task, done_ids: &HashSet<String>) -> bool {
         .all(|dep| done_ids.contains(&dep.to_lowercase()))
 }
 
+pub fn blockers_satisfied(task: &Task, done_ids: &HashSet<String>) -> bool {
+    let deps_ok = deps_satisfied(task, done_ids);
+    let rel_ok = task
+        .relationships
+        .blocked_by
+        .iter()
+        .all(|dep| done_ids.contains(&dep.to_lowercase()));
+    deps_ok && rel_ok
+}
+
 pub fn filter_tasks<'a>(
     tasks: &'a [Task],
     status: Option<&[String]>,
@@ -405,13 +415,28 @@ pub fn next_task(tasks: &[Task]) -> Option<Task> {
     let mut ready: Vec<&Task> = tasks
         .iter()
         .filter(|task| task.status.eq_ignore_ascii_case("to do"))
-        .filter(|task| deps_satisfied(task, &done_ids))
+        .filter(|task| blockers_satisfied(task, &done_ids))
         .collect();
     if ready.is_empty() {
         return None;
     }
     ready.sort_by_key(|task| task.id_num());
     ready.first().map(|task| (*task).clone())
+}
+
+pub fn ready_tasks<'a>(tasks: &'a [Task]) -> Vec<&'a Task> {
+    let done_ids: HashSet<String> = tasks
+        .iter()
+        .filter(|task| is_done(task))
+        .map(|task| task.id.to_lowercase())
+        .collect();
+    let mut ready: Vec<&Task> = tasks
+        .iter()
+        .filter(|task| task.status.eq_ignore_ascii_case("to do"))
+        .filter(|task| blockers_satisfied(task, &done_ids))
+        .collect();
+    ready.sort_by_key(|task| task.id_num());
+    ready
 }
 
 pub fn validate_tasks(tasks: &[Task], backlog_dir: Option<&Path>) -> ValidationResult {
@@ -1001,6 +1026,92 @@ mod tests {
         assert_eq!(counts[0].1, 2);
         assert_eq!(counts[1].0, "In Progress");
         assert_eq!(counts[1].1, 1);
+    }
+
+    #[test]
+    fn ready_tasks_respects_dependencies_and_blocked_by() {
+        let task_done = Task {
+            id: "task-001".to_string(),
+            title: "Done".to_string(),
+            status: "Done".to_string(),
+            priority: "P2".to_string(),
+            phase: "Phase1".to_string(),
+            dependencies: Vec::new(),
+            labels: Vec::new(),
+            assignee: Vec::new(),
+            relationships: Default::default(),
+            project: None,
+            initiative: None,
+            created_date: None,
+            updated_date: None,
+            extra: HashMap::new(),
+            file_path: None,
+            body: String::new(),
+        };
+        let task_dep_ready = Task {
+            id: "task-002".to_string(),
+            title: "Dep Ready".to_string(),
+            status: "To Do".to_string(),
+            priority: "P2".to_string(),
+            phase: "Phase1".to_string(),
+            dependencies: vec!["task-001".to_string()],
+            labels: Vec::new(),
+            assignee: Vec::new(),
+            relationships: Default::default(),
+            project: None,
+            initiative: None,
+            created_date: None,
+            updated_date: None,
+            extra: HashMap::new(),
+            file_path: None,
+            body: String::new(),
+        };
+        let task_blocked_by_ready = Task {
+            id: "task-003".to_string(),
+            title: "Blocked By Ready".to_string(),
+            status: "To Do".to_string(),
+            priority: "P2".to_string(),
+            phase: "Phase1".to_string(),
+            dependencies: Vec::new(),
+            labels: Vec::new(),
+            assignee: Vec::new(),
+            relationships: crate::task::Relationships {
+                blocked_by: vec!["task-001".to_string()],
+                parent: Vec::new(),
+                child: Vec::new(),
+                discovered_from: Vec::new(),
+            },
+            project: None,
+            initiative: None,
+            created_date: None,
+            updated_date: None,
+            extra: HashMap::new(),
+            file_path: None,
+            body: String::new(),
+        };
+        let task_blocked = Task {
+            id: "task-004".to_string(),
+            title: "Blocked".to_string(),
+            status: "To Do".to_string(),
+            priority: "P2".to_string(),
+            phase: "Phase1".to_string(),
+            dependencies: vec!["task-999".to_string()],
+            labels: Vec::new(),
+            assignee: Vec::new(),
+            relationships: Default::default(),
+            project: None,
+            initiative: None,
+            created_date: None,
+            updated_date: None,
+            extra: HashMap::new(),
+            file_path: None,
+            body: String::new(),
+        };
+
+        let tasks = [task_blocked, task_done, task_dep_ready, task_blocked_by_ready];
+        let ready = ready_tasks(&tasks);
+        let ids: Vec<&str> = ready.iter().map(|task| task.id.as_str()).collect();
+        assert_eq!(ids, vec!["task-002", "task-003"]);
     }
 
     #[test]

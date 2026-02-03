@@ -32,6 +32,20 @@ fn list_outputs_expected_rows() {
 }
 
 #[test]
+fn ready_outputs_ready_tasks() {
+    let output = bin()
+        .arg("--root")
+        .arg(fixture_root())
+        .arg("ready")
+        .output()
+        .expect("run");
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("task-001 | To Do | P2 | Phase1 | Alpha"));
+    assert!(!stdout.contains("task-002 | Done | P1 | Phase1 | Beta"));
+}
+
+#[test]
 fn show_outputs_file_when_full() {
     let output = bin()
         .arg("--root")
