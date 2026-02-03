@@ -31,6 +31,19 @@ are not enough to support ready-work queries, conflict resolution, and durable a
 - ID strategy (ULID or namespaced IDs) to avoid collisions.
 - Sync engine abstraction with at least one adapter stub.
 
+## Index design (proposed)
+- Source of truth: Markdown tasks on disk.
+- Index file: `backlog/.index/tasks.jsonl` (newline-delimited JSON per task).
+- Entry fields: `id`, `path`, `status`, `priority`, `phase`, `dependencies`, `labels`,
+  `assignee`, `project`, `initiative`, `updated_date`, `mtime`, `hash`.
+- Operations:
+  - `index rebuild` scans all tasks and rewrites the index.
+  - `index refresh` updates only changed files using `mtime` + `hash`.
+  - `index verify` compares index vs Markdown for drift.
+- Usage:
+  - `ready` queries can use the index for speed but must fall back to Markdown
+    if index is missing or stale.
+
 ## Acceptance criteria
 - `ready` command returns deterministic work items based on deps + status + lease state.
 - Agents can safely claim work without stomping each other.
