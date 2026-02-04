@@ -8,6 +8,7 @@ pub mod quickstart;
 pub mod task;
 pub mod task_ops;
 pub mod gantt;
+pub mod session;
 
 pub fn version() -> &'static str {
     env!("CARGO_PKG_VERSION")

@@ -9,6 +9,10 @@ use workmesh_core::audit::{append_audit_event, AuditEvent};
 use workmesh_core::gantt::{plantuml_gantt, render_plantuml_svg, write_text_file, PlantumlRenderError};
 use workmesh_core::index::{rebuild_index, refresh_index, verify_index};
 use workmesh_core::quickstart::quickstart;
+use workmesh_core::session::{
+    append_session_journal, diff_since_checkpoint, render_diff, render_resume, resume_summary,
+    resolve_project_id, task_summary, write_checkpoint, write_working_set, CheckpointOptions,
+};
 use workmesh_core::task::{load_tasks, Lease, Task};
 use workmesh_core::project::{ensure_project_docs, repo_root_from_backlog};
 use workmesh_core::task_ops::{
@@ -109,6 +113,59 @@ enum Command {
     },
     /// Verify JSONL task index
     IndexVerify {
+        #[arg(long, action = ArgAction::SetTrue)]
+        json: bool,
+    },
+    /// Write a session checkpoint (JSON + Markdown)
+    Checkpoint {
+        #[arg(long)]
+        project: Option<String>,
+        #[arg(long)]
+        id: Option<String>,
+        #[arg(long)]
+        audit_limit: Option<usize>,
+        #[arg(long, action = ArgAction::SetTrue)]
+        json: bool,
+    },
+    /// Resume from the latest checkpoint
+    Resume {
+        #[arg(long)]
+        project: Option<String>,
+        #[arg(long)]
+        id: Option<String>,
+        #[arg(long, action = ArgAction::SetTrue)]
+        json: bool,
+    },
+    /// Write the working set file
+    WorkingSet {
+        #[arg(long)]
+        project: Option<String>,
+        #[arg(long)]
+        tasks: Option<String>,
+        #[arg(long)]
+        note: Option<String>,
+        #[arg(long, action = ArgAction::SetTrue)]
+        json: bool,
+    },
+    /// Append a session journal entry
+    SessionJournal {
+        #[arg(long)]
+        project: Option<String>,
+        #[arg(long)]
+        task: Option<String>,
+        #[arg(long)]
+        next: Option<String>,
+        #[arg(long)]
+        note: Option<String>,
+        #[arg(long, action = ArgAction::SetTrue)]
+        json: bool,
+    },
+    /// Show changes since a checkpoint
+    CheckpointDiff {
+        #[arg(long)]
+        project: Option<String>,
+        #[arg(long)]
+        id: Option<String>,
         #[arg(long, action = ArgAction::SetTrue)]
         json: bool,
     },
@@ -530,6 +587,117 @@ fn main() -> Result<()> {
                 std::process::exit(1);
             }
         }
+        Command::Checkpoint {
+            project,
+            id,
+            audit_limit,
+            json,
+        } => {
+            let options = CheckpointOptions {
+                project_id: project.clone(),
+                checkpoint_id: id.clone(),
+                audit_limit: audit_limit.unwrap_or(20),
+            };
+            let result = write_checkpoint(&backlog_dir, &tasks, &options)?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&result.snapshot)?);
+            } else {
+                println!("Checkpoint: {}", result.snapshot.checkpoint_id);
+                println!("JSON: {}", result.json_path.display());
+                println!("Markdown: {}", result.markdown_path.display());
+            }
+        }
+        Command::Resume { project, id, json } => {
+            let repo_root = repo_root_from_backlog(&backlog_dir);
+            let project_id = resolve_project_id(&repo_root, &tasks, project.as_deref());
+            let summary = resume_summary(&repo_root, &project_id, id.as_deref())?;
+            match summary {
+                Some(summary) => {
+                    if json {
+                        println!("{}", serde_json::to_string_pretty(&summary.snapshot)?);
+                    } else {
+                        println!("{}", render_resume(&summary));
+                    }
+                }
+                None => {
+                    println!("No checkpoint found");
+                }
+            }
+        }
+        Command::WorkingSet {
+            project,
+            tasks: task_list,
+            note,
+            json,
+        } => {
+            let repo_root = repo_root_from_backlog(&backlog_dir);
+            let project_id = resolve_project_id(&repo_root, &tasks, project.as_deref());
+            let selected = match task_list.as_deref() {
+                Some(list) if !list.trim().is_empty() => {
+                    let ids = split_csv(list);
+                    select_tasks_by_ids(&tasks, &ids)
+                }
+                _ => tasks
+                    .iter()
+                    .filter(|task| task.status.eq_ignore_ascii_case("in progress"))
+                    .collect(),
+            };
+            let summaries: Vec<_> = selected.iter().map(|task| task_summary(task)).collect();
+            let path = write_working_set(&repo_root, &project_id, &summaries, note.as_deref())?;
+            if json {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&serde_json::json!({"path": path}))?
+                );
+            } else {
+                println!("{}", path.display());
+            }
+        }
+        Command::SessionJournal {
+            project,
+            task,
+            next,
+            note,
+            json,
+        } => {
+            let repo_root = repo_root_from_backlog(&backlog_dir);
+            let project_id = resolve_project_id(&repo_root, &tasks, project.as_deref());
+            let path = append_session_journal(
+                &repo_root,
+                &project_id,
+                task.as_deref(),
+                next.as_deref(),
+                note.as_deref(),
+            )?;
+            if json {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&serde_json::json!({"path": path}))?
+                );
+            } else {
+                println!("{}", path.display());
+            }
+        }
+        Command::CheckpointDiff { project, id, json } => {
+            let repo_root = repo_root_from_backlog(&backlog_dir);
+            let project_id = resolve_project_id(&repo_root, &tasks, project.as_deref());
+            let summary = resume_summary(&repo_root, &project_id, id.as_deref())?;
+            let Some(summary) = summary else {
+                println!("No checkpoint found");
+                return Ok(());
+            };
+            let report = diff_since_checkpoint(
+                &repo_root,
+                &backlog_dir,
+                &tasks,
+                &summary.snapshot,
+            );
+            if json {
+                println!("{}", serde_json::to_string_pretty(&report)?);
+            } else {
+                println!("{}", render_diff(&report));
+            }
+        }
         Command::SetStatus { task_id, status, touch } => {
             let task = find_task(&tasks, &task_id).unwrap_or_else(|| {
                 die(&format!("Task not found: {}", task_id));
@@ -916,6 +1084,16 @@ fn split_csv(value: &str) -> Vec<String> {
 fn find_task<'a>(tasks: &'a [Task], task_id: &str) -> Option<&'a Task> {
     let target = task_id.to_lowercase();
     tasks.iter().find(|task| task.id.to_lowercase() == target)
+}
+
+fn select_tasks_by_ids<'a>(tasks: &'a [Task], ids: &[String]) -> Vec<&'a Task> {
+    let mut selected = Vec::new();
+    for id in ids {
+        if let Some(task) = find_task(tasks, id) {
+            selected.push(task);
+        }
+    }
+    selected
 }
 
 fn best_practices_text() -> &'static str {

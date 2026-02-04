@@ -16,6 +16,10 @@ use workmesh_core::project::{ensure_project_docs, repo_root_from_backlog};
 use workmesh_core::quickstart::quickstart;
 use workmesh_core::gantt::{plantuml_gantt, render_plantuml_svg, write_text_file};
 use workmesh_core::index::{rebuild_index, refresh_index, verify_index};
+use workmesh_core::session::{
+    append_session_journal, diff_since_checkpoint, render_diff, render_resume, resolve_project_id,
+    resume_summary, task_summary, write_checkpoint, write_working_set, CheckpointOptions,
+};
 use workmesh_core::task::{load_tasks, Lease, Task};
 use workmesh_core::task_ops::{
     append_note, create_task_file, filter_tasks, graph_export, next_task, ready_tasks,
@@ -211,6 +215,11 @@ fn tool_catalog() -> Vec<serde_json::Value> {
         serde_json::json!({"name": "index_rebuild", "summary": "Rebuild JSONL task index."}),
         serde_json::json!({"name": "index_refresh", "summary": "Refresh JSONL task index."}),
         serde_json::json!({"name": "index_verify", "summary": "Verify JSONL task index."}),
+        serde_json::json!({"name": "checkpoint", "summary": "Write a session checkpoint (JSON + Markdown)."}),
+        serde_json::json!({"name": "resume", "summary": "Resume from the latest checkpoint."}),
+        serde_json::json!({"name": "working_set", "summary": "Write the working set file."}),
+        serde_json::json!({"name": "session_journal", "summary": "Append a session journal entry."}),
+        serde_json::json!({"name": "checkpoint_diff", "summary": "Show changes since a checkpoint."}),
         serde_json::json!({"name": "gantt_text", "summary": "Return PlantUML gantt text."}),
         serde_json::json!({"name": "gantt_file", "summary": "Write PlantUML gantt to a file."}),
         serde_json::json!({"name": "gantt_svg", "summary": "Render gantt SVG via PlantUML."}),
@@ -484,6 +493,60 @@ pub struct IndexVerifyTool {
     pub root: Option<String>,
 }
 
+#[mcp_tool(name = "checkpoint", description = "Write a session checkpoint (JSON + Markdown).")]
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct CheckpointTool {
+    pub root: Option<String>,
+    pub project: Option<String>,
+    pub id: Option<String>,
+    pub audit_limit: Option<u32>,
+    #[serde(default = "default_format")]
+    pub format: String,
+}
+
+#[mcp_tool(name = "resume", description = "Resume from the latest checkpoint.")]
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct ResumeTool {
+    pub root: Option<String>,
+    pub project: Option<String>,
+    pub id: Option<String>,
+    #[serde(default = "default_format")]
+    pub format: String,
+}
+
+#[mcp_tool(name = "working_set", description = "Write the working set file.")]
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct WorkingSetTool {
+    pub root: Option<String>,
+    pub project: Option<String>,
+    pub tasks: Option<ListInput>,
+    pub note: Option<String>,
+    #[serde(default = "default_format")]
+    pub format: String,
+}
+
+#[mcp_tool(name = "session_journal", description = "Append a session journal entry.")]
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct SessionJournalTool {
+    pub root: Option<String>,
+    pub project: Option<String>,
+    pub task: Option<String>,
+    pub next: Option<String>,
+    pub note: Option<String>,
+    #[serde(default = "default_format")]
+    pub format: String,
+}
+
+#[mcp_tool(name = "checkpoint_diff", description = "Show changes since a checkpoint.")]
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct CheckpointDiffTool {
+    pub root: Option<String>,
+    pub project: Option<String>,
+    pub id: Option<String>,
+    #[serde(default = "default_format")]
+    pub format: String,
+}
+
 #[mcp_tool(name = "gantt_text", description = "Return PlantUML gantt text for current tasks.")]
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct GanttTextTool {
@@ -609,6 +672,11 @@ tool_box!(
         IndexRebuildTool,
         IndexRefreshTool,
         IndexVerifyTool,
+        CheckpointTool,
+        ResumeTool,
+        WorkingSetTool,
+        SessionJournalTool,
+        CheckpointDiffTool,
         GanttTextTool,
         GanttFileTool,
         GanttSvgTool,
@@ -669,6 +737,11 @@ impl ServerHandler for WorkmeshServerHandler {
             WorkmeshTools::IndexRebuildTool(tool) => tool.call(&self.context),
             WorkmeshTools::IndexRefreshTool(tool) => tool.call(&self.context),
             WorkmeshTools::IndexVerifyTool(tool) => tool.call(&self.context),
+            WorkmeshTools::CheckpointTool(tool) => tool.call(&self.context),
+            WorkmeshTools::ResumeTool(tool) => tool.call(&self.context),
+            WorkmeshTools::WorkingSetTool(tool) => tool.call(&self.context),
+            WorkmeshTools::SessionJournalTool(tool) => tool.call(&self.context),
+            WorkmeshTools::CheckpointDiffTool(tool) => tool.call(&self.context),
             WorkmeshTools::GanttTextTool(tool) => tool.call(&self.context),
             WorkmeshTools::GanttFileTool(tool) => tool.call(&self.context),
             WorkmeshTools::GanttSvgTool(tool) => tool.call(&self.context),
@@ -1312,6 +1385,121 @@ impl IndexVerifyTool {
     }
 }
 
+impl CheckpointTool {
+    fn call(&self, context: &McpContext) -> Result<CallToolResult, CallToolError> {
+        let backlog_dir = match resolve_root(context, self.root.as_deref()) {
+            Ok(dir) => dir,
+            Err(err) => return ok_json(err),
+        };
+        let tasks = load_tasks(&backlog_dir);
+        let options = CheckpointOptions {
+            project_id: self.project.clone(),
+            checkpoint_id: self.id.clone(),
+            audit_limit: self.audit_limit.unwrap_or(20) as usize,
+        };
+        let result = write_checkpoint(&backlog_dir, &tasks, &options).map_err(CallToolError::new)?;
+        if self.format == "text" {
+            return ok_text(format!(
+                "Checkpoint: {}\nJSON: {}\nMarkdown: {}",
+                result.snapshot.checkpoint_id,
+                result.json_path.display(),
+                result.markdown_path.display()
+            ));
+        }
+        ok_json(serde_json::to_value(result.snapshot).unwrap_or_default())
+    }
+}
+
+impl ResumeTool {
+    fn call(&self, context: &McpContext) -> Result<CallToolResult, CallToolError> {
+        let backlog_dir = match resolve_root(context, self.root.as_deref()) {
+            Ok(dir) => dir,
+            Err(err) => return ok_json(err),
+        };
+        let tasks = load_tasks(&backlog_dir);
+        let repo_root = repo_root_from_backlog(&backlog_dir);
+        let project_id = resolve_project_id(&repo_root, &tasks, self.project.as_deref());
+        let summary = resume_summary(&repo_root, &project_id, self.id.as_deref())
+            .map_err(CallToolError::new)?;
+        let Some(summary) = summary else {
+            return ok_text("No checkpoint found".to_string());
+        };
+        if self.format == "text" {
+            return ok_text(render_resume(&summary));
+        }
+        ok_json(serde_json::to_value(summary.snapshot).unwrap_or_default())
+    }
+}
+
+impl WorkingSetTool {
+    fn call(&self, context: &McpContext) -> Result<CallToolResult, CallToolError> {
+        let backlog_dir = match resolve_root(context, self.root.as_deref()) {
+            Ok(dir) => dir,
+            Err(err) => return ok_json(err),
+        };
+        let tasks = load_tasks(&backlog_dir);
+        let repo_root = repo_root_from_backlog(&backlog_dir);
+        let project_id = resolve_project_id(&repo_root, &tasks, self.project.as_deref());
+        let selected = match self.tasks.clone() {
+            Some(input) => {
+                let ids = parse_list_input(Some(input));
+                select_tasks_by_ids(&tasks, &ids)
+            }
+            None => tasks
+                .iter()
+                .filter(|task| task.status.eq_ignore_ascii_case("in progress"))
+                .collect(),
+        };
+        let summaries: Vec<_> = selected.iter().map(|task| task_summary(task)).collect();
+        let path = write_working_set(&repo_root, &project_id, &summaries, self.note.as_deref())
+            .map_err(CallToolError::new)?;
+        ok_json(serde_json::json!({"path": path}))
+    }
+}
+
+impl SessionJournalTool {
+    fn call(&self, context: &McpContext) -> Result<CallToolResult, CallToolError> {
+        let backlog_dir = match resolve_root(context, self.root.as_deref()) {
+            Ok(dir) => dir,
+            Err(err) => return ok_json(err),
+        };
+        let tasks = load_tasks(&backlog_dir);
+        let repo_root = repo_root_from_backlog(&backlog_dir);
+        let project_id = resolve_project_id(&repo_root, &tasks, self.project.as_deref());
+        let path = append_session_journal(
+            &repo_root,
+            &project_id,
+            self.task.as_deref(),
+            self.next.as_deref(),
+            self.note.as_deref(),
+        )
+        .map_err(CallToolError::new)?;
+        ok_json(serde_json::json!({"path": path}))
+    }
+}
+
+impl CheckpointDiffTool {
+    fn call(&self, context: &McpContext) -> Result<CallToolResult, CallToolError> {
+        let backlog_dir = match resolve_root(context, self.root.as_deref()) {
+            Ok(dir) => dir,
+            Err(err) => return ok_json(err),
+        };
+        let tasks = load_tasks(&backlog_dir);
+        let repo_root = repo_root_from_backlog(&backlog_dir);
+        let project_id = resolve_project_id(&repo_root, &tasks, self.project.as_deref());
+        let summary = resume_summary(&repo_root, &project_id, self.id.as_deref())
+            .map_err(CallToolError::new)?;
+        let Some(summary) = summary else {
+            return ok_text("No checkpoint found".to_string());
+        };
+        let report = diff_since_checkpoint(&repo_root, &backlog_dir, &tasks, &summary.snapshot);
+        if self.format == "text" {
+            return ok_text(render_diff(&report));
+        }
+        ok_json(serde_json::to_value(report).unwrap_or_default())
+    }
+}
+
 impl GanttTextTool {
     fn call(&self, context: &McpContext) -> Result<CallToolResult, CallToolError> {
         let backlog_dir = match resolve_root(context, self.root.as_deref()) {
@@ -1533,6 +1721,16 @@ fn update_list_field(
 fn find_task<'a>(tasks: &'a [Task], task_id: &str) -> Option<&'a Task> {
     let target = task_id.to_lowercase();
     tasks.iter().find(|task| task.id.to_lowercase() == target)
+}
+
+fn select_tasks_by_ids<'a>(tasks: &'a [Task], ids: &[String]) -> Vec<&'a Task> {
+    let mut selected = Vec::new();
+    for id in ids {
+        if let Some(task) = find_task(tasks, id) {
+            selected.push(task);
+        }
+    }
+    selected
 }
 
 fn next_id(tasks: &[Task]) -> String {
