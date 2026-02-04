@@ -4,11 +4,11 @@ title: Phase 3: Ready work query (CLI/MCP)
 status: Done
 priority: P2
 phase: Phase3
-dependencies: []
+dependencies: [task-011, task-013]
 labels: [phase3, query, core]
 assignee: []
 prd: docs/projects/workmesh/prds/phase-3-sync-and-graph.md
-updated_date: 2026-02-03 17:59
+updated_date: 2026-02-04 12:10
 ---
 Description:
 --------------------------------------------------
