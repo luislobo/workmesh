@@ -125,6 +125,23 @@ fn resolve_repo_root(context: &McpContext, root: Option<&str>) -> PathBuf {
     std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
 }
 
+fn read_skill_content(repo_root: &Path, name: &str) -> Result<(PathBuf, String), serde_json::Value> {
+    let path = repo_root
+        .join(".codex")
+        .join("skills")
+        .join(name)
+        .join("SKILL.md");
+    if !path.exists() {
+        return Err(serde_json::json!({
+            "error": format!("Skill not found: {}", name),
+            "path": path.to_string_lossy(),
+        }));
+    }
+    let content = std::fs::read_to_string(&path)
+        .map_err(|err| serde_json::json!({"error": format!("Failed to read skill: {}", err)}))?;
+    Ok((path, content))
+}
+
 fn ok_text(content: String) -> Result<CallToolResult, CallToolError> {
     Ok(CallToolResult::text_content(vec![TextContent::from(
         content,
@@ -198,6 +215,7 @@ fn tool_catalog() -> Vec<serde_json::Value> {
         serde_json::json!({"name": "gantt_file", "summary": "Write PlantUML gantt to a file."}),
         serde_json::json!({"name": "gantt_svg", "summary": "Render gantt SVG via PlantUML."}),
         serde_json::json!({"name": "help", "summary": "Show available tools and best practices."}),
+        serde_json::json!({"name": "skill_content", "summary": "Return SKILL.md content for a repo skill."}),
         serde_json::json!({"name": "project_management_skill", "summary": "Return project management guide."}),
     ]
 }
@@ -497,6 +515,15 @@ pub struct GanttSvgTool {
     pub plantuml_jar: Option<String>,
 }
 
+#[mcp_tool(name = "skill_content", description = "Return SKILL.md content for a repo skill.")]
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct SkillContentTool {
+    pub root: Option<String>,
+    pub name: Option<String>,
+    #[serde(default = "default_text_format")]
+    pub format: String,
+}
+
 #[mcp_tool(name = "help", description = "Show available tools and best practices.")]
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct HelpTool {
@@ -585,6 +612,7 @@ tool_box!(
         GanttTextTool,
         GanttFileTool,
         GanttSvgTool,
+        SkillContentTool,
         HelpTool,
         ProjectManagementSkillTool
     ]
@@ -644,6 +672,7 @@ impl ServerHandler for WorkmeshServerHandler {
             WorkmeshTools::GanttTextTool(tool) => tool.call(&self.context),
             WorkmeshTools::GanttFileTool(tool) => tool.call(&self.context),
             WorkmeshTools::GanttSvgTool(tool) => tool.call(&self.context),
+            WorkmeshTools::SkillContentTool(tool) => tool.call(&self.context),
             WorkmeshTools::HelpTool(tool) => tool.call(&self.context),
             WorkmeshTools::ProjectManagementSkillTool(tool) => tool.call(&self.context),
         }
@@ -1357,6 +1386,30 @@ impl GanttSvgTool {
     }
 }
 
+impl SkillContentTool {
+    fn call(&self, context: &McpContext) -> Result<CallToolResult, CallToolError> {
+        let repo_root = resolve_repo_root(context, self.root.as_deref());
+        let name = self
+            .name
+            .as_deref()
+            .map(|value| value.trim())
+            .filter(|value| !value.is_empty())
+            .unwrap_or("workmesh");
+        let (path, content) = match read_skill_content(&repo_root, name) {
+            Ok(result) => result,
+            Err(err) => return ok_json(err),
+        };
+        if self.format == "json" {
+            return ok_json(serde_json::json!({
+                "name": name,
+                "path": path,
+                "content": content,
+            }));
+        }
+        ok_text(content)
+    }
+}
+
 impl HelpTool {
     fn call(&self, context: &McpContext) -> Result<CallToolResult, CallToolError> {
         if resolve_root(context, self.root.as_deref()).is_err() {
@@ -1400,17 +1453,21 @@ impl HelpTool {
 
 impl ProjectManagementSkillTool {
     fn call(&self, context: &McpContext) -> Result<CallToolResult, CallToolError> {
-        if resolve_root(context, self.root.as_deref()).is_err() {
-            return ok_json(serde_json::json!({"error": ROOT_REQUIRED_ERROR}));
-        }
-        let guide = default_project_management_skill();
+        let repo_root = resolve_repo_root(context, self.root.as_deref());
+        let skill_name = "workmesh";
+        let (path, content) = match read_skill_content(&repo_root, skill_name) {
+            Ok(result) => result,
+            Err(err) => return ok_json(err),
+        };
         if self.format == "json" {
             return ok_json(serde_json::json!({
                 "summary": "workmesh project management skill",
-                "guide": guide,
+                "name": skill_name,
+                "path": path,
+                "content": content,
             }));
         }
-        ok_text(guide.to_string())
+        ok_text(content)
     }
 }
 
@@ -1486,6 +1543,3 @@ fn next_id(tasks: &[Task]) -> String {
     format!("task-{:03}", max_num + 1)
 }
 
-fn default_project_management_skill() -> &'static str {
-    "workmesh project management skills\n\nFoundations:\n- Keep tasks small (1-3 days of work) and outcome-focused.\n- Use clear titles and consistent ids (task-042).\n- Capture context in Notes or Implementation Notes.\n\nDependencies:\n- Add dependencies whenever a task is blocked by other work.\n- Use validate to catch missing or broken dependency chains.\n- Always explore interdependencies (why a task is blocked and what unblocks it).\n- Keep dependencies updated as status changes.\n\nFlow:\n- Move tasks through To Do → In Progress → Done.\n- Use next_task to pick the next unblocked task.\n\nPriorities and phases:\n- Use P0/P1/P2/P3 and Phase1/Phase2/Phase3 to sequence work.\n- Keep labels short and consistent for filtering.\n\nReview cadence:\n- Review the backlog weekly; prune stale tasks.\n- Use stats to monitor load and WIP balance.\n"
-}
