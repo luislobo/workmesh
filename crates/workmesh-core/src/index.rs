@@ -97,11 +97,7 @@ pub fn refresh_index(backlog_dir: &Path) -> Result<IndexSummary, IndexError> {
             continue;
         };
         let mtime = file_mtime(task_path)?;
-        let entry = entry_map.get(task_path);
-        let hash = match entry {
-            Some(existing) if existing.mtime == mtime => existing.hash.clone(),
-            _ => hash_file(task_path)?,
-        };
+        let hash = hash_file(task_path)?;
         let updated = build_entry(&task, mtime, hash);
         entry_map.insert(task_path.clone(), updated);
         seen.insert(task_path.clone());
