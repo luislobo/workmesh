@@ -10,6 +10,7 @@ use rust_mcp_sdk::tool_box;
 use rust_mcp_sdk::{mcp_server::ServerHandler, McpServer};
 use serde::{Deserialize, Serialize};
 
+use workmesh_core::audit::{append_audit_event, AuditEvent};
 use workmesh_core::backlog::{locate_backlog_dir, resolve_backlog_dir, BacklogError};
 use workmesh_core::project::{ensure_project_docs, repo_root_from_backlog};
 use workmesh_core::gantt::{plantuml_gantt, render_plantuml_svg, write_text_file};
@@ -114,6 +115,22 @@ fn ok_json(value: serde_json::Value) -> Result<CallToolResult, CallToolError> {
     let text = serde_json::to_string_pretty(&value)
         .unwrap_or_else(|_| "{}".to_string());
     ok_text(text)
+}
+
+fn audit_event(
+    backlog_dir: &Path,
+    action: &str,
+    task_id: Option<&str>,
+    details: serde_json::Value,
+) -> Result<(), CallToolError> {
+    let event = AuditEvent {
+        timestamp: now_timestamp(),
+        actor: Some("mcp".to_string()),
+        action: action.to_string(),
+        task_id: task_id.map(|value| value.to_string()),
+        details,
+    };
+    append_audit_event(backlog_dir, &event).map_err(CallToolError::new)
 }
 
 fn best_practice_hints() -> Vec<&'static str> {
@@ -701,7 +718,13 @@ impl SetStatusTool {
             update_task_field(path, "updated_date", Some(now_timestamp().into()))
                 .map_err(CallToolError::new)?;
         }
-        ok_json(serde_json::json!({"ok": true, "id": task.id, "status": self.status}))
+        audit_event(
+            &backlog_dir,
+            "set_status",
+            Some(&task.id),
+            serde_json::json!({ "status": self.status.clone() }),
+        )?;
+        ok_json(serde_json::json!({"ok": true, "id": task.id, "status": self.status.clone()}))
     }
 }
 
@@ -723,7 +746,13 @@ impl SetFieldTool {
             update_task_field(path, "updated_date", Some(now_timestamp().into()))
                 .map_err(CallToolError::new)?;
         }
-        ok_json(serde_json::json!({"ok": true, "id": task.id, "field": self.field, "value": self.value}))
+        audit_event(
+            &backlog_dir,
+            "set_field",
+            Some(&task.id),
+            serde_json::json!({ "field": self.field.clone(), "value": self.value.clone() }),
+        )?;
+        ok_json(serde_json::json!({"ok": true, "id": task.id, "field": self.field.clone(), "value": self.value.clone()}))
     }
 }
 
@@ -814,7 +843,16 @@ impl ClaimTaskTool {
             update_task_field(path, "updated_date", Some(now_timestamp().into()))
                 .map_err(CallToolError::new)?;
         }
-        ok_json(serde_json::json!({"ok": true, "id": task.id, "owner": lease.owner}))
+        audit_event(
+            &backlog_dir,
+            "claim",
+            Some(&task.id),
+            serde_json::json!({
+                "owner": lease.owner.clone(),
+                "expires_at": lease.expires_at.clone(),
+            }),
+        )?;
+        ok_json(serde_json::json!({"ok": true, "id": task.id, "owner": lease.owner.clone()}))
     }
 }
 
@@ -838,6 +876,12 @@ impl ReleaseTaskTool {
             update_task_field(path, "updated_date", Some(now_timestamp().into()))
                 .map_err(CallToolError::new)?;
         }
+        audit_event(
+            &backlog_dir,
+            "release",
+            Some(&task.id),
+            serde_json::json!({}),
+        )?;
         ok_json(serde_json::json!({"ok": true, "id": task.id}))
     }
 }
@@ -861,6 +905,12 @@ impl AddNoteTool {
             update_task_field(path, "updated_date", Some(now_timestamp().into()))
                 .map_err(CallToolError::new)?;
         }
+        audit_event(
+            &backlog_dir,
+            "note",
+            Some(&task.id),
+            serde_json::json!({ "section": self.section.clone(), "note": self.note.clone() }),
+        )?;
         ok_json(serde_json::json!({"ok": true, "id": task.id, "section": self.section}))
     }
 }
@@ -882,6 +932,12 @@ impl SetBodyTool {
             update_task_field(path, "updated_date", Some(now_timestamp().into()))
                 .map_err(CallToolError::new)?;
         }
+        audit_event(
+            &backlog_dir,
+            "set_body",
+            Some(&task.id),
+            serde_json::json!({ "length": self.body.len() }),
+        )?;
         ok_json(serde_json::json!({"ok": true, "id": task.id}))
     }
 }
@@ -904,6 +960,12 @@ impl SetSectionTool {
             update_task_field(path, "updated_date", Some(now_timestamp().into()))
                 .map_err(CallToolError::new)?;
         }
+        audit_event(
+            &backlog_dir,
+            "set_section",
+            Some(&task.id),
+            serde_json::json!({ "section": self.section.clone(), "length": self.content.len() }),
+        )?;
         ok_json(serde_json::json!({"ok": true, "id": task.id, "section": self.section}))
     }
 }
@@ -932,6 +994,12 @@ impl AddTaskTool {
             &assignee,
         )
         .map_err(CallToolError::new)?;
+        audit_event(
+            &backlog_dir,
+            "add_task",
+            Some(&task_id),
+            serde_json::json!({ "title": self.title.clone() }),
+        )?;
         let mut hints = best_practice_hints();
         if dependencies.is_empty() {
             let mut enriched = vec![
@@ -964,6 +1032,12 @@ impl ProjectInitTool {
         let repo_root = repo_root_from_backlog(&backlog_dir);
         let path = ensure_project_docs(&repo_root, &self.project_id, self.name.as_deref())
             .map_err(CallToolError::new)?;
+        audit_event(
+            &backlog_dir,
+            "project_init",
+            None,
+            serde_json::json!({ "project_id": self.project_id.clone() }),
+        )?;
         ok_json(serde_json::json!({
             "ok": true,
             "project_id": self.project_id,
@@ -1168,6 +1242,19 @@ fn update_list_field(
         update_task_field(path, "updated_date", Some(now_timestamp().into()))
             .map_err(CallToolError::new)?;
     }
+    let action = match (field, add) {
+        ("labels", true) => "label_add",
+        ("labels", false) => "label_remove",
+        ("dependencies", true) => "dependency_add",
+        ("dependencies", false) => "dependency_remove",
+        _ => "update_list",
+    };
+    audit_event(
+        &backlog_dir,
+        action,
+        Some(&task.id),
+        serde_json::json!({ "field": field, "value": value, "add": add }),
+    )?;
     let payload = if field == "labels" {
         serde_json::json!({"ok": true, "id": task.id, "labels": current})
     } else {

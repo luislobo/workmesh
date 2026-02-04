@@ -5,6 +5,7 @@ use anyhow::Result;
 use clap::{ArgAction, Parser, Subcommand, ValueEnum};
 
 use workmesh_core::backlog::resolve_backlog_dir;
+use workmesh_core::audit::{append_audit_event, AuditEvent};
 use workmesh_core::gantt::{plantuml_gantt, render_plantuml_svg, write_text_file, PlantumlRenderError};
 use workmesh_core::task::{load_tasks, Lease, Task};
 use workmesh_core::project::{ensure_project_docs, repo_root_from_backlog};
@@ -405,6 +406,12 @@ fn main() -> Result<()> {
             if touch {
                 update_task_field(path, "updated_date", Some(now_timestamp().into()))?;
             }
+            audit_event(
+                &backlog_dir,
+                "set_status",
+                Some(&task.id),
+                serde_json::json!({ "status": status.clone() }),
+            )?;
             println!("Updated {} status -> {}", task.id, status);
         }
         Command::Claim {
@@ -434,6 +441,15 @@ fn main() -> Result<()> {
             if touch {
                 update_task_field(path, "updated_date", Some(now_timestamp().into()))?;
             }
+            audit_event(
+                &backlog_dir,
+                "claim",
+                Some(&task.id),
+                serde_json::json!({
+                    "owner": lease.owner.clone(),
+                    "expires_at": lease.expires_at.clone(),
+                }),
+            )?;
             println!("Claimed {} lease -> {}", task.id, lease.owner);
         }
         Command::Release { task_id, touch } => {
@@ -447,6 +463,12 @@ fn main() -> Result<()> {
             if touch {
                 update_task_field(path, "updated_date", Some(now_timestamp().into()))?;
             }
+            audit_event(
+                &backlog_dir,
+                "release",
+                Some(&task.id),
+                serde_json::json!({}),
+            )?;
             println!("Released {} lease", task.id);
         }
         Command::SetField { task_id, field, value, touch } => {
@@ -460,19 +482,41 @@ fn main() -> Result<()> {
             if touch {
                 update_task_field(path, "updated_date", Some(now_timestamp().into()))?;
             }
+            audit_event(
+                &backlog_dir,
+                "set_field",
+                Some(&task.id),
+                serde_json::json!({ "field": field.clone(), "value": value.clone() }),
+            )?;
             println!("Updated {} {} -> {}", task.id, field, value);
         }
         Command::LabelAdd { task_id, label, touch } => {
-            update_list_field(&tasks, &task_id, "labels", &label, true, touch)?;
+            update_list_field(&backlog_dir, &tasks, &task_id, "labels", &label, true, touch)?;
         }
         Command::LabelRemove { task_id, label, touch } => {
-            update_list_field(&tasks, &task_id, "labels", &label, false, touch)?;
+            update_list_field(&backlog_dir, &tasks, &task_id, "labels", &label, false, touch)?;
         }
         Command::DepAdd { task_id, dependency, touch } => {
-            update_list_field(&tasks, &task_id, "dependencies", &dependency, true, touch)?;
+            update_list_field(
+                &backlog_dir,
+                &tasks,
+                &task_id,
+                "dependencies",
+                &dependency,
+                true,
+                touch,
+            )?;
         }
         Command::DepRemove { task_id, dependency, touch } => {
-            update_list_field(&tasks, &task_id, "dependencies", &dependency, false, touch)?;
+            update_list_field(
+                &backlog_dir,
+                &tasks,
+                &task_id,
+                "dependencies",
+                &dependency,
+                false,
+                touch,
+            )?;
         }
         Command::Note { task_id, note, section, touch } => {
             let task = find_task(&tasks, &task_id).unwrap_or_else(|| {
@@ -486,6 +530,12 @@ fn main() -> Result<()> {
             if touch {
                 update_task_field(path, "updated_date", Some(now_timestamp().into()))?;
             }
+            audit_event(
+                &backlog_dir,
+                "note",
+                Some(&task.id),
+                serde_json::json!({ "section": section.as_str(), "note": note }),
+            )?;
             println!("Added note to {}", task.id);
         }
         Command::SetBody { task_id, text, file, touch } => {
@@ -500,6 +550,12 @@ fn main() -> Result<()> {
             if touch {
                 update_task_field(path, "updated_date", Some(now_timestamp().into()))?;
             }
+            audit_event(
+                &backlog_dir,
+                "set_body",
+                Some(&task.id),
+                serde_json::json!({ "length": content.len() }),
+            )?;
             println!("Updated body for {}", task.id);
         }
         Command::SetSection { task_id, section, text, file, touch } => {
@@ -515,6 +571,12 @@ fn main() -> Result<()> {
             if touch {
                 update_task_field(path, "updated_date", Some(now_timestamp().into()))?;
             }
+            audit_event(
+                &backlog_dir,
+                "set_section",
+                Some(&task.id),
+                serde_json::json!({ "section": section.clone(), "length": content.len() }),
+            )?;
             println!("Updated section {} for {}", section, task.id);
         }
         Command::Add {
@@ -544,6 +606,12 @@ fn main() -> Result<()> {
                 &labels,
                 &assignee,
             )?;
+            audit_event(
+                &backlog_dir,
+                "add_task",
+                Some(&task_id),
+                serde_json::json!({ "title": title }),
+            )?;
             if json {
                 let payload = serde_json::json!({"path": path, "id": task_id});
                 println!("{}", serde_json::to_string_pretty(&payload)?);
@@ -554,6 +622,12 @@ fn main() -> Result<()> {
         Command::ProjectInit { project_id, name } => {
             let repo_root = repo_root_from_backlog(&backlog_dir);
             let path = ensure_project_docs(&repo_root, &project_id, name.as_deref())?;
+            audit_event(
+                &backlog_dir,
+                "project_init",
+                None,
+                serde_json::json!({ "project_id": project_id }),
+            )?;
             println!("{}", path.display());
         }
         Command::Validate { json } => {
@@ -664,6 +738,7 @@ fn next_id(tasks: &[Task]) -> String {
 }
 
 fn update_list_field(
+    backlog_dir: &Path,
     tasks: &[Task],
     task_id: &str,
     field: &str,
@@ -694,6 +769,19 @@ fn update_list_field(
     if touch {
         update_task_field(path, "updated_date", Some(now_timestamp().into()))?;
     }
+    let action = match (field, add) {
+        ("labels", true) => "label_add",
+        ("labels", false) => "label_remove",
+        ("dependencies", true) => "dependency_add",
+        ("dependencies", false) => "dependency_remove",
+        _ => "update_list",
+    };
+    audit_event(
+        backlog_dir,
+        action,
+        Some(&task.id),
+        serde_json::json!({ "field": field, "value": value, "add": add }),
+    )?;
     let action = if add { "Added" } else { "Removed" };
     println!("{} {} on {} {}", action, value, task.id, field);
     Ok(())
@@ -709,6 +797,24 @@ fn read_content(text: Option<&str>, file_path: Option<&Path>) -> Result<String> 
     let mut buffer = String::new();
     std::io::stdin().read_to_string(&mut buffer)?;
     Ok(buffer)
+}
+
+fn audit_event(
+    backlog_dir: &Path,
+    action: &str,
+    task_id: Option<&str>,
+    details: serde_json::Value,
+) -> Result<()> {
+    let actor = std::env::var("USER").ok();
+    let event = AuditEvent {
+        timestamp: now_timestamp(),
+        actor,
+        action: action.to_string(),
+        task_id: task_id.map(|value| value.to_string()),
+        details,
+    };
+    append_audit_event(backlog_dir, &event)?;
+    Ok(())
 }
 
 fn die(message: &str) -> ! {

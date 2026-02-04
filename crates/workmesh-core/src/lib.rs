@@ -1,6 +1,7 @@
 //! Core domain types for WorkMesh.
 
 pub mod backlog;
+pub mod audit;
 pub mod project;
 pub mod task;
 pub mod task_ops;
