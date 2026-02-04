@@ -4,11 +4,11 @@ title: Phase 3: Graph export command
 status: Done
 priority: P2
 phase: Phase3
-dependencies: []
+dependencies: [task-011]
 labels: [phase3, graph, cli]
 assignee: []
 prd: docs/projects/workmesh/prds/phase-3-sync-and-graph.md
-updated_date: 2026-02-03 17:06
+updated_date: 2026-02-04 12:18
 ---
 Description:
 --------------------------------------------------
