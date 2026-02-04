@@ -1,7 +1,7 @@
 ---
 id: task-010
 title: Phase 3: Sync engine + adapters (Jira/Trello/GitHub)
-status: To Do
+status: Done
 priority: P2
 phase: Phase3
 dependencies: [task-009, task-011, task-012, task-013, task-014, task-015, task-016]
@@ -23,3 +23,7 @@ Definition of Done:
 --------------------------------------------------
 - Code/config committed.
 - Docs updated if needed.
+
+Notes:
+--------------------------------------------------
+- Added sync engine scaffold in core with adapter trait + stub adapters (jira/trello/github).
