@@ -14,7 +14,6 @@ travels with the codebase.
 - Introduce project and initiative metadata in Markdown (no database).
 
 ## Non-goals
-- Full sync or integration behavior.
 - Visualization UI.
 
 ## Requirements

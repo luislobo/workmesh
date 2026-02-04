@@ -7,7 +7,7 @@ phase: Phase3
 dependencies: [task-011]
 labels: [phase3, graph, cli]
 assignee: []
-prd: docs/projects/workmesh/prds/phase-3-sync-and-graph.md
+prd: docs/projects/workmesh/prds/phase-3-agent-graph.md
 updated_date: 2026-02-04 12:18
 ---
 Description:

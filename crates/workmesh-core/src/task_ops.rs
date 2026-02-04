@@ -523,7 +523,7 @@ pub fn validate_tasks(tasks: &[Task], backlog_dir: Option<&Path>) -> ValidationR
         }
         if all_have_uid && uid_set.len() == tasks_with_dup.len() {
             warnings.push(format!(
-                "Duplicate task id: {} (uids present; resolve on sync)",
+                "Duplicate task id: {} (uids present; resolve on import/merge)",
                 dup
             ));
         } else {

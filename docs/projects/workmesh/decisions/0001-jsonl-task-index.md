@@ -5,7 +5,7 @@ Status: Accepted
 
 ## Context
 We need a structured index derived from Markdown tasks to accelerate queries
-(`ready`, sync adapters, reporting) while keeping Markdown as the source of truth.
+(`ready`, reporting) while keeping Markdown as the source of truth.
 We considered a binary index (B-Tree/SQLite) but want low friction, git-friendly
 storage, and deterministic rebuilds.
 
@@ -17,7 +17,7 @@ task file. The index is rebuildable and can be verified against Markdown.
 ## Rationale
 - Git-friendly: JSONL merges are easy to review and resolve.
 - Deterministic rebuilds from Markdown (source of truth).
-- Simple to consume in CLIs, MCP, and adapters.
+- Simple to consume in CLIs and MCP.
 - Good enough performance for the current scope; binary indexing can be added later.
 
 ## Consequences

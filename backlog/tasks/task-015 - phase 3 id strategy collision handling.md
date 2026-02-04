@@ -7,13 +7,13 @@ phase: Phase3
 dependencies: []
 labels: [phase3, ids, core]
 assignee: []
-prd: docs/projects/workmesh/prds/phase-3-sync-and-graph.md
+prd: docs/projects/workmesh/prds/phase-3-agent-graph.md
 updated_date: 2026-02-04 12:14
 ---
 Description:
 --------------------------------------------------
 - Introduce collision-safe task IDs (ULID or namespaced).
-- Handle duplicate IDs gracefully on sync/import.
+- Handle duplicate IDs gracefully on import/merge.
 Acceptance Criteria:
 --------------------------------------------------
 - 
