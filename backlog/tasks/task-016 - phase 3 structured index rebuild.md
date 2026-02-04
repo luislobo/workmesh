@@ -1,7 +1,7 @@
 ---
 id: task-016
 title: Phase 3: Structured index + rebuild
-status: To Do
+status: Done
 priority: P2
 phase: Phase3
 dependencies: []
@@ -21,3 +21,7 @@ Definition of Done:
 --------------------------------------------------
 - Code/config committed.
 - Docs updated if needed.
+
+Notes:
+--------------------------------------------------
+- Implemented JSONL index at `backlog/.index/tasks.jsonl` with rebuild/refresh/verify (CLI + MCP).

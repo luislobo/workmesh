@@ -3,6 +3,7 @@
 pub mod backlog;
 pub mod audit;
 pub mod project;
+pub mod index;
 pub mod task;
 pub mod task_ops;
 pub mod gantt;

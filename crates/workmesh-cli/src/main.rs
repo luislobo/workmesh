@@ -7,6 +7,7 @@ use clap::{ArgAction, Parser, Subcommand, ValueEnum};
 use workmesh_core::backlog::resolve_backlog_dir;
 use workmesh_core::audit::{append_audit_event, AuditEvent};
 use workmesh_core::gantt::{plantuml_gantt, render_plantuml_svg, write_text_file, PlantumlRenderError};
+use workmesh_core::index::{rebuild_index, refresh_index, verify_index};
 use workmesh_core::task::{load_tasks, Lease, Task};
 use workmesh_core::project::{ensure_project_docs, repo_root_from_backlog};
 use workmesh_core::task_ops::{
@@ -87,6 +88,21 @@ enum Command {
     Export {
         #[arg(long, action = ArgAction::SetTrue)]
         pretty: bool,
+    },
+    /// Rebuild JSONL task index
+    IndexRebuild {
+        #[arg(long, action = ArgAction::SetTrue)]
+        json: bool,
+    },
+    /// Refresh JSONL task index
+    IndexRefresh {
+        #[arg(long, action = ArgAction::SetTrue)]
+        json: bool,
+    },
+    /// Verify JSONL task index
+    IndexVerify {
+        #[arg(long, action = ArgAction::SetTrue)]
+        json: bool,
     },
     /// Set task status
     SetStatus {
@@ -393,6 +409,47 @@ fn main() -> Result<()> {
                 println!("{}", serde_json::to_string_pretty(&payload)?);
             } else {
                 println!("{}", serde_json::to_string(&payload)?);
+            }
+        }
+        Command::IndexRebuild { json } => {
+            let summary = rebuild_index(&backlog_dir)?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&summary)?);
+            } else {
+                println!(
+                    "Index rebuild -> {} ({} entries)",
+                    summary.path, summary.entries
+                );
+            }
+        }
+        Command::IndexRefresh { json } => {
+            let summary = refresh_index(&backlog_dir)?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&summary)?);
+            } else {
+                println!(
+                    "Index refresh -> {} ({} entries)",
+                    summary.path, summary.entries
+                );
+            }
+        }
+        Command::IndexVerify { json } => {
+            let report = verify_index(&backlog_dir)?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&report)?);
+            } else if report.ok {
+                println!("Index ok");
+            } else {
+                if !report.missing.is_empty() {
+                    println!("Missing: {}", report.missing.len());
+                }
+                if !report.stale.is_empty() {
+                    println!("Stale: {}", report.stale.len());
+                }
+                if !report.extra.is_empty() {
+                    println!("Extra: {}", report.extra.len());
+                }
+                std::process::exit(1);
             }
         }
         Command::SetStatus { task_id, status, touch } => {

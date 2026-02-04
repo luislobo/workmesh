@@ -14,6 +14,7 @@ use workmesh_core::audit::{append_audit_event, AuditEvent};
 use workmesh_core::backlog::{locate_backlog_dir, resolve_backlog_dir, BacklogError};
 use workmesh_core::project::{ensure_project_docs, repo_root_from_backlog};
 use workmesh_core::gantt::{plantuml_gantt, render_plantuml_svg, write_text_file};
+use workmesh_core::index::{rebuild_index, refresh_index, verify_index};
 use workmesh_core::task::{load_tasks, Lease, Task};
 use workmesh_core::task_ops::{
     append_note, create_task_file, filter_tasks, graph_export, next_task, ready_tasks,
@@ -164,6 +165,9 @@ fn tool_catalog() -> Vec<serde_json::Value> {
         serde_json::json!({"name": "project_init", "summary": "Create project docs scaffold."}),
         serde_json::json!({"name": "validate", "summary": "Validate task metadata and dependencies."}),
         serde_json::json!({"name": "graph_export", "summary": "Export task graph as JSON."}),
+        serde_json::json!({"name": "index_rebuild", "summary": "Rebuild JSONL task index."}),
+        serde_json::json!({"name": "index_refresh", "summary": "Refresh JSONL task index."}),
+        serde_json::json!({"name": "index_verify", "summary": "Verify JSONL task index."}),
         serde_json::json!({"name": "gantt_text", "summary": "Return PlantUML gantt text."}),
         serde_json::json!({"name": "gantt_file", "summary": "Write PlantUML gantt to a file."}),
         serde_json::json!({"name": "gantt_svg", "summary": "Render gantt SVG via PlantUML."}),
@@ -382,6 +386,24 @@ pub struct GraphExportTool {
     pub pretty: bool,
 }
 
+#[mcp_tool(name = "index_rebuild", description = "Rebuild JSONL task index.")]
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct IndexRebuildTool {
+    pub root: Option<String>,
+}
+
+#[mcp_tool(name = "index_refresh", description = "Refresh JSONL task index.")]
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct IndexRefreshTool {
+    pub root: Option<String>,
+}
+
+#[mcp_tool(name = "index_verify", description = "Verify JSONL task index.")]
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct IndexVerifyTool {
+    pub root: Option<String>,
+}
+
 #[mcp_tool(name = "gantt_text", description = "Return PlantUML gantt text for current tasks.")]
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct GanttTextTool {
@@ -492,6 +514,9 @@ tool_box!(
         ProjectInitTool,
         ValidateTool,
         GraphExportTool,
+        IndexRebuildTool,
+        IndexRefreshTool,
+        IndexVerifyTool,
         GanttTextTool,
         GanttFileTool,
         GanttSvgTool,
@@ -545,6 +570,9 @@ impl ServerHandler for WorkmeshServerHandler {
             WorkmeshTools::ProjectInitTool(tool) => tool.call(&self.context),
             WorkmeshTools::ValidateTool(tool) => tool.call(&self.context),
             WorkmeshTools::GraphExportTool(tool) => tool.call(&self.context),
+            WorkmeshTools::IndexRebuildTool(tool) => tool.call(&self.context),
+            WorkmeshTools::IndexRefreshTool(tool) => tool.call(&self.context),
+            WorkmeshTools::IndexVerifyTool(tool) => tool.call(&self.context),
             WorkmeshTools::GanttTextTool(tool) => tool.call(&self.context),
             WorkmeshTools::GanttFileTool(tool) => tool.call(&self.context),
             WorkmeshTools::GanttSvgTool(tool) => tool.call(&self.context),
@@ -1071,6 +1099,39 @@ impl GraphExportTool {
         } else {
             ok_text(serde_json::to_string(&graph).unwrap_or_else(|_| "{}".to_string()))
         }
+    }
+}
+
+impl IndexRebuildTool {
+    fn call(&self, context: &McpContext) -> Result<CallToolResult, CallToolError> {
+        let backlog_dir = match resolve_root(context, self.root.as_deref()) {
+            Ok(dir) => dir,
+            Err(err) => return ok_json(err),
+        };
+        let summary = rebuild_index(&backlog_dir).map_err(CallToolError::new)?;
+        ok_json(serde_json::to_value(summary).unwrap_or_default())
+    }
+}
+
+impl IndexRefreshTool {
+    fn call(&self, context: &McpContext) -> Result<CallToolResult, CallToolError> {
+        let backlog_dir = match resolve_root(context, self.root.as_deref()) {
+            Ok(dir) => dir,
+            Err(err) => return ok_json(err),
+        };
+        let summary = refresh_index(&backlog_dir).map_err(CallToolError::new)?;
+        ok_json(serde_json::to_value(summary).unwrap_or_default())
+    }
+}
+
+impl IndexVerifyTool {
+    fn call(&self, context: &McpContext) -> Result<CallToolResult, CallToolError> {
+        let backlog_dir = match resolve_root(context, self.root.as_deref()) {
+            Ok(dir) => dir,
+            Err(err) => return ok_json(err),
+        };
+        let report = verify_index(&backlog_dir).map_err(CallToolError::new)?;
+        ok_json(serde_json::to_value(report).unwrap_or_default())
     }
 }
 
