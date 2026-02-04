@@ -469,6 +469,7 @@ fn main() -> Result<()> {
                 Some(&task.id),
                 serde_json::json!({ "status": status.clone() }),
             )?;
+            refresh_index_best_effort(&backlog_dir);
             println!("Updated {} status -> {}", task.id, status);
         }
         Command::Claim {
@@ -507,6 +508,7 @@ fn main() -> Result<()> {
                     "expires_at": lease.expires_at.clone(),
                 }),
             )?;
+            refresh_index_best_effort(&backlog_dir);
             println!("Claimed {} lease -> {}", task.id, lease.owner);
         }
         Command::Release { task_id, touch } => {
@@ -526,6 +528,7 @@ fn main() -> Result<()> {
                 Some(&task.id),
                 serde_json::json!({}),
             )?;
+            refresh_index_best_effort(&backlog_dir);
             println!("Released {} lease", task.id);
         }
         Command::SetField { task_id, field, value, touch } => {
@@ -545,6 +548,7 @@ fn main() -> Result<()> {
                 Some(&task.id),
                 serde_json::json!({ "field": field.clone(), "value": value.clone() }),
             )?;
+            refresh_index_best_effort(&backlog_dir);
             println!("Updated {} {} -> {}", task.id, field, value);
         }
         Command::LabelAdd { task_id, label, touch } => {
@@ -593,6 +597,7 @@ fn main() -> Result<()> {
                 Some(&task.id),
                 serde_json::json!({ "section": section.as_str(), "note": note }),
             )?;
+            refresh_index_best_effort(&backlog_dir);
             println!("Added note to {}", task.id);
         }
         Command::SetBody { task_id, text, file, touch } => {
@@ -613,6 +618,7 @@ fn main() -> Result<()> {
                 Some(&task.id),
                 serde_json::json!({ "length": content.len() }),
             )?;
+            refresh_index_best_effort(&backlog_dir);
             println!("Updated body for {}", task.id);
         }
         Command::SetSection { task_id, section, text, file, touch } => {
@@ -634,6 +640,7 @@ fn main() -> Result<()> {
                 Some(&task.id),
                 serde_json::json!({ "section": section.clone(), "length": content.len() }),
             )?;
+            refresh_index_best_effort(&backlog_dir);
             println!("Updated section {} for {}", section, task.id);
         }
         Command::Add {
@@ -669,6 +676,7 @@ fn main() -> Result<()> {
                 Some(&task_id),
                 serde_json::json!({ "title": title }),
             )?;
+            refresh_index_best_effort(&backlog_dir);
             if json {
                 let payload = serde_json::json!({"path": path, "id": task_id});
                 println!("{}", serde_json::to_string_pretty(&payload)?);
@@ -839,6 +847,7 @@ fn update_list_field(
         Some(&task.id),
         serde_json::json!({ "field": field, "value": value, "add": add }),
     )?;
+    refresh_index_best_effort(backlog_dir);
     let action = if add { "Added" } else { "Removed" };
     println!("{} {} on {} {}", action, value, task.id, field);
     Ok(())
@@ -872,6 +881,10 @@ fn audit_event(
     };
     append_audit_event(backlog_dir, &event)?;
     Ok(())
+}
+
+fn refresh_index_best_effort(backlog_dir: &Path) {
+    let _ = refresh_index(backlog_dir);
 }
 
 fn die(message: &str) -> ! {
