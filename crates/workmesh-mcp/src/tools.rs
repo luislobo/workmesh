@@ -21,7 +21,7 @@ use workmesh_core::task_ops::{
     append_note, create_task_file, filter_tasks, graph_export, next_task, ready_tasks,
     now_timestamp, timestamp_plus_minutes,
     render_task_line, replace_section, set_list_field, sort_tasks, status_counts,
-    task_to_json_value, update_body, update_lease_fields, update_task_field,
+    task_to_json_value, tasks_to_jsonl, update_body, update_lease_fields, update_task_field,
     update_task_field_or_section, validate_tasks,
 };
 
@@ -189,6 +189,7 @@ fn tool_catalog() -> Vec<serde_json::Value> {
         serde_json::json!({"name": "quickstart", "summary": "Scaffold docs + backlog + seed task."}),
         serde_json::json!({"name": "validate", "summary": "Validate task metadata and dependencies."}),
         serde_json::json!({"name": "graph_export", "summary": "Export task graph as JSON."}),
+        serde_json::json!({"name": "issues_export", "summary": "Export tasks as JSONL."}),
         serde_json::json!({"name": "index_rebuild", "summary": "Rebuild JSONL task index."}),
         serde_json::json!({"name": "index_refresh", "summary": "Refresh JSONL task index."}),
         serde_json::json!({"name": "index_verify", "summary": "Verify JSONL task index."}),
@@ -420,6 +421,14 @@ pub struct GraphExportTool {
     pub pretty: bool,
 }
 
+#[mcp_tool(name = "issues_export", description = "Export tasks as JSONL.")]
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct IssuesExportTool {
+    pub root: Option<String>,
+    #[serde(default)]
+    pub include_body: bool,
+}
+
 #[mcp_tool(name = "index_rebuild", description = "Rebuild JSONL task index.")]
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct IndexRebuildTool {
@@ -549,6 +558,7 @@ tool_box!(
         QuickstartTool,
         ValidateTool,
         GraphExportTool,
+        IssuesExportTool,
         IndexRebuildTool,
         IndexRefreshTool,
         IndexVerifyTool,
@@ -606,6 +616,7 @@ impl ServerHandler for WorkmeshServerHandler {
             WorkmeshTools::QuickstartTool(tool) => tool.call(&self.context),
             WorkmeshTools::ValidateTool(tool) => tool.call(&self.context),
             WorkmeshTools::GraphExportTool(tool) => tool.call(&self.context),
+            WorkmeshTools::IssuesExportTool(tool) => tool.call(&self.context),
             WorkmeshTools::IndexRebuildTool(tool) => tool.call(&self.context),
             WorkmeshTools::IndexRefreshTool(tool) => tool.call(&self.context),
             WorkmeshTools::IndexVerifyTool(tool) => tool.call(&self.context),
@@ -1157,6 +1168,18 @@ impl GraphExportTool {
         } else {
             ok_text(serde_json::to_string(&graph).unwrap_or_else(|_| "{}".to_string()))
         }
+    }
+}
+
+impl IssuesExportTool {
+    fn call(&self, context: &McpContext) -> Result<CallToolResult, CallToolError> {
+        let backlog_dir = match resolve_root(context, self.root.as_deref()) {
+            Ok(dir) => dir,
+            Err(err) => return ok_json(err),
+        };
+        let tasks = load_tasks(&backlog_dir);
+        let payload = tasks_to_jsonl(&tasks, self.include_body);
+        ok_text(payload)
     }
 }
 

@@ -14,8 +14,8 @@ use workmesh_core::project::{ensure_project_docs, repo_root_from_backlog};
 use workmesh_core::task_ops::{
     append_note, create_task_file, filter_tasks, graph_export, next_task, now_timestamp,
     ready_tasks, render_task_line, replace_section, set_list_field, sort_tasks, status_counts,
-    task_to_json_value, tasks_to_json, timestamp_plus_minutes, update_body, update_lease_fields,
-    update_task_field, update_task_field_or_section, validate_tasks,
+    task_to_json_value, tasks_to_json, tasks_to_jsonl, timestamp_plus_minutes, update_body,
+    update_lease_fields, update_task_field, update_task_field_or_section, validate_tasks,
 };
 
 #[derive(Parser)]
@@ -89,6 +89,13 @@ enum Command {
     Export {
         #[arg(long, action = ArgAction::SetTrue)]
         pretty: bool,
+    },
+    /// Export tasks as JSONL
+    IssuesExport {
+        #[arg(long)]
+        output: Option<PathBuf>,
+        #[arg(long, action = ArgAction::SetTrue)]
+        include_body: bool,
     },
     /// Rebuild JSONL task index
     IndexRebuild {
@@ -448,6 +455,15 @@ fn main() -> Result<()> {
                 println!("{}", serde_json::to_string_pretty(&payload)?);
             } else {
                 println!("{}", serde_json::to_string(&payload)?);
+            }
+        }
+        Command::IssuesExport { output, include_body } => {
+            let payload = tasks_to_jsonl(&tasks, include_body);
+            if let Some(output) = output {
+                std::fs::write(&output, payload)?;
+                println!("{}", output.display());
+            } else {
+                println!("{}", payload);
             }
         }
         Command::IndexRebuild { json } => {

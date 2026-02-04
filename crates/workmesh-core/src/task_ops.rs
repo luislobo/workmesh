@@ -693,6 +693,18 @@ pub fn tasks_to_json(tasks: &[Task], include_body: bool) -> String {
     serde_json::to_string_pretty(&payload).unwrap_or_else(|_| "[]".to_string())
 }
 
+pub fn tasks_to_jsonl(tasks: &[Task], include_body: bool) -> String {
+    let mut sorted: Vec<&Task> = tasks.iter().collect();
+    sorted.sort_by_key(|task| task.id_num());
+    let mut lines = Vec::new();
+    for task in sorted {
+        let value = task_to_json_value(task, include_body);
+        let line = serde_json::to_string(&value).unwrap_or_else(|_| "{}".to_string());
+        lines.push(line);
+    }
+    lines.join("\n")
+}
+
 pub fn task_to_json_value(task: &Task, include_body: bool) -> serde_json::Value {
     let mut map = serde_json::Map::new();
     map.insert("id".to_string(), serde_json::Value::String(task.id.clone()));
