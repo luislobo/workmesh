@@ -2,3 +2,5 @@
 /.env
 /.env.*
 .DS_Store
+/backlog/.audit.log
+/backlog/.index/
