@@ -134,6 +134,10 @@ fn audit_event(
     append_audit_event(backlog_dir, &event).map_err(CallToolError::new)
 }
 
+fn refresh_index_best_effort(backlog_dir: &Path) {
+    let _ = refresh_index(backlog_dir);
+}
+
 fn best_practice_hints() -> Vec<&'static str> {
     vec![
         "Always record dependencies for tasks that are blocked by other work.",
@@ -752,6 +756,7 @@ impl SetStatusTool {
             Some(&task.id),
             serde_json::json!({ "status": self.status.clone() }),
         )?;
+        refresh_index_best_effort(&backlog_dir);
         ok_json(serde_json::json!({"ok": true, "id": task.id, "status": self.status.clone()}))
     }
 }
@@ -780,6 +785,7 @@ impl SetFieldTool {
             Some(&task.id),
             serde_json::json!({ "field": self.field.clone(), "value": self.value.clone() }),
         )?;
+        refresh_index_best_effort(&backlog_dir);
         ok_json(serde_json::json!({"ok": true, "id": task.id, "field": self.field.clone(), "value": self.value.clone()}))
     }
 }
@@ -880,6 +886,7 @@ impl ClaimTaskTool {
                 "expires_at": lease.expires_at.clone(),
             }),
         )?;
+        refresh_index_best_effort(&backlog_dir);
         ok_json(serde_json::json!({"ok": true, "id": task.id, "owner": lease.owner.clone()}))
     }
 }
@@ -910,6 +917,7 @@ impl ReleaseTaskTool {
             Some(&task.id),
             serde_json::json!({}),
         )?;
+        refresh_index_best_effort(&backlog_dir);
         ok_json(serde_json::json!({"ok": true, "id": task.id}))
     }
 }
@@ -939,6 +947,7 @@ impl AddNoteTool {
             Some(&task.id),
             serde_json::json!({ "section": self.section.clone(), "note": self.note.clone() }),
         )?;
+        refresh_index_best_effort(&backlog_dir);
         ok_json(serde_json::json!({"ok": true, "id": task.id, "section": self.section}))
     }
 }
@@ -966,6 +975,7 @@ impl SetBodyTool {
             Some(&task.id),
             serde_json::json!({ "length": self.body.len() }),
         )?;
+        refresh_index_best_effort(&backlog_dir);
         ok_json(serde_json::json!({"ok": true, "id": task.id}))
     }
 }
@@ -994,6 +1004,7 @@ impl SetSectionTool {
             Some(&task.id),
             serde_json::json!({ "section": self.section.clone(), "length": self.content.len() }),
         )?;
+        refresh_index_best_effort(&backlog_dir);
         ok_json(serde_json::json!({"ok": true, "id": task.id, "section": self.section}))
     }
 }
@@ -1028,6 +1039,7 @@ impl AddTaskTool {
             Some(&task_id),
             serde_json::json!({ "title": self.title.clone() }),
         )?;
+        refresh_index_best_effort(&backlog_dir);
         let mut hints = best_practice_hints();
         if dependencies.is_empty() {
             let mut enriched = vec![
@@ -1316,6 +1328,7 @@ fn update_list_field(
         Some(&task.id),
         serde_json::json!({ "field": field, "value": value, "add": add }),
     )?;
+    refresh_index_best_effort(&backlog_dir);
     let payload = if field == "labels" {
         serde_json::json!({"ok": true, "id": task.id, "labels": current})
     } else {
