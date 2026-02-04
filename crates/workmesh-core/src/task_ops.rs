@@ -471,7 +471,7 @@ pub fn ready_tasks<'a>(tasks: &'a [Task]) -> Vec<&'a Task> {
     ready
 }
 
-fn is_lease_active(task: &Task) -> bool {
+pub fn is_lease_active(task: &Task) -> bool {
     let Some(lease) = task.lease.as_ref() else {
         return false;
     };
