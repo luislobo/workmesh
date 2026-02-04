@@ -28,6 +28,9 @@ struct Cli {
     /// Path to repo root or backlog directory
     #[arg(long, required = true)]
     root: PathBuf,
+    /// Automatically write a checkpoint after mutating commands
+    #[arg(long, action = ArgAction::SetTrue, global = true)]
+    auto_checkpoint: bool,
     #[command(subcommand)]
     command: Command,
 }
@@ -423,6 +426,7 @@ fn main() -> Result<()> {
     }
     let backlog_dir = resolve_backlog_dir(&cli.root)?;
     let tasks = load_tasks(&backlog_dir);
+    let auto_checkpoint = auto_checkpoint_enabled(&cli);
 
     match cli.command {
         Command::List {
@@ -716,6 +720,7 @@ fn main() -> Result<()> {
                 serde_json::json!({ "status": status.clone() }),
             )?;
             refresh_index_best_effort(&backlog_dir);
+            maybe_auto_checkpoint(&backlog_dir, auto_checkpoint);
             println!("Updated {} status -> {}", task.id, status);
         }
         Command::Claim {
@@ -755,6 +760,7 @@ fn main() -> Result<()> {
                 }),
             )?;
             refresh_index_best_effort(&backlog_dir);
+            maybe_auto_checkpoint(&backlog_dir, auto_checkpoint);
             println!("Claimed {} lease -> {}", task.id, lease.owner);
         }
         Command::Release { task_id, touch } => {
@@ -775,6 +781,7 @@ fn main() -> Result<()> {
                 serde_json::json!({}),
             )?;
             refresh_index_best_effort(&backlog_dir);
+            maybe_auto_checkpoint(&backlog_dir, auto_checkpoint);
             println!("Released {} lease", task.id);
         }
         Command::SetField { task_id, field, value, touch } => {
@@ -795,13 +802,16 @@ fn main() -> Result<()> {
                 serde_json::json!({ "field": field.clone(), "value": value.clone() }),
             )?;
             refresh_index_best_effort(&backlog_dir);
+            maybe_auto_checkpoint(&backlog_dir, auto_checkpoint);
             println!("Updated {} {} -> {}", task.id, field, value);
         }
         Command::LabelAdd { task_id, label, touch } => {
             update_list_field(&backlog_dir, &tasks, &task_id, "labels", &label, true, touch)?;
+            maybe_auto_checkpoint(&backlog_dir, auto_checkpoint);
         }
         Command::LabelRemove { task_id, label, touch } => {
             update_list_field(&backlog_dir, &tasks, &task_id, "labels", &label, false, touch)?;
+            maybe_auto_checkpoint(&backlog_dir, auto_checkpoint);
         }
         Command::DepAdd { task_id, dependency, touch } => {
             update_list_field(
@@ -813,6 +823,7 @@ fn main() -> Result<()> {
                 true,
                 touch,
             )?;
+            maybe_auto_checkpoint(&backlog_dir, auto_checkpoint);
         }
         Command::DepRemove { task_id, dependency, touch } => {
             update_list_field(
@@ -824,6 +835,7 @@ fn main() -> Result<()> {
                 false,
                 touch,
             )?;
+            maybe_auto_checkpoint(&backlog_dir, auto_checkpoint);
         }
         Command::Note { task_id, note, section, touch } => {
             let task = find_task(&tasks, &task_id).unwrap_or_else(|| {
@@ -844,6 +856,7 @@ fn main() -> Result<()> {
                 serde_json::json!({ "section": section.as_str(), "note": note }),
             )?;
             refresh_index_best_effort(&backlog_dir);
+            maybe_auto_checkpoint(&backlog_dir, auto_checkpoint);
             println!("Added note to {}", task.id);
         }
         Command::SetBody { task_id, text, file, touch } => {
@@ -865,6 +878,7 @@ fn main() -> Result<()> {
                 serde_json::json!({ "length": content.len() }),
             )?;
             refresh_index_best_effort(&backlog_dir);
+            maybe_auto_checkpoint(&backlog_dir, auto_checkpoint);
             println!("Updated body for {}", task.id);
         }
         Command::SetSection { task_id, section, text, file, touch } => {
@@ -887,6 +901,7 @@ fn main() -> Result<()> {
                 serde_json::json!({ "section": section.clone(), "length": content.len() }),
             )?;
             refresh_index_best_effort(&backlog_dir);
+            maybe_auto_checkpoint(&backlog_dir, auto_checkpoint);
             println!("Updated section {} for {}", section, task.id);
         }
         Command::Add {
@@ -923,6 +938,7 @@ fn main() -> Result<()> {
                 serde_json::json!({ "title": title }),
             )?;
             refresh_index_best_effort(&backlog_dir);
+            maybe_auto_checkpoint(&backlog_dir, auto_checkpoint);
             if json {
                 let payload = serde_json::json!({"path": path, "id": task_id});
                 println!("{}", serde_json::to_string_pretty(&payload)?);
@@ -970,6 +986,7 @@ fn main() -> Result<()> {
                 serde_json::json!({ "from": from, "title": title }),
             )?;
             refresh_index_best_effort(&backlog_dir);
+            maybe_auto_checkpoint(&backlog_dir, auto_checkpoint);
             if json {
                 let payload = serde_json::json!({"path": path, "id": task_id});
                 println!("{}", serde_json::to_string_pretty(&payload)?);
@@ -986,6 +1003,7 @@ fn main() -> Result<()> {
                 None,
                 serde_json::json!({ "project_id": project_id }),
             )?;
+            maybe_auto_checkpoint(&backlog_dir, auto_checkpoint);
             println!("{}", path.display());
         }
         Command::Validate { json } => {
@@ -1187,6 +1205,34 @@ fn audit_event(
     };
     append_audit_event(backlog_dir, &event)?;
     Ok(())
+}
+
+fn auto_checkpoint_enabled(cli: &Cli) -> bool {
+    if cli.auto_checkpoint {
+        return true;
+    }
+    env_flag_true("WORKMESH_AUTO_CHECKPOINT")
+}
+
+fn env_flag_true(name: &str) -> bool {
+    std::env::var(name)
+        .ok()
+        .map(|value| value.trim().to_lowercase())
+        .map(|value| matches!(value.as_str(), "1" | "true" | "yes" | "on"))
+        .unwrap_or(false)
+}
+
+fn maybe_auto_checkpoint(backlog_dir: &Path, enabled: bool) {
+    if !enabled {
+        return;
+    }
+    let tasks = load_tasks(backlog_dir);
+    let options = CheckpointOptions {
+        project_id: None,
+        checkpoint_id: None,
+        audit_limit: 10,
+    };
+    let _ = write_checkpoint(backlog_dir, &tasks, &options);
 }
 
 fn refresh_index_best_effort(backlog_dir: &Path) {

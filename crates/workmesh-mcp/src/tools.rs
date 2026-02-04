@@ -923,6 +923,7 @@ impl SetStatusTool {
             serde_json::json!({ "status": self.status.clone() }),
         )?;
         refresh_index_best_effort(&backlog_dir);
+        maybe_auto_checkpoint(&backlog_dir);
         ok_json(serde_json::json!({"ok": true, "id": task.id, "status": self.status.clone()}))
     }
 }
@@ -952,6 +953,7 @@ impl SetFieldTool {
             serde_json::json!({ "field": self.field.clone(), "value": self.value.clone() }),
         )?;
         refresh_index_best_effort(&backlog_dir);
+        maybe_auto_checkpoint(&backlog_dir);
         ok_json(serde_json::json!({"ok": true, "id": task.id, "field": self.field.clone(), "value": self.value.clone()}))
     }
 }
@@ -1053,6 +1055,7 @@ impl ClaimTaskTool {
             }),
         )?;
         refresh_index_best_effort(&backlog_dir);
+        maybe_auto_checkpoint(&backlog_dir);
         ok_json(serde_json::json!({"ok": true, "id": task.id, "owner": lease.owner.clone()}))
     }
 }
@@ -1084,6 +1087,7 @@ impl ReleaseTaskTool {
             serde_json::json!({}),
         )?;
         refresh_index_best_effort(&backlog_dir);
+        maybe_auto_checkpoint(&backlog_dir);
         ok_json(serde_json::json!({"ok": true, "id": task.id}))
     }
 }
@@ -1114,6 +1118,7 @@ impl AddNoteTool {
             serde_json::json!({ "section": self.section.clone(), "note": self.note.clone() }),
         )?;
         refresh_index_best_effort(&backlog_dir);
+        maybe_auto_checkpoint(&backlog_dir);
         ok_json(serde_json::json!({"ok": true, "id": task.id, "section": self.section}))
     }
 }
@@ -1142,6 +1147,7 @@ impl SetBodyTool {
             serde_json::json!({ "length": self.body.len() }),
         )?;
         refresh_index_best_effort(&backlog_dir);
+        maybe_auto_checkpoint(&backlog_dir);
         ok_json(serde_json::json!({"ok": true, "id": task.id}))
     }
 }
@@ -1171,6 +1177,7 @@ impl SetSectionTool {
             serde_json::json!({ "section": self.section.clone(), "length": self.content.len() }),
         )?;
         refresh_index_best_effort(&backlog_dir);
+        maybe_auto_checkpoint(&backlog_dir);
         ok_json(serde_json::json!({"ok": true, "id": task.id, "section": self.section}))
     }
 }
@@ -1206,6 +1213,7 @@ impl AddTaskTool {
             serde_json::json!({ "title": self.title.clone() }),
         )?;
         refresh_index_best_effort(&backlog_dir);
+        maybe_auto_checkpoint(&backlog_dir);
         let mut hints = best_practice_hints();
         if dependencies.is_empty() {
             let mut enriched = vec![
@@ -1266,6 +1274,7 @@ impl AddDiscoveredTool {
             serde_json::json!({ "from": self.from.clone(), "title": self.title.clone() }),
         )?;
         refresh_index_best_effort(&backlog_dir);
+        maybe_auto_checkpoint(&backlog_dir);
         ok_json(serde_json::json!({
             "ok": true,
             "id": task_id,
@@ -1290,6 +1299,7 @@ impl ProjectInitTool {
             None,
             serde_json::json!({ "project_id": self.project_id.clone() }),
         )?;
+        maybe_auto_checkpoint(&backlog_dir);
         ok_json(serde_json::json!({
             "ok": true,
             "project_id": self.project_id,
@@ -1710,6 +1720,7 @@ fn update_list_field(
         serde_json::json!({ "field": field, "value": value, "add": add }),
     )?;
     refresh_index_best_effort(&backlog_dir);
+    maybe_auto_checkpoint(&backlog_dir);
     let payload = if field == "labels" {
         serde_json::json!({"ok": true, "id": task.id, "labels": current})
     } else {
@@ -1741,3 +1752,23 @@ fn next_id(tasks: &[Task]) -> String {
     format!("task-{:03}", max_num + 1)
 }
 
+fn auto_checkpoint_enabled() -> bool {
+    std::env::var("WORKMESH_AUTO_CHECKPOINT")
+        .ok()
+        .map(|value| value.trim().to_lowercase())
+        .map(|value| matches!(value.as_str(), "1" | "true" | "yes" | "on"))
+        .unwrap_or(false)
+}
+
+fn maybe_auto_checkpoint(backlog_dir: &Path) {
+    if !auto_checkpoint_enabled() {
+        return;
+    }
+    let tasks = load_tasks(backlog_dir);
+    let options = CheckpointOptions {
+        project_id: None,
+        checkpoint_id: None,
+        audit_limit: 10,
+    };
+    let _ = write_checkpoint(backlog_dir, &tasks, &options);
+}
