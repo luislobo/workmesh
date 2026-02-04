@@ -21,7 +21,7 @@ use workmesh_core::task_ops::{
     append_note, create_task_file, filter_tasks, graph_export, next_task, ready_tasks,
     now_timestamp, timestamp_plus_minutes,
     render_task_line, replace_section, set_list_field, sort_tasks, status_counts,
-    task_to_json_value, tasks_to_jsonl, update_body, update_lease_fields, update_task_field,
+    FieldValue, task_to_json_value, tasks_to_jsonl, update_body, update_lease_fields, update_task_field,
     update_task_field_or_section, validate_tasks,
 };
 
@@ -185,6 +185,7 @@ fn tool_catalog() -> Vec<serde_json::Value> {
         serde_json::json!({"name": "set_body", "summary": "Replace full task body (after front matter)."}),
         serde_json::json!({"name": "set_section", "summary": "Replace a named section in the task body."}),
         serde_json::json!({"name": "add_task", "summary": "Create a new task file."}),
+        serde_json::json!({"name": "add_discovered", "summary": "Create a task discovered from another task."}),
         serde_json::json!({"name": "project_init", "summary": "Create project docs scaffold."}),
         serde_json::json!({"name": "quickstart", "summary": "Scaffold docs + backlog + seed task."}),
         serde_json::json!({"name": "validate", "summary": "Validate task metadata and dependencies."}),
@@ -389,6 +390,24 @@ pub struct AddTaskTool {
     pub assignee: Option<ListInput>,
 }
 
+#[mcp_tool(name = "add_discovered", description = "Create a task discovered from another task.")]
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct AddDiscoveredTool {
+    pub from: String,
+    pub title: String,
+    pub root: Option<String>,
+    pub task_id: Option<String>,
+    #[serde(default = "default_status")]
+    pub status: String,
+    #[serde(default = "default_priority")]
+    pub priority: String,
+    #[serde(default = "default_phase")]
+    pub phase: String,
+    pub labels: Option<ListInput>,
+    pub dependencies: Option<ListInput>,
+    pub assignee: Option<ListInput>,
+}
+
 #[mcp_tool(name = "project_init", description = "Create project docs scaffold.")]
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct ProjectInitTool {
@@ -554,6 +573,7 @@ tool_box!(
         SetBodyTool,
         SetSectionTool,
         AddTaskTool,
+        AddDiscoveredTool,
         ProjectInitTool,
         QuickstartTool,
         ValidateTool,
@@ -612,6 +632,7 @@ impl ServerHandler for WorkmeshServerHandler {
             WorkmeshTools::SetBodyTool(tool) => tool.call(&self.context),
             WorkmeshTools::SetSectionTool(tool) => tool.call(&self.context),
             WorkmeshTools::AddTaskTool(tool) => tool.call(&self.context),
+            WorkmeshTools::AddDiscoveredTool(tool) => tool.call(&self.context),
             WorkmeshTools::ProjectInitTool(tool) => tool.call(&self.context),
             WorkmeshTools::QuickstartTool(tool) => tool.call(&self.context),
             WorkmeshTools::ValidateTool(tool) => tool.call(&self.context),
@@ -1102,6 +1123,52 @@ impl AddTaskTool {
                 "Add labels for better filtering.",
                 "Add a note if there is important context.",
             ]
+        }))
+    }
+}
+
+impl AddDiscoveredTool {
+    fn call(&self, context: &McpContext) -> Result<CallToolResult, CallToolError> {
+        let backlog_dir = match resolve_root(context, self.root.as_deref()) {
+            Ok(dir) => dir,
+            Err(err) => return ok_json(err),
+        };
+        let tasks = load_tasks(&backlog_dir);
+        let tasks_dir = backlog_dir.join("tasks");
+        let task_id = self.task_id.clone().unwrap_or_else(|| next_id(&tasks));
+        let labels = parse_list_input(self.labels.clone());
+        let dependencies = parse_list_input(self.dependencies.clone());
+        let assignee = parse_list_input(self.assignee.clone());
+        let path = create_task_file(
+            &tasks_dir,
+            &task_id,
+            &self.title,
+            &self.status,
+            &self.priority,
+            &self.phase,
+            &dependencies,
+            &labels,
+            &assignee,
+        )
+        .map_err(CallToolError::new)?;
+        update_task_field(
+            &path,
+            "discovered_from",
+            Some(FieldValue::List(vec![self.from.clone()])),
+        )
+        .map_err(CallToolError::new)?;
+        audit_event(
+            &backlog_dir,
+            "add_discovered",
+            Some(&task_id),
+            serde_json::json!({ "from": self.from.clone(), "title": self.title.clone() }),
+        )?;
+        refresh_index_best_effort(&backlog_dir);
+        ok_json(serde_json::json!({
+            "ok": true,
+            "id": task_id,
+            "path": path,
+            "from": self.from.clone(),
         }))
     }
 }

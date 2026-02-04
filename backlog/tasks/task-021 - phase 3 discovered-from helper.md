@@ -1,13 +1,14 @@
 ---
 id: task-021
 title: Phase 3: Discovered-from helper
-status: To Do
+status: Done
 priority: P3
 phase: Phase3
 dependencies: [task-011]
 labels: [phase3, graph, cli]
 assignee: []
 prd: docs/projects/workmesh/prds/phase-3-agent-graph.md
+updated_date: 2026-02-04 12:55
 ---
 Description:
 --------------------------------------------------
