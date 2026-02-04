@@ -1,13 +1,14 @@
 ---
 id: task-022
 title: Phase 3: Checkpoint dump command
-status: To Do
+status: Done
 priority: P2
 phase: Phase3
 dependencies: [task-009]
 labels: [phase3, resume, cli]
 assignee: []
 prd: docs/projects/workmesh/prds/phase-3-session-continuity.md
+updated_date: 2026-02-04 00:09
 ---
 Description:
 --------------------------------------------------
