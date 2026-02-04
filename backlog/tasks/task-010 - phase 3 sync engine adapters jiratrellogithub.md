@@ -27,3 +27,4 @@ Definition of Done:
 Notes:
 --------------------------------------------------
 - Added sync engine scaffold in core with adapter trait + stub adapters (jira/trello/github).
+- Full external sync moved to Phase 4 to prioritize agent UX features first.

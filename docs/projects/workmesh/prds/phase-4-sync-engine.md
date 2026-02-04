@@ -1,8 +1,8 @@
-# PRD: Phase 3 - Sync engine (Jira/Trello/GitHub)
+# PRD: Phase 4 - External sync engine (Jira/Trello/GitHub)
 
-Date: 2026-02-01
+Date: 2026-02-04
 Owner: Luis Lobo
-Status: Draft
+Status: Planned
 
 ## Problem
 Developers need WorkMesh to keep Jira, Trello, and GitHub in sync with local Markdown
@@ -24,5 +24,5 @@ without manual management, preserving full PM history inside the repo.
 - Adapter interfaces for Jira/Trello/GitHub.
 
 ## Acceptance criteria
-- Simulated sync adapter can pull and update local tasks.
+- Simulated or real adapter can pull and update local tasks.
 - Conflicts are recorded and resolvable via MCP.
