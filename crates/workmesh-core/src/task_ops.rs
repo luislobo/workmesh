@@ -3,6 +3,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use chrono::{Duration, Local, NaiveDateTime};
+use ulid::Ulid;
 use regex::Regex;
 use serde::Serialize;
 
@@ -12,6 +13,7 @@ use crate::task::{split_front_matter, Task, TaskParseError};
 #[derive(Serialize)]
 struct GraphNode<'a> {
     id: &'a str,
+    uid: Option<&'a str>,
     node_type: &'a str,
     title: &'a str,
     status: &'a str,
@@ -420,8 +422,10 @@ pub fn create_task_file(
     let filename_title = slug_title(title);
     let filename = format!("{} - {}.md", task_id, filename_title);
     let path = tasks_dir.join(filename);
+    let uid = Ulid::new().to_string();
     let content = task_template(
         task_id,
+        &uid,
         title,
         status,
         priority,
@@ -501,7 +505,48 @@ pub fn validate_tasks(tasks: &[Task], backlog_dir: Option<&Path>) -> ValidationR
     let mut dup_list: Vec<String> = duplicates.into_iter().collect();
     dup_list.sort();
     for dup in dup_list {
-        errors.push(format!("Duplicate task id: {}", dup));
+        let tasks_with_dup: Vec<&Task> = tasks
+            .iter()
+            .filter(|task| task.id.eq_ignore_ascii_case(&dup))
+            .collect();
+        let mut uid_set = HashSet::new();
+        let mut all_have_uid = true;
+        for task in &tasks_with_dup {
+            match task.uid.as_deref() {
+                Some(uid) if !uid.trim().is_empty() => {
+                    uid_set.insert(uid.to_string());
+                }
+                _ => {
+                    all_have_uid = false;
+                }
+            }
+        }
+        if all_have_uid && uid_set.len() == tasks_with_dup.len() {
+            warnings.push(format!(
+                "Duplicate task id: {} (uids present; resolve on sync)",
+                dup
+            ));
+        } else {
+            errors.push(format!("Duplicate task id: {}", dup));
+        }
+    }
+
+    let uids: Vec<String> = tasks
+        .iter()
+        .filter_map(|task| task.uid.clone())
+        .filter(|uid| !uid.trim().is_empty())
+        .map(|uid| uid.to_lowercase())
+        .collect();
+    let mut uid_dups = HashSet::new();
+    for uid in &uids {
+        if uids.iter().filter(|other| *other == uid).count() > 1 {
+            uid_dups.insert(uid.clone());
+        }
+    }
+    let mut uid_list: Vec<String> = uid_dups.into_iter().collect();
+    uid_list.sort();
+    for dup in uid_list {
+        errors.push(format!("Duplicate task uid: {}", dup));
     }
 
     let existing_ids: HashSet<String> = tasks.iter().map(|task| task.id.to_lowercase()).collect();
@@ -590,6 +635,7 @@ pub fn graph_export(tasks: &[Task]) -> serde_json::Value {
         .iter()
         .map(|task| GraphNode {
             id: task.id.as_str(),
+            uid: task.uid.as_deref(),
             node_type: "task",
             title: task.title.as_str(),
             status: task.status.as_str(),
@@ -650,6 +696,13 @@ pub fn tasks_to_json(tasks: &[Task], include_body: bool) -> String {
 pub fn task_to_json_value(task: &Task, include_body: bool) -> serde_json::Value {
     let mut map = serde_json::Map::new();
     map.insert("id".to_string(), serde_json::Value::String(task.id.clone()));
+    map.insert(
+        "uid".to_string(),
+        task.uid
+            .clone()
+            .map(serde_json::Value::String)
+            .unwrap_or(serde_json::Value::Null),
+    );
     map.insert("title".to_string(), serde_json::Value::String(task.title.clone()));
     map.insert(
         "status".to_string(),
@@ -776,6 +829,7 @@ fn slug_title(title: &str) -> String {
 
 fn task_template(
     task_id: &str,
+    uid: &str,
     title: &str,
     status: &str,
     priority: &str,
@@ -787,6 +841,7 @@ fn task_template(
     let mut front = Vec::new();
     front.push("---".to_string());
     front.push(format!("id: {}", task_id));
+    front.push(format!("uid: {}", uid));
     front.push(format!("title: {}", title));
     front.push(format!("status: {}", status));
     front.push(format!("priority: {}", priority));
@@ -947,6 +1002,7 @@ mod tests {
     fn render_task_line_uses_placeholder() {
         let task = Task {
             id: "task-001".to_string(),
+            uid: None,
             title: "".to_string(),
             status: "To Do".to_string(),
             priority: "P1".to_string(),
@@ -1022,6 +1078,7 @@ mod tests {
         let tasks = vec![
             Task {
                 id: "task-001".to_string(),
+                uid: None,
                 title: "One".to_string(),
                 status: "To Do".to_string(),
                 priority: "P2".to_string(),
@@ -1041,6 +1098,7 @@ mod tests {
             },
             Task {
                 id: "task-002".to_string(),
+                uid: None,
                 title: "Two".to_string(),
                 status: "In Progress".to_string(),
                 priority: "P2".to_string(),
@@ -1060,6 +1118,7 @@ mod tests {
             },
             Task {
                 id: "task-003".to_string(),
+                uid: None,
                 title: "Three".to_string(),
                 status: "To Do".to_string(),
                 priority: "P2".to_string(),
@@ -1090,6 +1149,7 @@ mod tests {
     fn ready_tasks_respects_dependencies_and_blocked_by() {
         let task_done = Task {
             id: "task-001".to_string(),
+            uid: None,
             title: "Done".to_string(),
             status: "Done".to_string(),
             priority: "P2".to_string(),
@@ -1109,6 +1169,7 @@ mod tests {
         };
         let task_dep_ready = Task {
             id: "task-002".to_string(),
+            uid: None,
             title: "Dep Ready".to_string(),
             status: "To Do".to_string(),
             priority: "P2".to_string(),
@@ -1128,6 +1189,7 @@ mod tests {
         };
         let task_blocked_by_ready = Task {
             id: "task-003".to_string(),
+            uid: None,
             title: "Blocked By Ready".to_string(),
             status: "To Do".to_string(),
             priority: "P2".to_string(),
@@ -1152,6 +1214,7 @@ mod tests {
         };
         let task_blocked = Task {
             id: "task-004".to_string(),
+            uid: None,
             title: "Blocked".to_string(),
             status: "To Do".to_string(),
             priority: "P2".to_string(),
@@ -1185,6 +1248,7 @@ mod tests {
         };
         let task = Task {
             id: "task-010".to_string(),
+            uid: None,
             title: "Leased".to_string(),
             status: "To Do".to_string(),
             priority: "P2".to_string(),
@@ -1211,6 +1275,7 @@ mod tests {
     fn graph_export_includes_relationships_and_dependencies() {
         let task = Task {
             id: "task-001".to_string(),
+            uid: None,
             title: "One".to_string(),
             status: "To Do".to_string(),
             priority: "P2".to_string(),
@@ -1240,5 +1305,104 @@ mod tests {
         assert!(edges.iter().any(|edge| edge["edge_type"] == "parent" && edge["to"] == "task-004"));
         assert!(edges.iter().any(|edge| edge["edge_type"] == "child" && edge["to"] == "task-005"));
         assert!(edges.iter().any(|edge| edge["edge_type"] == "discovered_from" && edge["to"] == "task-006"));
+    }
+
+    #[test]
+    fn validate_allows_duplicate_ids_with_unique_uids() {
+        let task_a = Task {
+            id: "task-001".to_string(),
+            uid: Some("01J2R0QZ6QX9V0000000000001".to_string()),
+            title: "One".to_string(),
+            status: "To Do".to_string(),
+            priority: "P2".to_string(),
+            phase: "Phase1".to_string(),
+            dependencies: Vec::new(),
+            labels: vec!["core".to_string()],
+            assignee: Vec::new(),
+            relationships: Default::default(),
+            lease: None,
+            project: None,
+            initiative: None,
+            created_date: None,
+            updated_date: None,
+            extra: HashMap::new(),
+            file_path: None,
+            body: String::new(),
+        };
+        let task_b = Task {
+            id: "task-001".to_string(),
+            uid: Some("01J2R0QZ6QX9V0000000000002".to_string()),
+            title: "Two".to_string(),
+            status: "To Do".to_string(),
+            priority: "P2".to_string(),
+            phase: "Phase1".to_string(),
+            dependencies: Vec::new(),
+            labels: vec!["core".to_string()],
+            assignee: Vec::new(),
+            relationships: Default::default(),
+            lease: None,
+            project: None,
+            initiative: None,
+            created_date: None,
+            updated_date: None,
+            extra: HashMap::new(),
+            file_path: None,
+            body: String::new(),
+        };
+        let report = validate_tasks(&[task_a, task_b], None);
+        assert!(report.errors.is_empty());
+        assert!(report
+            .warnings
+            .iter()
+            .any(|warn| warn.contains("Duplicate task id")));
+    }
+
+    #[test]
+    fn validate_errors_on_duplicate_uid() {
+        let task_a = Task {
+            id: "task-001".to_string(),
+            uid: Some("01J2R0QZ6QX9V0000000000001".to_string()),
+            title: "One".to_string(),
+            status: "To Do".to_string(),
+            priority: "P2".to_string(),
+            phase: "Phase1".to_string(),
+            dependencies: Vec::new(),
+            labels: vec!["core".to_string()],
+            assignee: Vec::new(),
+            relationships: Default::default(),
+            lease: None,
+            project: None,
+            initiative: None,
+            created_date: None,
+            updated_date: None,
+            extra: HashMap::new(),
+            file_path: None,
+            body: String::new(),
+        };
+        let task_b = Task {
+            id: "task-002".to_string(),
+            uid: Some("01J2R0QZ6QX9V0000000000001".to_string()),
+            title: "Two".to_string(),
+            status: "To Do".to_string(),
+            priority: "P2".to_string(),
+            phase: "Phase1".to_string(),
+            dependencies: Vec::new(),
+            labels: vec!["core".to_string()],
+            assignee: Vec::new(),
+            relationships: Default::default(),
+            lease: None,
+            project: None,
+            initiative: None,
+            created_date: None,
+            updated_date: None,
+            extra: HashMap::new(),
+            file_path: None,
+            body: String::new(),
+        };
+        let report = validate_tasks(&[task_a, task_b], None);
+        assert!(report
+            .errors
+            .iter()
+            .any(|err| err.contains("Duplicate task uid")));
     }
 }

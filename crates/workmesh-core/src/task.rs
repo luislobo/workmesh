@@ -9,6 +9,7 @@ use thiserror::Error;
 #[derive(Debug, Clone)]
 pub struct Task {
     pub id: String,
+    pub uid: Option<String>,
     pub title: String,
     pub status: String,
     pub priority: String,
@@ -115,6 +116,11 @@ pub fn parse_task_file(path: &Path) -> Result<Task, TaskParseError> {
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty())
         .unwrap_or_else(|| id_from_filename(path));
+    let uid = data
+        .get("uid")
+        .and_then(value_to_string)
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty());
 
     let title = data
         .get("title")
@@ -169,6 +175,7 @@ pub fn parse_task_file(path: &Path) -> Result<Task, TaskParseError> {
 
     let known_keys = [
         "id",
+        "uid",
         "title",
         "status",
         "priority",
@@ -199,6 +206,7 @@ pub fn parse_task_file(path: &Path) -> Result<Task, TaskParseError> {
 
     Ok(Task {
         id: task_id,
+        uid,
         title,
         status,
         priority,
@@ -497,10 +505,29 @@ mod tests {
             + "- Example\n";
         fs::write(&file_path, content).expect("write");
 
+    let task = parse_task_file(&file_path).expect("parse");
+    assert_eq!(task.id, "task-001");
+    assert_eq!(task.dependencies, vec!["task-000"]);
+    assert_eq!(task.labels, vec!["ops"]);
+}
+
+    #[test]
+    fn parse_task_file_reads_uid() {
+        let temp = TempDir::new().expect("tempdir");
+        let file_path = temp.path().join("task-006 - uid.md");
+        let content = "---\n"
+            .to_string()
+            + "id: task-006\n"
+            + "uid: 01J2R0QZ6QX9V0000000000000\n"
+            + "title: Example\n"
+            + "status: To Do\n"
+            + "priority: P2\n"
+            + "phase: Phase1\n"
+            + "---\n";
+        fs::write(&file_path, content).expect("write");
+
         let task = parse_task_file(&file_path).expect("parse");
-        assert_eq!(task.id, "task-001");
-        assert_eq!(task.dependencies, vec!["task-000"]);
-        assert_eq!(task.labels, vec!["ops"]);
+        assert_eq!(task.uid.as_deref(), Some("01J2R0QZ6QX9V0000000000000"));
     }
 
     #[test]

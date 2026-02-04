@@ -7,6 +7,7 @@ use workmesh_core::task_ops::validate_tasks;
 fn task_with_project(project: &str) -> Task {
     Task {
         id: "task-001".to_string(),
+        uid: None,
         title: "Example".to_string(),
         status: "To Do".to_string(),
         priority: "P2".to_string(),

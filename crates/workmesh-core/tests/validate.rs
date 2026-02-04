@@ -4,6 +4,7 @@ use workmesh_core::task::Task;
 fn task(id: &str, status: &str, deps: Vec<&str>) -> Task {
     Task {
         id: id.to_string(),
+        uid: None,
         title: "Example".to_string(),
         status: status.to_string(),
         priority: "P2".to_string(),

@@ -19,3 +19,4 @@ serde_json = "1.0"
 thiserror = "1.0"
 regex = "1.10"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
+ulid = "1.1"
