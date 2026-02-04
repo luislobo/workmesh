@@ -5,11 +5,10 @@ Owner: Luis Lobo
 Status: Draft
 
 ## Problem
-xh-tasks is a Python CLI + MCP server. We need a Rust implementation that preserves existing
-behavior.
+WorkMesh needs a Rust implementation that preserves the existing behavior.
 
 ## Goals
-- Rust CLI and MCP server that match the current xh-tasks behavior.
+- Rust CLI and MCP server that match the current behavior.
 - Rootless MCP: if started inside a repo, infer the backlog root from CWD.
 - Maintain Markdown task format and tolerant front-matter parsing.
 
@@ -20,7 +19,7 @@ behavior.
 ## Requirements
 - CLI commands: list, next, show, stats, set-status, set-field, label add/remove,
   dep add/remove, note, set-body, set-section, add, validate, export, gantt (text/file/svg).
-- MCP tools: same surface as xh-tasks with optional `root`.
+- MCP tools: same surface with optional `root`.
 - File layout compatibility: `tasks/`, `backlog/tasks`, or `project/tasks`.
 - Tests covering task parsing, root resolution, and core operations.
 

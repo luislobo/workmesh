@@ -3,7 +3,7 @@
 WorkMesh is a MCP-first project and task system that keeps work in plain text and preserves
 the full history of project management in the repo.
 
-This repository is the Rust rewrite and evolution of xh-tasks.
+This repository is a Rust implementation of WorkMesh.
 
 ## Features
 - CLI for list/next/show/stats/export, plus task mutation (status, fields, labels, deps, notes).
