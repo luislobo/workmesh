@@ -8,6 +8,7 @@ use workmesh_core::backlog::resolve_backlog_dir;
 use workmesh_core::audit::{append_audit_event, AuditEvent};
 use workmesh_core::gantt::{plantuml_gantt, render_plantuml_svg, write_text_file, PlantumlRenderError};
 use workmesh_core::index::{rebuild_index, refresh_index, verify_index};
+use workmesh_core::quickstart::quickstart;
 use workmesh_core::task::{load_tasks, Lease, Task};
 use workmesh_core::project::{ensure_project_docs, repo_root_from_backlog};
 use workmesh_core::task_ops::{
@@ -219,6 +220,16 @@ enum Command {
         #[arg(long)]
         name: Option<String>,
     },
+    /// Quickstart: scaffold docs + backlog + seed task
+    Quickstart {
+        project_id: String,
+        #[arg(long)]
+        name: Option<String>,
+        #[arg(long, action = ArgAction::SetTrue)]
+        agents_snippet: bool,
+        #[arg(long, action = ArgAction::SetTrue)]
+        json: bool,
+    },
     /// Validate task files
     Validate {
         #[arg(long, action = ArgAction::SetTrue)]
@@ -295,6 +306,34 @@ impl NoteSection {
 
 fn main() -> Result<()> {
     let cli = Cli::parse();
+    if let Command::Quickstart {
+        project_id,
+        name,
+        agents_snippet,
+        json,
+    } = &cli.command
+    {
+        let repo_root = repo_root_from_backlog(&cli.root);
+        let result = quickstart(
+            &repo_root,
+            project_id,
+            name.as_deref(),
+            *agents_snippet,
+        )?;
+        if *json {
+            println!("{}", serde_json::to_string_pretty(&result)?);
+        } else {
+            println!("Docs: {}", result.project_dir.display());
+            println!("Backlog: {}", result.backlog_dir.display());
+            if let Some(task_path) = result.created_task.as_ref() {
+                println!("Seed task: {}", task_path.display());
+            }
+            if result.agents_snippet_written {
+                println!("AGENTS.md updated");
+            }
+        }
+        return Ok(());
+    }
     let backlog_dir = resolve_backlog_dir(&cli.root)?;
     let tasks = load_tasks(&backlog_dir);
 
@@ -751,6 +790,9 @@ fn main() -> Result<()> {
             } else {
                 print!("{}", svg);
             }
+        }
+        Command::Quickstart { .. } => {
+            unreachable!("quickstart handled before backlog resolution");
         }
     }
 
