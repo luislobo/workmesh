@@ -6,13 +6,13 @@ use clap::{ArgAction, Parser, Subcommand, ValueEnum};
 
 use workmesh_core::backlog::resolve_backlog_dir;
 use workmesh_core::gantt::{plantuml_gantt, render_plantuml_svg, write_text_file, PlantumlRenderError};
-use workmesh_core::task::{load_tasks, Task};
+use workmesh_core::task::{load_tasks, Lease, Task};
 use workmesh_core::project::{ensure_project_docs, repo_root_from_backlog};
 use workmesh_core::task_ops::{
     append_note, create_task_file, filter_tasks, graph_export, next_task, now_timestamp,
     ready_tasks, render_task_line, replace_section, set_list_field, sort_tasks, status_counts,
-    task_to_json_value, tasks_to_json, update_body, update_task_field, update_task_field_or_section,
-    validate_tasks,
+    task_to_json_value, tasks_to_json, timestamp_plus_minutes, update_body, update_lease_fields,
+    update_task_field, update_task_field_or_section, validate_tasks,
 };
 
 #[derive(Parser)]
@@ -91,6 +91,21 @@ enum Command {
     SetStatus {
         task_id: String,
         status: String,
+        #[arg(long, action = ArgAction::SetTrue)]
+        touch: bool,
+    },
+    /// Claim a task (lease)
+    Claim {
+        task_id: String,
+        owner: String,
+        #[arg(long)]
+        minutes: Option<i64>,
+        #[arg(long, action = ArgAction::SetTrue)]
+        touch: bool,
+    },
+    /// Release a task lease
+    Release {
+        task_id: String,
         #[arg(long, action = ArgAction::SetTrue)]
         touch: bool,
     },
@@ -391,6 +406,48 @@ fn main() -> Result<()> {
                 update_task_field(path, "updated_date", Some(now_timestamp().into()))?;
             }
             println!("Updated {} status -> {}", task.id, status);
+        }
+        Command::Claim {
+            task_id,
+            owner,
+            minutes,
+            touch,
+        } => {
+            let task = find_task(&tasks, &task_id).unwrap_or_else(|| {
+                die(&format!("Task not found: {}", task_id));
+            });
+            let path = task.file_path.as_ref().unwrap_or_else(|| {
+                die(&format!("Task not found: {}", task_id));
+            });
+            let mut assignee = task.assignee.clone();
+            if !assignee.iter().any(|value| value == &owner) {
+                assignee.push(owner.clone());
+                set_list_field(path, "assignee", assignee)?;
+            }
+            let expires_at = minutes.map(timestamp_plus_minutes);
+            let lease = Lease {
+                owner,
+                acquired_at: Some(now_timestamp()),
+                expires_at,
+            };
+            update_lease_fields(path, Some(&lease))?;
+            if touch {
+                update_task_field(path, "updated_date", Some(now_timestamp().into()))?;
+            }
+            println!("Claimed {} lease -> {}", task.id, lease.owner);
+        }
+        Command::Release { task_id, touch } => {
+            let task = find_task(&tasks, &task_id).unwrap_or_else(|| {
+                die(&format!("Task not found: {}", task_id));
+            });
+            let path = task.file_path.as_ref().unwrap_or_else(|| {
+                die(&format!("Task not found: {}", task_id));
+            });
+            update_lease_fields(path, None)?;
+            if touch {
+                update_task_field(path, "updated_date", Some(now_timestamp().into()))?;
+            }
+            println!("Released {} lease", task.id);
         }
         Command::SetField { task_id, field, value, touch } => {
             let task = find_task(&tasks, &task_id).unwrap_or_else(|| {

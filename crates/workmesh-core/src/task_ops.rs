@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use chrono::Local;
+use chrono::{Duration, Local, NaiveDateTime};
 use regex::Regex;
 use serde::Serialize;
 
@@ -84,7 +84,8 @@ pub fn blockers_satisfied(task: &Task, done_ids: &HashSet<String>) -> bool {
         .blocked_by
         .iter()
         .all(|dep| done_ids.contains(&dep.to_lowercase()));
-    deps_ok && rel_ok
+    let lease_ok = !is_lease_active(task);
+    deps_ok && rel_ok && lease_ok
 }
 
 pub fn filter_tasks<'a>(
@@ -180,6 +181,11 @@ pub fn now_timestamp() -> String {
     Local::now().format("%Y-%m-%d %H:%M").to_string()
 }
 
+pub fn timestamp_plus_minutes(minutes: i64) -> String {
+    let future = Local::now() + Duration::minutes(minutes);
+    future.format("%Y-%m-%d %H:%M").to_string()
+}
+
 pub fn update_front_matter_value(
     text: &str,
     key: &str,
@@ -242,6 +248,28 @@ pub fn update_task_field(path: &Path, key: &str, value: Option<FieldValue>) -> R
     let text = fs::read_to_string(path)
         .map_err(|err| TaskParseError::Invalid(err.to_string()))?;
     let updated = update_front_matter_value(&text, key, value)?;
+    fs::write(path, updated).map_err(|err| TaskParseError::Invalid(err.to_string()))?;
+    Ok(())
+}
+
+pub fn update_lease_fields(path: &Path, lease: Option<&crate::task::Lease>) -> Result<(), TaskParseError> {
+    let text = fs::read_to_string(path)
+        .map_err(|err| TaskParseError::Invalid(err.to_string()))?;
+    let mut updated = update_front_matter_value(
+        &text,
+        "lease_owner",
+        lease.map(|value| FieldValue::Scalar(value.owner.clone())),
+    )?;
+    updated = update_front_matter_value(
+        &updated,
+        "lease_acquired_at",
+        lease.and_then(|value| value.acquired_at.clone()).map(FieldValue::Scalar),
+    )?;
+    updated = update_front_matter_value(
+        &updated,
+        "lease_expires_at",
+        lease.and_then(|value| value.expires_at.clone()).map(FieldValue::Scalar),
+    )?;
     fs::write(path, updated).map_err(|err| TaskParseError::Invalid(err.to_string()))?;
     Ok(())
 }
@@ -437,6 +465,22 @@ pub fn ready_tasks<'a>(tasks: &'a [Task]) -> Vec<&'a Task> {
         .collect();
     ready.sort_by_key(|task| task.id_num());
     ready
+}
+
+fn is_lease_active(task: &Task) -> bool {
+    let Some(lease) = task.lease.as_ref() else {
+        return false;
+    };
+    if lease.owner.trim().is_empty() {
+        return false;
+    }
+    let Some(expires_at) = lease.expires_at.as_deref() else {
+        return true;
+    };
+    let Ok(expiry) = NaiveDateTime::parse_from_str(expires_at, "%Y-%m-%d %H:%M") else {
+        return true;
+    };
+    Local::now().naive_local() <= expiry
 }
 
 pub fn validate_tasks(tasks: &[Task], backlog_dir: Option<&Path>) -> ValidationResult {
@@ -651,6 +695,16 @@ pub fn task_to_json_value(task: &Task, include_body: bool) -> serde_json::Value 
             "child": task.relationships.child.clone(),
             "discovered_from": task.relationships.discovered_from.clone(),
         }),
+    );
+    map.insert(
+        "lease".to_string(),
+        task.lease.as_ref().map(|lease| {
+            serde_json::json!({
+                "owner": lease.owner,
+                "acquired_at": lease.acquired_at,
+                "expires_at": lease.expires_at,
+            })
+        }).unwrap_or(serde_json::Value::Null),
     );
     map.insert(
         "project".to_string(),
@@ -901,6 +955,7 @@ mod tests {
             labels: Vec::new(),
             assignee: Vec::new(),
             relationships: Default::default(),
+            lease: None,
             project: None,
             initiative: None,
             created_date: None,
@@ -975,6 +1030,7 @@ mod tests {
                 labels: Vec::new(),
                 assignee: Vec::new(),
                 relationships: Default::default(),
+                lease: None,
                 project: None,
                 initiative: None,
                 created_date: None,
@@ -993,6 +1049,7 @@ mod tests {
                 labels: Vec::new(),
                 assignee: Vec::new(),
                 relationships: Default::default(),
+                lease: None,
                 project: None,
                 initiative: None,
                 created_date: None,
@@ -1011,6 +1068,7 @@ mod tests {
                 labels: Vec::new(),
                 assignee: Vec::new(),
                 relationships: Default::default(),
+                lease: None,
                 project: None,
                 initiative: None,
                 created_date: None,
@@ -1040,6 +1098,7 @@ mod tests {
             labels: Vec::new(),
             assignee: Vec::new(),
             relationships: Default::default(),
+            lease: None,
             project: None,
             initiative: None,
             created_date: None,
@@ -1058,6 +1117,7 @@ mod tests {
             labels: Vec::new(),
             assignee: Vec::new(),
             relationships: Default::default(),
+            lease: None,
             project: None,
             initiative: None,
             created_date: None,
@@ -1081,6 +1141,7 @@ mod tests {
                 child: Vec::new(),
                 discovered_from: Vec::new(),
             },
+            lease: None,
             project: None,
             initiative: None,
             created_date: None,
@@ -1099,6 +1160,7 @@ mod tests {
             labels: Vec::new(),
             assignee: Vec::new(),
             relationships: Default::default(),
+            lease: None,
             project: None,
             initiative: None,
             created_date: None,
@@ -1112,6 +1174,37 @@ mod tests {
         let ready = ready_tasks(&tasks);
         let ids: Vec<&str> = ready.iter().map(|task| task.id.as_str()).collect();
         assert_eq!(ids, vec!["task-002", "task-003"]);
+    }
+
+    #[test]
+    fn ready_tasks_excludes_active_lease() {
+        let lease = crate::task::Lease {
+            owner: "agent-1".to_string(),
+            acquired_at: Some("2026-02-03 10:00".to_string()),
+            expires_at: Some("2999-12-31 00:00".to_string()),
+        };
+        let task = Task {
+            id: "task-010".to_string(),
+            title: "Leased".to_string(),
+            status: "To Do".to_string(),
+            priority: "P2".to_string(),
+            phase: "Phase1".to_string(),
+            dependencies: Vec::new(),
+            labels: Vec::new(),
+            assignee: Vec::new(),
+            relationships: Default::default(),
+            lease: Some(lease),
+            project: None,
+            initiative: None,
+            created_date: None,
+            updated_date: None,
+            extra: HashMap::new(),
+            file_path: None,
+            body: String::new(),
+        };
+        let tasks = [task];
+        let ready = ready_tasks(&tasks);
+        assert!(ready.is_empty());
     }
 
     #[test]
@@ -1131,6 +1224,7 @@ mod tests {
                 child: vec!["task-005".to_string()],
                 discovered_from: vec!["task-006".to_string()],
             },
+            lease: None,
             project: None,
             initiative: None,
             created_date: None,

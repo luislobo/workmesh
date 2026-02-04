@@ -15,6 +15,7 @@ fn task_with_project(project: &str) -> Task {
         labels: Vec::new(),
         assignee: Vec::new(),
         relationships: Default::default(),
+        lease: None,
         project: Some(project.to_string()),
         initiative: None,
         created_date: None,

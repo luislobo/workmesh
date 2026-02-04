@@ -17,6 +17,7 @@ pub struct Task {
     pub labels: Vec<String>,
     pub assignee: Vec<String>,
     pub relationships: Relationships,
+    pub lease: Option<Lease>,
     pub project: Option<String>,
     pub initiative: Option<String>,
     pub created_date: Option<String>,
@@ -52,6 +53,13 @@ pub struct Relationships {
     pub parent: Vec<String>,
     pub child: Vec<String>,
     pub discovered_from: Vec<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct Lease {
+    pub owner: String,
+    pub acquired_at: Option<String>,
+    pub expires_at: Option<String>,
 }
 
 pub fn split_front_matter(text: &str) -> Result<(String, String), TaskParseError> {
@@ -137,6 +145,7 @@ pub fn parse_task_file(path: &Path) -> Result<Task, TaskParseError> {
     let labels = parse_list_value(data.get("labels"));
     let assignee = parse_list_value(data.get("assignee"));
     let relationships = parse_relationships(&data);
+    let lease = parse_lease(&data);
     let project = data
         .get("project")
         .and_then(value_to_string)
@@ -172,6 +181,10 @@ pub fn parse_task_file(path: &Path) -> Result<Task, TaskParseError> {
         "child",
         "discovered_from",
         "relationships",
+        "lease",
+        "lease_owner",
+        "lease_acquired_at",
+        "lease_expires_at",
         "project",
         "initiative",
         "created_date",
@@ -194,6 +207,7 @@ pub fn parse_task_file(path: &Path) -> Result<Task, TaskParseError> {
         labels,
         assignee,
         relationships,
+        lease,
         project,
         initiative,
         created_date,
@@ -400,6 +414,59 @@ fn value_to_list(value: &Value) -> Option<Vec<String>> {
     }
 }
 
+fn parse_lease(data: &HashMap<String, Value>) -> Option<Lease> {
+    let owner = data
+        .get("lease_owner")
+        .and_then(value_to_string)
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty());
+    let acquired_at = data
+        .get("lease_acquired_at")
+        .and_then(value_to_string)
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty());
+    let expires_at = data
+        .get("lease_expires_at")
+        .and_then(value_to_string)
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty());
+
+    if let Some(owner) = owner {
+        return Some(Lease {
+            owner,
+            acquired_at,
+            expires_at,
+        });
+    }
+
+    if let Some(Value::Mapping(map)) = data.get("lease") {
+        let owner = map
+            .get(&Value::String("owner".to_string()))
+            .and_then(value_to_string)
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty());
+        let acquired_at = map
+            .get(&Value::String("acquired_at".to_string()))
+            .and_then(value_to_string)
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty());
+        let expires_at = map
+            .get(&Value::String("expires_at".to_string()))
+            .and_then(value_to_string)
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty());
+        if let Some(owner) = owner {
+            return Some(Lease {
+                owner,
+                acquired_at,
+                expires_at,
+            });
+        }
+    }
+
+    None
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -485,6 +552,55 @@ mod tests {
         assert_eq!(task.relationships.parent, vec!["task-000"]);
         assert_eq!(task.relationships.child, vec!["task-004"]);
         assert_eq!(task.relationships.discovered_from, vec!["task-005"]);
+    }
+
+    #[test]
+    fn parse_task_file_reads_lease_mapping() {
+        let temp = TempDir::new().expect("tempdir");
+        let file_path = temp.path().join("task-004 - lease.md");
+        let content = "---\n"
+            .to_string()
+            + "id: task-004\n"
+            + "title: Example\n"
+            + "status: To Do\n"
+            + "priority: P2\n"
+            + "phase: Phase1\n"
+            + "lease:\n"
+            + "  owner: agent-1\n"
+            + "  acquired_at: 2026-02-03 10:00\n"
+            + "  expires_at: 2026-02-03 11:00\n"
+            + "---\n";
+        fs::write(&file_path, content).expect("write");
+
+        let task = parse_task_file(&file_path).expect("parse");
+        let lease = task.lease.expect("lease");
+        assert_eq!(lease.owner, "agent-1");
+        assert_eq!(lease.acquired_at.as_deref(), Some("2026-02-03 10:00"));
+        assert_eq!(lease.expires_at.as_deref(), Some("2026-02-03 11:00"));
+    }
+
+    #[test]
+    fn parse_task_file_reads_flat_lease() {
+        let temp = TempDir::new().expect("tempdir");
+        let file_path = temp.path().join("task-005 - lease-flat.md");
+        let content = "---\n"
+            .to_string()
+            + "id: task-005\n"
+            + "title: Example\n"
+            + "status: To Do\n"
+            + "priority: P2\n"
+            + "phase: Phase1\n"
+            + "lease_owner: agent-2\n"
+            + "lease_acquired_at: 2026-02-03 12:00\n"
+            + "lease_expires_at: 2026-02-03 13:00\n"
+            + "---\n";
+        fs::write(&file_path, content).expect("write");
+
+        let task = parse_task_file(&file_path).expect("parse");
+        let lease = task.lease.expect("lease");
+        assert_eq!(lease.owner, "agent-2");
+        assert_eq!(lease.acquired_at.as_deref(), Some("2026-02-03 12:00"));
+        assert_eq!(lease.expires_at.as_deref(), Some("2026-02-03 13:00"));
     }
 
     #[test]
