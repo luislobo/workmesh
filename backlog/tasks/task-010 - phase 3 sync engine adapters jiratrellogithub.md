@@ -1,13 +1,13 @@
 ---
 id: task-010
-title: Phase 3: Sync engine + adapters (Jira/Trello/GitHub)
-status: Done
+title: Phase 4: Sync engine + adapters (Jira/Trello/GitHub)
+status: To Do
 priority: P2
-phase: Phase3
-dependencies: [task-009, task-011, task-012, task-013, task-014, task-015, task-016]
-labels: [phase3, sync]
+phase: Phase4
+dependencies: [task-011, task-012, task-013, task-014, task-015, task-016, task-017]
+labels: [phase4, sync]
 assignee: []
-prd: docs/projects/workmesh/prds/phase-3-sync-and-graph.md
+prd: docs/projects/workmesh/prds/phase-4-sync-engine.md
 ---
 Description:
 --------------------------------------------------
@@ -26,6 +26,4 @@ Definition of Done:
 
 Notes:
 --------------------------------------------------
-- Added sync engine scaffold in core with adapter trait + stub adapters (jira/trello/github).
-- Full external sync moved to Phase 4 to prioritize agent UX features first.
-- Sync scaffold removed to avoid premature/empty code; Phase 4 task-018 holds the plan.
+- Deferred to Phase 4 so Phase 3 focuses on agent UX + graph + audit + ID + index.

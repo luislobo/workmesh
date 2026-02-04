@@ -4,7 +4,7 @@ title: Phase 4: External sync adapters (Jira/Trello/GitHub)
 status: To Do
 priority: P3
 phase: Phase4
-dependencies: []
+dependencies: [task-010]
 labels: [phase4, sync]
 assignee: []
 prd: docs/projects/workmesh/prds/phase-4-sync-engine.md
