@@ -1,8 +1,7 @@
 # WorkMesh
 
-WorkMesh is a MCP-first project and task system that keeps work in plain text while syncing with
-Jira, Trello, and GitHub. It is designed for developers who want a clean DX: talk to the agent,
-pull updates, resolve conflicts, and keep the full history of project management in the repo.
+WorkMesh is a MCP-first project and task system that keeps work in plain text and preserves
+the full history of project management in the repo.
 
 This repository is the Rust rewrite and evolution of xh-tasks.
 
@@ -61,4 +60,4 @@ Index file: `backlog/.index/tasks.jsonl`
 ## Status
 Phase 1 and 2 complete: behavior parity + docs-first project model.
 See `docs/projects/workmesh/prds/phase-1-conversion.md` and `docs/projects/workmesh/prds/phase-2-docs-model.md`.
-Phase 3 (sync engine + adapters) is planned.
+Phase 3 (agent-ready graph + coordination) is complete.

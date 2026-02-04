@@ -6,16 +6,14 @@ Status: Draft
 
 ## Problem
 xh-tasks is a Python CLI + MCP server. We need a Rust implementation that preserves existing
-behavior while preparing for future sync and conflict-resolution features.
+behavior.
 
 ## Goals
 - Rust CLI and MCP server that match the current xh-tasks behavior.
 - Rootless MCP: if started inside a repo, infer the backlog root from CWD.
 - Maintain Markdown task format and tolerant front-matter parsing.
-- Keep the codebase ready for sync and conflict modules in later phases.
 
 ## Non-goals
-- Jira/Trello/GitHub sync in Phase 1.
 - New UI or visual planning views.
 - Migration of existing user data (handled later).
 

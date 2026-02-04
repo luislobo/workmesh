@@ -7,8 +7,7 @@ All project documentation lives under `docs/`.
   - `prds/` - product requirement documents.
   - `decisions/` - ADRs and decision logs.
   - `updates/` - status updates (date-stamped).
-  - `comments/` - synced comment history (append-only).
+  - `comments/` - comment history (append-only).
   - `events/` - normalized change events (append-only).
-  - `conflicts/` - conflict resolution records.
 
 Tasks live in `backlog/tasks/` and should reference the relevant PRD.
