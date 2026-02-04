@@ -14,3 +14,6 @@ serde_json.workspace = true
 shell-words = "1.1"
 tokio = { version = "1.39", features = ["macros", "rt-multi-thread"] }
 workmesh-core = { path = "../workmesh-core" }
+
+[dev-dependencies]
+tempfile = "3.12"
