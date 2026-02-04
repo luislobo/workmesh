@@ -1,4 +1,5 @@
 use std::collections::BTreeSet;
+use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::Arc;
@@ -130,6 +131,27 @@ fn write_task(
         deps = deps
     );
     std::fs::write(&path, content).expect("write task");
+    path
+}
+
+fn find_task_path(tasks_dir: &Path, id: &str) -> PathBuf {
+    let entries = std::fs::read_dir(tasks_dir).expect("read tasks dir");
+    for entry in entries.flatten() {
+        let name = entry.file_name().to_string_lossy().to_string();
+        if name.to_lowercase().starts_with(&id.to_lowercase()) {
+            return entry.path();
+        }
+    }
+    panic!("task file not found for {}", id);
+}
+
+fn write_fake_plantuml(dir: &Path) -> PathBuf {
+    let path = dir.join("fake-plantuml.sh");
+    let script = "#!/bin/sh\ncat >/dev/null\necho \"<svg></svg>\"\n";
+    std::fs::write(&path, script).expect("write plantuml script");
+    let mut perms = std::fs::metadata(&path).expect("stat").permissions();
+    perms.set_mode(0o755);
+    std::fs::set_permissions(&path, perms).expect("chmod");
     path
 }
 
@@ -388,6 +410,28 @@ async fn cli_and_mcp_graph_issues_index_gantt_parity() {
     let cli_index_value: serde_json::Value =
         serde_json::from_slice(&cli_index.stdout).expect("cli index json");
 
+    let cli_index_refresh = cli()
+        .arg("--root")
+        .arg(temp.path())
+        .arg("index-refresh")
+        .arg("--json")
+        .output()
+        .expect("cli index refresh");
+    assert!(cli_index_refresh.status.success());
+    let cli_index_refresh_value: serde_json::Value =
+        serde_json::from_slice(&cli_index_refresh.stdout).expect("cli index refresh json");
+
+    let cli_index_verify = cli()
+        .arg("--root")
+        .arg(temp.path())
+        .arg("index-verify")
+        .arg("--json")
+        .output()
+        .expect("cli index verify");
+    assert!(cli_index_verify.status.success());
+    let cli_index_verify_value: serde_json::Value =
+        serde_json::from_slice(&cli_index_verify.stdout).expect("cli index verify json");
+
     let cli_gantt = cli()
         .arg("--root")
         .arg(temp.path())
@@ -398,6 +442,39 @@ async fn cli_and_mcp_graph_issues_index_gantt_parity() {
         .expect("cli gantt");
     assert!(cli_gantt.status.success());
     let cli_gantt_text = String::from_utf8_lossy(&cli_gantt.stdout).to_string();
+
+    let cli_gantt_file_path = temp.path().join("gantt-cli.txt");
+    let cli_gantt_file = cli()
+        .arg("--root")
+        .arg(temp.path())
+        .arg("gantt-file")
+        .arg("--zoom")
+        .arg("3")
+        .arg("--output")
+        .arg(&cli_gantt_file_path)
+        .output()
+        .expect("cli gantt-file");
+    assert!(cli_gantt_file.status.success());
+    let cli_gantt_file_text =
+        std::fs::read_to_string(&cli_gantt_file_path).expect("gantt file text");
+
+    let fake_plantuml = write_fake_plantuml(temp.path());
+    let cli_gantt_svg_path = temp.path().join("gantt-cli.svg");
+    let cli_gantt_svg = cli()
+        .arg("--root")
+        .arg(temp.path())
+        .arg("gantt-svg")
+        .arg("--zoom")
+        .arg("3")
+        .arg("--output")
+        .arg(&cli_gantt_svg_path)
+        .arg("--plantuml-cmd")
+        .arg(fake_plantuml.display().to_string())
+        .output()
+        .expect("cli gantt-svg");
+    assert!(cli_gantt_svg.status.success());
+    let cli_gantt_svg_text =
+        std::fs::read_to_string(&cli_gantt_svg_path).expect("gantt svg text");
 
     let client = start_client(temp.path()).await;
 
@@ -424,12 +501,61 @@ async fn cli_and_mcp_graph_issues_index_gantt_parity() {
     .await;
     let mcp_index_value: serde_json::Value = serde_json::from_str(&mcp_index_text).unwrap();
 
+    let mcp_index_refresh_text = call_tool_text(
+        &client,
+        "index_refresh",
+        serde_json::json!({"root": temp.path().display().to_string()}),
+    )
+    .await;
+    let mcp_index_refresh_value: serde_json::Value =
+        serde_json::from_str(&mcp_index_refresh_text).unwrap();
+
+    let mcp_index_verify_text = call_tool_text(
+        &client,
+        "index_verify",
+        serde_json::json!({"root": temp.path().display().to_string()}),
+    )
+    .await;
+    let mcp_index_verify_value: serde_json::Value =
+        serde_json::from_str(&mcp_index_verify_text).unwrap();
+
     let mcp_gantt_text = call_tool_text(
         &client,
         "gantt_text",
         serde_json::json!({"root": temp.path().display().to_string(), "zoom": 3}),
     )
     .await;
+
+    let mcp_gantt_file_path = temp.path().join("gantt-mcp.txt");
+    let mcp_gantt_file_text = call_tool_text(
+        &client,
+        "gantt_file",
+        serde_json::json!({
+            "root": temp.path().display().to_string(),
+            "zoom": 3,
+            "output": mcp_gantt_file_path.display().to_string()
+        }),
+    )
+    .await;
+    let mcp_gantt_file_value: serde_json::Value = serde_json::from_str(&mcp_gantt_file_text).unwrap();
+    let mcp_gantt_file_content =
+        std::fs::read_to_string(&mcp_gantt_file_path).expect("mcp gantt file");
+
+    let mcp_gantt_svg_path = temp.path().join("gantt-mcp.svg");
+    let mcp_gantt_svg_text = call_tool_text(
+        &client,
+        "gantt_svg",
+        serde_json::json!({
+            "root": temp.path().display().to_string(),
+            "zoom": 3,
+            "output": mcp_gantt_svg_path.display().to_string(),
+            "plantuml_cmd": fake_plantuml.display().to_string()
+        }),
+    )
+    .await;
+    let mcp_gantt_svg_value: serde_json::Value = serde_json::from_str(&mcp_gantt_svg_text).unwrap();
+    let mcp_gantt_svg_content =
+        std::fs::read_to_string(&mcp_gantt_svg_path).expect("mcp gantt svg");
 
     client.shut_down().await.expect("shutdown");
 
@@ -441,8 +567,27 @@ async fn cli_and_mcp_graph_issues_index_gantt_parity() {
 
     assert!(cli_index_value.get("entries").is_some());
     assert_eq!(cli_index_value.get("entries"), mcp_index_value.get("entries"));
+    assert_eq!(
+        cli_index_refresh_value.get("entries"),
+        mcp_index_refresh_value.get("entries")
+    );
+    assert_eq!(
+        cli_index_verify_value.get("ok"),
+        mcp_index_verify_value.get("ok")
+    );
 
     assert_eq!(cli_gantt_text.trim(), mcp_gantt_text.trim());
+    assert_eq!(cli_gantt_text.trim(), cli_gantt_file_text.trim());
+    assert_eq!(cli_gantt_text.trim(), mcp_gantt_file_content.trim());
+    assert_eq!(
+        mcp_gantt_file_path.display().to_string(),
+        mcp_gantt_file_value.get("path").and_then(|v| v.as_str()).unwrap_or("")
+    );
+    assert_eq!(
+        mcp_gantt_svg_path.display().to_string(),
+        mcp_gantt_svg_value.get("path").and_then(|v| v.as_str()).unwrap_or("")
+    );
+    assert_eq!(cli_gantt_svg_text.trim(), mcp_gantt_svg_content.trim());
 }
 
 #[tokio::test]
@@ -454,6 +599,21 @@ async fn cli_and_mcp_write_and_session_parity() {
 
     let task_path = write_task(&tasks_dir, "task-001", "Alpha", "To Do", &[]);
     let task_path2 = write_task(&tasks_dir, "task-002", "Beta", "To Do", &[]);
+
+    let cli_add = cli()
+        .arg("--root")
+        .arg(temp.path())
+        .arg("add")
+        .arg("--id")
+        .arg("task-003")
+        .arg("--title")
+        .arg("Gamma")
+        .arg("--labels")
+        .arg("seed")
+        .output()
+        .expect("cli add");
+    assert!(cli_add.status.success());
+    let task_path3 = find_task_path(&tasks_dir, "task-003");
 
     // CLI set-status
     let cli_status = cli()
@@ -470,11 +630,46 @@ async fn cli_and_mcp_write_and_session_parity() {
     let client = start_client(temp.path()).await;
     let _ = call_tool_text(
         &client,
+        "add_task",
+        serde_json::json!({
+            "root": temp.path().display().to_string(),
+            "task_id": "task-004",
+            "title": "Delta",
+            "labels": ["seed2"]
+        }),
+    )
+    .await;
+    let task_path4 = find_task_path(&tasks_dir, "task-004");
+
+    let cli_set_field = cli()
+        .arg("--root")
+        .arg(temp.path())
+        .arg("set-field")
+        .arg("task-001")
+        .arg("priority")
+        .arg("P1")
+        .output()
+        .expect("cli set-field");
+    assert!(cli_set_field.status.success());
+
+    let _ = call_tool_text(
+        &client,
         "set_status",
         serde_json::json!({
             "root": temp.path().display().to_string(),
             "task_id": "task-002",
             "status": "Done"
+        }),
+    )
+    .await;
+    let _ = call_tool_text(
+        &client,
+        "set_field",
+        serde_json::json!({
+            "root": temp.path().display().to_string(),
+            "task_id": "task-002",
+            "field": "phase",
+            "value": "Phase2"
         }),
     )
     .await;
@@ -490,9 +685,50 @@ async fn cli_and_mcp_write_and_session_parity() {
         .expect("cli label-add");
     assert!(cli_label.status.success());
 
+    let cli_label_keep = cli()
+        .arg("--root")
+        .arg(temp.path())
+        .arg("label-add")
+        .arg("task-001")
+        .arg("keep")
+        .output()
+        .expect("cli label-add keep");
+    assert!(cli_label_keep.status.success());
+
     let _ = call_tool_text(
         &client,
         "add_label",
+        serde_json::json!({
+            "root": temp.path().display().to_string(),
+            "task_id": "task-002",
+            "label": "infra"
+        }),
+    )
+    .await;
+    let _ = call_tool_text(
+        &client,
+        "add_label",
+        serde_json::json!({
+            "root": temp.path().display().to_string(),
+            "task_id": "task-002",
+            "label": "keep2"
+        }),
+    )
+    .await;
+
+    let cli_label_remove = cli()
+        .arg("--root")
+        .arg(temp.path())
+        .arg("label-remove")
+        .arg("task-001")
+        .arg("docs")
+        .output()
+        .expect("cli label-remove");
+    assert!(cli_label_remove.status.success());
+
+    let _ = call_tool_text(
+        &client,
+        "remove_label",
         serde_json::json!({
             "root": temp.path().display().to_string(),
             "task_id": "task-002",
@@ -512,9 +748,39 @@ async fn cli_and_mcp_write_and_session_parity() {
         .expect("cli dep-add");
     assert!(cli_dep.status.success());
 
+    let cli_dep_extra = cli()
+        .arg("--root")
+        .arg(temp.path())
+        .arg("dep-add")
+        .arg("task-001")
+        .arg("task-003")
+        .output()
+        .expect("cli dep-add extra");
+    assert!(cli_dep_extra.status.success());
+
+    let cli_dep_remove = cli()
+        .arg("--root")
+        .arg(temp.path())
+        .arg("dep-remove")
+        .arg("task-001")
+        .arg("task-002")
+        .output()
+        .expect("cli dep-remove");
+    assert!(cli_dep_remove.status.success());
+
     let _ = call_tool_text(
         &client,
         "add_dependency",
+        serde_json::json!({
+            "root": temp.path().display().to_string(),
+            "task_id": "task-002",
+            "dependency": "task-001"
+        }),
+    )
+    .await;
+    let _ = call_tool_text(
+        &client,
+        "remove_dependency",
         serde_json::json!({
             "root": temp.path().display().to_string(),
             "task_id": "task-002",
@@ -765,17 +1031,44 @@ async fn cli_and_mcp_write_and_session_parity() {
     .await;
     assert!(skill.contains("WorkMesh skill"));
 
+    let help = call_tool_text(
+        &client,
+        "help",
+        serde_json::json!({"root": temp.path().display().to_string(), "format": "text"}),
+    )
+    .await;
+    assert!(help.contains("workmesh MCP help"));
+
+    let pm_skill = call_tool_text(
+        &client,
+        "project_management_skill",
+        serde_json::json!({"root": temp.path().display().to_string(), "format": "text"}),
+    )
+    .await;
+    assert!(pm_skill.contains("WorkMesh skill"));
+
     client.shut_down().await.expect("shutdown");
 
     let task = parse_task_file(&task_path).expect("parse task");
     assert_eq!(task.status, "In Progress");
-    assert!(task.labels.contains(&"docs".to_string()));
-    assert!(task.dependencies.contains(&"task-002".to_string()));
+    assert_eq!(task.priority, "P1");
+    assert!(task.labels.contains(&"keep".to_string()));
+    assert!(!task.labels.contains(&"docs".to_string()));
+    assert!(task.dependencies.contains(&"task-003".to_string()));
+    assert!(!task.dependencies.contains(&"task-002".to_string()));
 
     let task2 = parse_task_file(&task_path2).expect("parse task2");
     assert_eq!(task2.status, "Done");
-    assert!(task2.labels.contains(&"infra".to_string()));
-    assert!(task2.dependencies.contains(&"task-001".to_string()));
+    assert_eq!(task2.phase, "Phase2");
+    assert!(task2.labels.contains(&"keep2".to_string()));
+    assert!(!task2.labels.contains(&"infra".to_string()));
+    assert!(task2.dependencies.is_empty());
+
+    let task3 = parse_task_file(&task_path3).expect("parse task3");
+    assert!(task3.labels.contains(&"seed".to_string()));
+
+    let task4 = parse_task_file(&task_path4).expect("parse task4");
+    assert!(task4.labels.contains(&"seed2".to_string()));
 }
 
 #[tokio::test]
