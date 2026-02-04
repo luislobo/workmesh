@@ -4,3 +4,13 @@
 .DS_Store
 /backlog/.audit.log
 /backlog/.index/
+# Go
+/bin/
+/pkg/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
