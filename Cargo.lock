@@ -2558,6 +2558,7 @@ dependencies = [
  "serde",
  "serde_json",
  "shell-words",
+ "tempfile",
  "tokio",
  "workmesh-core",
 ]
