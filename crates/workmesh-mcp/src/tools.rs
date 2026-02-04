@@ -13,12 +13,13 @@ use serde::{Deserialize, Serialize};
 use workmesh_core::backlog::{locate_backlog_dir, resolve_backlog_dir, BacklogError};
 use workmesh_core::project::{ensure_project_docs, repo_root_from_backlog};
 use workmesh_core::gantt::{plantuml_gantt, render_plantuml_svg, write_text_file};
-use workmesh_core::task::{load_tasks, Task};
+use workmesh_core::task::{load_tasks, Lease, Task};
 use workmesh_core::task_ops::{
     append_note, create_task_file, filter_tasks, graph_export, next_task, ready_tasks,
-    now_timestamp,
+    now_timestamp, timestamp_plus_minutes,
     render_task_line, replace_section, set_list_field, sort_tasks, status_counts,
-    task_to_json_value, update_body, update_task_field, update_task_field_or_section, validate_tasks,
+    task_to_json_value, update_body, update_lease_fields, update_task_field,
+    update_task_field_or_section, validate_tasks,
 };
 
 const ROOT_REQUIRED_ERROR: &str = "root is required for MCP calls unless the server is started within a repo containing tasks/ or backlog/tasks";
@@ -137,6 +138,8 @@ fn tool_catalog() -> Vec<serde_json::Value> {
         serde_json::json!({"name": "remove_label", "summary": "Remove a label from a task."}),
         serde_json::json!({"name": "add_dependency", "summary": "Add a dependency to a task."}),
         serde_json::json!({"name": "remove_dependency", "summary": "Remove a dependency from a task."}),
+        serde_json::json!({"name": "claim_task", "summary": "Claim a task lease."}),
+        serde_json::json!({"name": "release_task", "summary": "Release a task lease."}),
         serde_json::json!({"name": "add_note", "summary": "Append a note to Notes or Implementation Notes."}),
         serde_json::json!({"name": "set_body", "summary": "Replace full task body (after front matter)."}),
         serde_json::json!({"name": "set_section", "summary": "Replace a named section in the task body."}),
@@ -265,6 +268,26 @@ pub struct AddDependencyTool {
 pub struct RemoveDependencyTool {
     pub task_id: String,
     pub dependency: String,
+    pub root: Option<String>,
+    #[serde(default)]
+    pub touch: bool,
+}
+
+#[mcp_tool(name = "claim_task", description = "Claim a task lease.")]
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct ClaimTaskTool {
+    pub task_id: String,
+    pub owner: String,
+    pub root: Option<String>,
+    pub minutes: Option<i64>,
+    #[serde(default)]
+    pub touch: bool,
+}
+
+#[mcp_tool(name = "release_task", description = "Release a task lease.")]
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct ReleaseTaskTool {
+    pub task_id: String,
     pub root: Option<String>,
     #[serde(default)]
     pub touch: bool,
@@ -443,6 +466,8 @@ tool_box!(
         RemoveLabelTool,
         AddDependencyTool,
         RemoveDependencyTool,
+        ClaimTaskTool,
+        ReleaseTaskTool,
         AddNoteTool,
         SetBodyTool,
         SetSectionTool,
@@ -494,6 +519,8 @@ impl ServerHandler for WorkmeshServerHandler {
             WorkmeshTools::RemoveLabelTool(tool) => tool.call(&self.context),
             WorkmeshTools::AddDependencyTool(tool) => tool.call(&self.context),
             WorkmeshTools::RemoveDependencyTool(tool) => tool.call(&self.context),
+            WorkmeshTools::ClaimTaskTool(tool) => tool.call(&self.context),
+            WorkmeshTools::ReleaseTaskTool(tool) => tool.call(&self.context),
             WorkmeshTools::AddNoteTool(tool) => tool.call(&self.context),
             WorkmeshTools::SetBodyTool(tool) => tool.call(&self.context),
             WorkmeshTools::SetSectionTool(tool) => tool.call(&self.context),
@@ -753,6 +780,65 @@ impl RemoveDependencyTool {
             false,
             self.touch,
         )
+    }
+}
+
+impl ClaimTaskTool {
+    fn call(&self, context: &McpContext) -> Result<CallToolResult, CallToolError> {
+        let backlog_dir = match resolve_root(context, self.root.as_deref()) {
+            Ok(dir) => dir,
+            Err(err) => return ok_json(err),
+        };
+        let tasks = load_tasks(&backlog_dir);
+        let task = find_task(&tasks, &self.task_id);
+        let Some(task) = task else {
+            return ok_json(serde_json::json!({"error": format!("Task not found: {}", self.task_id)}));
+        };
+        let path = task
+            .file_path
+            .as_ref()
+            .ok_or_else(|| CallToolError::from_message("Missing task path"))?;
+        let mut assignee = task.assignee.clone();
+        if !assignee.iter().any(|value| value == &self.owner) {
+            assignee.push(self.owner.clone());
+            set_list_field(path, "assignee", assignee).map_err(CallToolError::new)?;
+        }
+        let expires_at = self.minutes.map(timestamp_plus_minutes);
+        let lease = Lease {
+            owner: self.owner.clone(),
+            acquired_at: Some(now_timestamp()),
+            expires_at,
+        };
+        update_lease_fields(path, Some(&lease)).map_err(CallToolError::new)?;
+        if self.touch {
+            update_task_field(path, "updated_date", Some(now_timestamp().into()))
+                .map_err(CallToolError::new)?;
+        }
+        ok_json(serde_json::json!({"ok": true, "id": task.id, "owner": lease.owner}))
+    }
+}
+
+impl ReleaseTaskTool {
+    fn call(&self, context: &McpContext) -> Result<CallToolResult, CallToolError> {
+        let backlog_dir = match resolve_root(context, self.root.as_deref()) {
+            Ok(dir) => dir,
+            Err(err) => return ok_json(err),
+        };
+        let tasks = load_tasks(&backlog_dir);
+        let task = find_task(&tasks, &self.task_id);
+        let Some(task) = task else {
+            return ok_json(serde_json::json!({"error": format!("Task not found: {}", self.task_id)}));
+        };
+        let path = task
+            .file_path
+            .as_ref()
+            .ok_or_else(|| CallToolError::from_message("Missing task path"))?;
+        update_lease_fields(path, None).map_err(CallToolError::new)?;
+        if self.touch {
+            update_task_field(path, "updated_date", Some(now_timestamp().into()))
+                .map_err(CallToolError::new)?;
+        }
+        ok_json(serde_json::json!({"ok": true, "id": task.id}))
     }
 }
 

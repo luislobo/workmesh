@@ -12,6 +12,7 @@ fn task(id: &str, status: &str, deps: Vec<&str>) -> Task {
         labels: Vec::new(),
         assignee: Vec::new(),
         relationships: Default::default(),
+        lease: None,
         project: None,
         initiative: None,
         created_date: None,
