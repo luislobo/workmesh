@@ -14,7 +14,7 @@ use workmesh_core::project::{ensure_project_docs, repo_root_from_backlog};
 use workmesh_core::task_ops::{
     append_note, create_task_file, filter_tasks, graph_export, next_task, now_timestamp,
     ready_tasks, render_task_line, replace_section, set_list_field, sort_tasks, status_counts,
-    task_to_json_value, tasks_to_json, tasks_to_jsonl, timestamp_plus_minutes, update_body,
+    FieldValue, task_to_json_value, tasks_to_json, tasks_to_jsonl, timestamp_plus_minutes, update_body,
     update_lease_fields, update_task_field, update_task_field_or_section, validate_tasks,
 };
 
@@ -202,6 +202,29 @@ enum Command {
     },
     /// Create a new task
     Add {
+        #[arg(long, value_name = "task-id")]
+        id: Option<String>,
+        #[arg(long)]
+        title: String,
+        #[arg(long, default_value = "To Do")]
+        status: String,
+        #[arg(long, default_value = "P2")]
+        priority: String,
+        #[arg(long, default_value = "Phase1")]
+        phase: String,
+        #[arg(long, default_value = "")]
+        labels: String,
+        #[arg(long, default_value = "")]
+        dependencies: String,
+        #[arg(long, default_value = "")]
+        assignee: String,
+        #[arg(long, action = ArgAction::SetTrue)]
+        json: bool,
+    },
+    /// Create a task discovered from another task
+    AddDiscovered {
+        #[arg(long)]
+        from: String,
         #[arg(long, value_name = "task-id")]
         id: Option<String>,
         #[arg(long)]
@@ -730,6 +753,53 @@ fn main() -> Result<()> {
                 "add_task",
                 Some(&task_id),
                 serde_json::json!({ "title": title }),
+            )?;
+            refresh_index_best_effort(&backlog_dir);
+            if json {
+                let payload = serde_json::json!({"path": path, "id": task_id});
+                println!("{}", serde_json::to_string_pretty(&payload)?);
+            } else {
+                println!("Created {} -> {}", task_id, path.display());
+            }
+        }
+        Command::AddDiscovered {
+            from,
+            id,
+            title,
+            status,
+            priority,
+            phase,
+            labels,
+            dependencies,
+            assignee,
+            json,
+        } => {
+            let tasks_dir = backlog_dir.join("tasks");
+            let task_id = id.unwrap_or_else(|| next_id(&tasks));
+            let labels = split_csv(&labels);
+            let dependencies = split_csv(&dependencies);
+            let assignee = split_csv(&assignee);
+            let path = create_task_file(
+                &tasks_dir,
+                &task_id,
+                &title,
+                &status,
+                &priority,
+                &phase,
+                &dependencies,
+                &labels,
+                &assignee,
+            )?;
+            update_task_field(
+                &path,
+                "discovered_from",
+                Some(FieldValue::List(vec![from.clone()])),
+            )?;
+            audit_event(
+                &backlog_dir,
+                "add_discovered",
+                Some(&task_id),
+                serde_json::json!({ "from": from, "title": title }),
             )?;
             refresh_index_best_effort(&backlog_dir);
             if json {
