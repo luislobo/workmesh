@@ -194,6 +194,7 @@ fn tool_catalog() -> Vec<serde_json::Value> {
         serde_json::json!({"name": "show_task", "summary": "Show a single task by id."}),
         serde_json::json!({"name": "next_task", "summary": "Get the next ready task (lowest id, deps satisfied)."}),
         serde_json::json!({"name": "ready_tasks", "summary": "List tasks with deps satisfied (ready work)."}),
+        serde_json::json!({"name": "export_tasks", "summary": "Export all tasks as JSON."}),
         serde_json::json!({"name": "set_status", "summary": "Update task status."}),
         serde_json::json!({"name": "set_field", "summary": "Update a front matter field."}),
         serde_json::json!({"name": "add_label", "summary": "Add a label to a task."}),
@@ -223,6 +224,7 @@ fn tool_catalog() -> Vec<serde_json::Value> {
         serde_json::json!({"name": "gantt_text", "summary": "Return PlantUML gantt text."}),
         serde_json::json!({"name": "gantt_file", "summary": "Write PlantUML gantt to a file."}),
         serde_json::json!({"name": "gantt_svg", "summary": "Render gantt SVG via PlantUML."}),
+        serde_json::json!({"name": "best_practices", "summary": "Return best practices guidance."}),
         serde_json::json!({"name": "help", "summary": "Show available tools and best practices."}),
         serde_json::json!({"name": "skill_content", "summary": "Return SKILL.md content for a repo skill."}),
         serde_json::json!({"name": "project_management_skill", "summary": "Return project management guide."}),
@@ -276,6 +278,14 @@ pub struct ReadyTasksTool {
     #[serde(default = "default_format")]
     pub format: String,
     pub limit: Option<u32>,
+}
+
+#[mcp_tool(name = "export_tasks", description = "Export all tasks as JSON.")]
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct ExportTasksTool {
+    pub root: Option<String>,
+    #[serde(default = "default_include_body")]
+    pub include_body: bool,
 }
 
 #[mcp_tool(name = "stats", description = "Return counts by status.")]
@@ -547,6 +557,14 @@ pub struct CheckpointDiffTool {
     pub format: String,
 }
 
+#[mcp_tool(name = "best_practices", description = "Return best practices guidance.")]
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct BestPracticesTool {
+    pub root: Option<String>,
+    #[serde(default = "default_format")]
+    pub format: String,
+}
+
 #[mcp_tool(name = "gantt_text", description = "Return PlantUML gantt text for current tasks.")]
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct GanttTextTool {
@@ -650,6 +668,7 @@ tool_box!(
         ShowTaskTool,
         NextTaskTool,
         ReadyTasksTool,
+        ExportTasksTool,
         StatsTool,
         SetStatusTool,
         SetFieldTool,
@@ -680,6 +699,7 @@ tool_box!(
         GanttTextTool,
         GanttFileTool,
         GanttSvgTool,
+        BestPracticesTool,
         SkillContentTool,
         HelpTool,
         ProjectManagementSkillTool
@@ -715,6 +735,7 @@ impl ServerHandler for WorkmeshServerHandler {
             WorkmeshTools::ShowTaskTool(tool) => tool.call(&self.context),
             WorkmeshTools::NextTaskTool(tool) => tool.call(&self.context),
             WorkmeshTools::ReadyTasksTool(tool) => tool.call(&self.context),
+            WorkmeshTools::ExportTasksTool(tool) => tool.call(&self.context),
             WorkmeshTools::StatsTool(tool) => tool.call(&self.context),
             WorkmeshTools::SetStatusTool(tool) => tool.call(&self.context),
             WorkmeshTools::SetFieldTool(tool) => tool.call(&self.context),
@@ -745,6 +766,7 @@ impl ServerHandler for WorkmeshServerHandler {
             WorkmeshTools::GanttTextTool(tool) => tool.call(&self.context),
             WorkmeshTools::GanttFileTool(tool) => tool.call(&self.context),
             WorkmeshTools::GanttSvgTool(tool) => tool.call(&self.context),
+            WorkmeshTools::BestPracticesTool(tool) => tool.call(&self.context),
             WorkmeshTools::SkillContentTool(tool) => tool.call(&self.context),
             WorkmeshTools::HelpTool(tool) => tool.call(&self.context),
             WorkmeshTools::ProjectManagementSkillTool(tool) => tool.call(&self.context),
@@ -869,6 +891,21 @@ impl ReadyTasksTool {
         let payload: Vec<serde_json::Value> = ready
             .iter()
             .map(|task| task_to_json_value(task, false))
+            .collect();
+        ok_json(serde_json::Value::Array(payload))
+    }
+}
+
+impl ExportTasksTool {
+    fn call(&self, context: &McpContext) -> Result<CallToolResult, CallToolError> {
+        let backlog_dir = match resolve_root(context, self.root.as_deref()) {
+            Ok(dir) => dir,
+            Err(err) => return ok_json(err),
+        };
+        let tasks = load_tasks(&backlog_dir);
+        let payload: Vec<_> = tasks
+            .iter()
+            .map(|task| task_to_json_value(task, self.include_body))
             .collect();
         ok_json(serde_json::Value::Array(payload))
     }
@@ -1507,6 +1544,25 @@ impl CheckpointDiffTool {
             return ok_text(render_diff(&report));
         }
         ok_json(serde_json::to_value(report).unwrap_or_default())
+    }
+}
+
+impl BestPracticesTool {
+    fn call(&self, context: &McpContext) -> Result<CallToolResult, CallToolError> {
+        if resolve_root(context, self.root.as_deref()).is_err() {
+            return ok_json(serde_json::json!({"error": ROOT_REQUIRED_ERROR}));
+        }
+        if self.format == "json" {
+            return ok_json(serde_json::json!({
+                "best_practices": best_practice_hints()
+            }));
+        }
+        let body = best_practice_hints()
+            .into_iter()
+            .map(|hint| format!("- {}", hint))
+            .collect::<Vec<_>>()
+            .join("\n");
+        ok_text(body)
     }
 }
 
