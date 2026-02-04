@@ -13,6 +13,7 @@ thiserror.workspace = true
 regex.workspace = true
 chrono.workspace = true
 ulid.workspace = true
+sha2.workspace = true
 shell-words = "1.1"
 which = "6.0"
 

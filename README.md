@@ -13,6 +13,7 @@ This repository is the Rust rewrite and evolution of xh-tasks.
 - Backlog discovery supports `tasks/`, `backlog/tasks/`, or `project/tasks/`.
 - Gantt output (PlantUML text/file/svg) with dependency links.
 - Graph export command (property-graph JSON for nodes + edges).
+- JSONL task index with rebuild/refresh/verify for fast queries.
 - Docs-first project model under `docs/projects/<project-id>/`.
 - Project scaffolding via `project-init` (CLI) / `project_init` (MCP).
 - Validation for required fields, missing dependencies, and missing project docs.
@@ -41,6 +42,16 @@ Output shape:
   ]
 }
 ```
+
+## Index (JSONL)
+CLI:
+```bash
+workmesh --root <path> index-rebuild
+workmesh --root <path> index-refresh
+workmesh --root <path> index-verify
+```
+
+Index file: `backlog/.index/tasks.jsonl`
 
 ## Repo layout
 - `docs/` - project documentation, PRDs, decisions, and updates.
