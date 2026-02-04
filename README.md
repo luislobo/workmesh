@@ -14,6 +14,7 @@ This repository is the Rust rewrite and evolution of xh-tasks.
 - Gantt output (PlantUML text/file/svg) with dependency links.
 - Graph export command (property-graph JSON for nodes + edges).
 - JSONL task index with rebuild/refresh/verify for fast queries.
+- Sync engine scaffold with adapter interface + stub adapter.
 - Docs-first project model under `docs/projects/<project-id>/`.
 - Project scaffolding via `project-init` (CLI) / `project_init` (MCP).
 - Validation for required fields, missing dependencies, and missing project docs.
