@@ -148,13 +148,14 @@ Claude Code:
   ```
 
 Gemini CLI:
-- No official MCP support documented as of now. Use the WorkMesh CLI or another MCP-capable client.
+- MCP support exists in the gemini-cli codebase, but there’s no official setup guide yet.
+- Use the WorkMesh CLI or another MCP-capable client for now.
 
 GitHub Copilot CLI:
 - Use `/mcp add` inside Copilot CLI; MCP servers are stored in `~/.copilot/mcp-config.json`.
 
 Cursor CLI:
-- Cursor’s MCP support is documented for the editor; CLI configuration is not officially documented yet.
+- Cursor CLI supports MCP via `cursor-agent mcp` and uses the same `mcp.json` config as the editor.
 
 ## IDE/editor setup
 VS Code (Copilot Agent mode):
@@ -172,14 +173,14 @@ VS Code (Copilot Agent mode):
   ```
 
 Cursor (editor):
-- Supports MCP with stdio/SSE/HTTP transports. Configure WorkMesh as a stdio server.
+- Supports MCP with stdio/SSE/HTTP transports. Configure WorkMesh as a stdio server in `.cursor/mcp.json` or `~/.cursor/mcp.json`.
 
 IntelliJ / JetBrains IDEs:
 - JetBrains IDEs include an MCP server (2025.2+) to expose IDE tools to external clients.
 - Copilot Chat in JetBrains supports adding MCP servers via its MCP registry UI.
 
 Antigravity IDE:
-- No official MCP plugin documentation found. Use WorkMesh via CLI unless you have a supported MCP client.
+- MCP servers are available via Antigravity’s built-in MCP Store (UI-driven setup).
 
 ## Skills (Codex/Claude)
 WorkMesh can serve its own skill content to agents.
