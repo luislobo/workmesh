@@ -33,7 +33,7 @@ cargo build -p workmesh-mcp
 # binary at target/debug/workmesh-mcp
 ```
 
-## Quickstart
+## Quickstart (60 seconds)
 ```bash
 # create docs + backlog + seed task
 workmesh --root . quickstart workmesh --agents-snippet
@@ -54,6 +54,38 @@ workmesh --root . note task-001 "Found missing edge case"
 workmesh --root . set-status task-001 Done
 ```
 
+What gets created:
+```
+docs/
+  projects/
+    workmesh/
+      README.md
+      prds/
+      updates/
+backlog/
+  tasks/
+    task-001 - seed task.md
+```
+
+## Task file format (plain text)
+Each task is a Markdown file with front matter and sections:
+```markdown
+---
+id: task-001
+uid: 01...
+title: Seed task
+status: To Do
+priority: P2
+phase: Phase1
+dependencies: []
+labels: []
+assignee: []
+---
+
+## Notes
+- Start here
+```
+
 ## Session continuity
 Use checkpoints to resume work after compaction or a new session.
 ```bash
@@ -66,14 +98,6 @@ workmesh --root . resume --project workmesh
 # diff since last checkpoint
 workmesh --root . checkpoint-diff --project workmesh
 ```
-
-## Skills (Codex/Claude)
-WorkMesh can serve its own skill content to agents.
-
-- Skill file: `.codex/skills/workmesh/SKILL.md`
-- MCP tool: `skill_content` or `project_management_skill`
-
-This lets the MCP server return the exact workflow instructions for agents.
 
 ## MCP usage
 If the MCP server is started inside a repo, `root` can be omitted. Otherwise pass `root`.
@@ -90,6 +114,27 @@ Bulk MCP examples:
 {"tool": "bulk_add_dependency", "root": "/path/to/repo", "tasks": ["task-001","task-002"], "dependency": "task-010"}
 {"tool": "bulk_add_note", "root": "/path/to/repo", "tasks": ["task-001","task-002"], "note": "checkpointed", "section": "notes"}
 ```
+
+## Codex setup (recommended)
+Add WorkMesh MCP to your Codex config (rootless):
+```toml
+[mcp_servers.workmesh]
+command = "/path/to/workmesh/target/debug/workmesh-mcp"
+args = []
+```
+
+Then start Codex inside your repo and run:
+```json
+{"tool": "ready_tasks", "format": "json"}
+```
+
+## Skills (Codex/Claude)
+WorkMesh can serve its own skill content to agents.
+
+- Skill file: `.codex/skills/workmesh/SKILL.md`
+- MCP tool: `skill_content` or `project_management_skill`
+
+This lets the MCP server return the exact workflow instructions for agents.
 
 ## Command reference (CLI)
 Read:
@@ -139,6 +184,11 @@ Auto-checkpointing:
 - `backlog/tasks/` - Markdown tasks managed by the CLI/MCP tools.
 - `crates/` - Rust crates (CLI, core, MCP server).
 - `.codex/skills/` - WorkMesh agent skills.
+
+## Troubleshooting
+- **No tasks found**: ensure `backlog/tasks/` exists or run `quickstart`.
+- **PlantUML SVG fails**: install `plantuml` or set `PLANTUML_CMD`/`PLANTUML_JAR`.
+- **MCP tool can’t find root**: start MCP in repo or pass `root` explicitly.
 
 ## Roadmap
 Near-term:
