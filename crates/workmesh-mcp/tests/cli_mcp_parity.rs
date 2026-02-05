@@ -2,6 +2,7 @@ use std::collections::BTreeSet;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::Once;
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -43,12 +44,23 @@ fn cli() -> Command {
     if let Ok(path) = std::env::var("CARGO_BIN_EXE_workmesh") {
         return Command::new(path);
     }
+    static BUILD: Once = Once::new();
     let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR not set");
     let root = std::path::Path::new(&manifest_dir)
         .parent()
         .and_then(|path| path.parent())
         .expect("workspace root");
     let candidate = root.join("target").join("debug").join("workmesh");
+    BUILD.call_once(|| {
+        let status = Command::new("cargo")
+            .arg("build")
+            .arg("-p")
+            .arg("workmesh")
+            .current_dir(root)
+            .status()
+            .expect("build workmesh cli");
+        assert!(status.success());
+    });
     Command::new(candidate)
 }
 
@@ -1154,4 +1166,212 @@ fn cli_best_practices_command() {
     assert!(output.status.success());
     let text = String::from_utf8_lossy(&output.stdout).to_string();
     assert!(text.contains("Dependencies"));
+}
+
+#[tokio::test]
+async fn cli_and_mcp_bulk_ops_parity() {
+    let temp = TempDir::new().expect("tempdir");
+    let backlog_dir = temp.path().join("backlog");
+    let tasks_dir = backlog_dir.join("tasks");
+    std::fs::create_dir_all(&tasks_dir).expect("tasks dir");
+
+    let task_path1 = write_task(&tasks_dir, "task-001", "Alpha", "To Do", &[]);
+    let task_path2 = write_task(&tasks_dir, "task-002", "Beta", "To Do", &[]);
+    let task_path3 = write_task(&tasks_dir, "task-003", "Gamma", "To Do", &[]);
+
+    let cli_bulk_status = cli()
+        .arg("--root")
+        .arg(temp.path())
+        .arg("bulk-set-status")
+        .arg("--tasks")
+        .arg("task-001,task-002")
+        .arg("--status")
+        .arg("In Progress")
+        .arg("--json")
+        .output()
+        .expect("cli bulk status");
+    assert!(cli_bulk_status.status.success());
+
+    let cli_bulk_field = cli()
+        .arg("--root")
+        .arg(temp.path())
+        .arg("bulk-set-field")
+        .arg("--tasks")
+        .arg("task-001,task-002")
+        .arg("--field")
+        .arg("priority")
+        .arg("--value")
+        .arg("P1")
+        .arg("--json")
+        .output()
+        .expect("cli bulk field");
+    assert!(cli_bulk_field.status.success());
+
+    let cli_bulk_label_add = cli()
+        .arg("--root")
+        .arg(temp.path())
+        .arg("bulk-label-add")
+        .arg("--tasks")
+        .arg("task-001,task-002")
+        .arg("--label")
+        .arg("bulk")
+        .arg("--json")
+        .output()
+        .expect("cli bulk label add");
+    assert!(cli_bulk_label_add.status.success());
+
+    let cli_bulk_label_remove = cli()
+        .arg("--root")
+        .arg(temp.path())
+        .arg("bulk-label-remove")
+        .arg("--tasks")
+        .arg("task-001,task-002")
+        .arg("--label")
+        .arg("bulk")
+        .arg("--json")
+        .output()
+        .expect("cli bulk label remove");
+    assert!(cli_bulk_label_remove.status.success());
+
+    let cli_bulk_dep_add = cli()
+        .arg("--root")
+        .arg(temp.path())
+        .arg("bulk-dep-add")
+        .arg("--tasks")
+        .arg("task-001,task-002")
+        .arg("--dependency")
+        .arg("task-003")
+        .arg("--json")
+        .output()
+        .expect("cli bulk dep add");
+    assert!(cli_bulk_dep_add.status.success());
+
+    let cli_bulk_dep_remove = cli()
+        .arg("--root")
+        .arg(temp.path())
+        .arg("bulk-dep-remove")
+        .arg("--tasks")
+        .arg("task-001,task-002")
+        .arg("--dependency")
+        .arg("task-003")
+        .arg("--json")
+        .output()
+        .expect("cli bulk dep remove");
+    assert!(cli_bulk_dep_remove.status.success());
+
+    let cli_bulk_note = cli()
+        .arg("--root")
+        .arg(temp.path())
+        .arg("bulk-note")
+        .arg("--tasks")
+        .arg("task-001,task-002")
+        .arg("--note")
+        .arg("cli bulk note")
+        .arg("--json")
+        .output()
+        .expect("cli bulk note");
+    assert!(cli_bulk_note.status.success());
+
+    let client = start_client(temp.path()).await;
+
+    let _ = call_tool_text(
+        &client,
+        "bulk_set_status",
+        serde_json::json!({
+            "root": temp.path().display().to_string(),
+            "tasks": ["task-002", "task-003"],
+            "status": "Done"
+        }),
+    )
+    .await;
+
+    let _ = call_tool_text(
+        &client,
+        "bulk_set_field",
+        serde_json::json!({
+            "root": temp.path().display().to_string(),
+            "tasks": ["task-002", "task-003"],
+            "field": "phase",
+            "value": "Phase2"
+        }),
+    )
+    .await;
+
+    let _ = call_tool_text(
+        &client,
+        "bulk_add_label",
+        serde_json::json!({
+            "root": temp.path().display().to_string(),
+            "tasks": ["task-002", "task-003"],
+            "label": "mcp"
+        }),
+    )
+    .await;
+
+    let _ = call_tool_text(
+        &client,
+        "bulk_remove_label",
+        serde_json::json!({
+            "root": temp.path().display().to_string(),
+            "tasks": ["task-002", "task-003"],
+            "label": "mcp"
+        }),
+    )
+    .await;
+
+    let _ = call_tool_text(
+        &client,
+        "bulk_add_dependency",
+        serde_json::json!({
+            "root": temp.path().display().to_string(),
+            "tasks": ["task-002", "task-003"],
+            "dependency": "task-001"
+        }),
+    )
+    .await;
+
+    let _ = call_tool_text(
+        &client,
+        "bulk_remove_dependency",
+        serde_json::json!({
+            "root": temp.path().display().to_string(),
+            "tasks": ["task-002", "task-003"],
+            "dependency": "task-001"
+        }),
+    )
+    .await;
+
+    let _ = call_tool_text(
+        &client,
+        "bulk_add_note",
+        serde_json::json!({
+            "root": temp.path().display().to_string(),
+            "tasks": ["task-002", "task-003"],
+            "note": "mcp bulk note"
+        }),
+    )
+    .await;
+
+    client.shut_down().await.expect("shutdown");
+
+    let task1 = parse_task_file(&task_path1).expect("task1");
+    let task2 = parse_task_file(&task_path2).expect("task2");
+    let task3 = parse_task_file(&task_path3).expect("task3");
+
+    assert_eq!(task1.status, "In Progress");
+    assert_eq!(task1.priority, "P1");
+    assert!(task1.dependencies.is_empty());
+    assert!(task1.body.contains("cli bulk note"));
+
+    assert_eq!(task2.status, "Done");
+    assert_eq!(task2.priority, "P1");
+    assert_eq!(task2.phase, "Phase2");
+    assert!(task2.dependencies.is_empty());
+    assert!(task2.body.contains("cli bulk note"));
+    assert!(task2.body.contains("mcp bulk note"));
+
+    assert_eq!(task3.status, "Done");
+    assert_eq!(task3.phase, "Phase2");
+    assert!(task3.dependencies.is_empty());
+    assert!(task3.body.contains("mcp bulk note"));
 }
