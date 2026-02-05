@@ -133,6 +133,7 @@ Use these if you drive WorkMesh via a terminal agent rather than an IDE.
 
 Codex CLI (OpenAI):
 - Configure MCP via `codex mcp add` or by editing `~/.codex/config.toml` directly.
+- CLI and IDE extension share the same MCP config.
 - Example:
   ```bash
   codex mcp add workmesh -- /path/to/workmesh-mcp
@@ -140,24 +141,24 @@ Codex CLI (OpenAI):
 
 Claude Code:
 - Add local MCP servers with `claude mcp add <name> -- <command> [args...]`.
+- Remote servers can use `--transport http` with a URL.
 - Example:
   ```bash
   claude mcp add workmesh -- /path/to/workmesh-mcp
   ```
 
 Gemini CLI:
-- Gemini CLI supports MCP servers and exposes `/mcp` to manage them.
-- Use `/mcp` inside the CLI to add the WorkMesh stdio server.
+- No official MCP support documented as of now. Use the WorkMesh CLI or another MCP-capable client.
 
 GitHub Copilot CLI:
-- Use `/mcp add` inside Copilot CLI and save the WorkMesh server in `~/.copilot/mcp-config.json`.
+- Use `/mcp add` inside Copilot CLI; MCP servers are stored in `~/.copilot/mcp-config.json`.
 
 Cursor CLI:
-- Cursor CLI supports MCP via `cursor-agent mcp` (same configuration as the editor).
+- Cursor’s MCP support is documented for the editor; CLI configuration is not officially documented yet.
 
 ## IDE/editor setup
 VS Code (Copilot Agent mode):
-- Add `.vscode/mcp.json` in your repo:
+- Add `.vscode/mcp.json` in your repo (or use the “MCP: Add server” command):
   ```json
   {
     "servers": {
@@ -171,14 +172,14 @@ VS Code (Copilot Agent mode):
   ```
 
 Cursor (editor):
-- Uses the same MCP configuration as Cursor CLI. Add WorkMesh once and both use it.
+- Supports MCP with stdio/SSE/HTTP transports. Configure WorkMesh as a stdio server.
 
 IntelliJ / JetBrains IDEs:
-- If your IDE doesn’t support MCP yet, use WorkMesh via the CLI or an agent CLI.
-- If you have a plugin that supports MCP, configure WorkMesh as a stdio server.
+- JetBrains IDEs include an MCP server (2025.2+) to expose IDE tools to external clients.
+- Copilot Chat in JetBrains supports adding MCP servers via its MCP registry UI.
 
 Antigravity IDE:
-- Use WorkMesh via the CLI unless the IDE exposes MCP configuration; if it does, point it to `workmesh-mcp`.
+- No official MCP plugin documentation found. Use WorkMesh via CLI unless you have a supported MCP client.
 
 ## Skills (Codex/Claude)
 WorkMesh can serve its own skill content to agents.
