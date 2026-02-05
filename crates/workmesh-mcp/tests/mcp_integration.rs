@@ -59,7 +59,7 @@ async fn mcp_list_tasks_and_checkpoint() {
     let server_bin = env!("CARGO_BIN_EXE_workmesh-mcp");
     let transport = StdioTransport::create_with_server_launch(
         server_bin,
-        vec!["--root".into(), temp.path().display().to_string()],
+        vec![],
         None,
         TransportOptions::default(),
     )
