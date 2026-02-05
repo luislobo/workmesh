@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 
@@ -193,6 +194,87 @@ enum Command {
         task_id: String,
         #[arg(long, action = ArgAction::SetTrue)]
         touch: bool,
+    },
+    /// Bulk set status for tasks
+    BulkSetStatus {
+        #[arg(long, value_delimiter = ',', num_args = 1..)]
+        tasks: Vec<String>,
+        #[arg(long)]
+        status: String,
+        #[arg(long, action = ArgAction::SetTrue)]
+        touch: bool,
+        #[arg(long, action = ArgAction::SetTrue)]
+        json: bool,
+    },
+    /// Bulk set a front matter field for tasks
+    BulkSetField {
+        #[arg(long, value_delimiter = ',', num_args = 1..)]
+        tasks: Vec<String>,
+        #[arg(long)]
+        field: String,
+        #[arg(long)]
+        value: String,
+        #[arg(long, action = ArgAction::SetTrue)]
+        touch: bool,
+        #[arg(long, action = ArgAction::SetTrue)]
+        json: bool,
+    },
+    /// Bulk add label to tasks
+    BulkLabelAdd {
+        #[arg(long, value_delimiter = ',', num_args = 1..)]
+        tasks: Vec<String>,
+        #[arg(long)]
+        label: String,
+        #[arg(long, action = ArgAction::SetTrue)]
+        touch: bool,
+        #[arg(long, action = ArgAction::SetTrue)]
+        json: bool,
+    },
+    /// Bulk remove label from tasks
+    BulkLabelRemove {
+        #[arg(long, value_delimiter = ',', num_args = 1..)]
+        tasks: Vec<String>,
+        #[arg(long)]
+        label: String,
+        #[arg(long, action = ArgAction::SetTrue)]
+        touch: bool,
+        #[arg(long, action = ArgAction::SetTrue)]
+        json: bool,
+    },
+    /// Bulk add dependency to tasks
+    BulkDepAdd {
+        #[arg(long, value_delimiter = ',', num_args = 1..)]
+        tasks: Vec<String>,
+        #[arg(long)]
+        dependency: String,
+        #[arg(long, action = ArgAction::SetTrue)]
+        touch: bool,
+        #[arg(long, action = ArgAction::SetTrue)]
+        json: bool,
+    },
+    /// Bulk remove dependency from tasks
+    BulkDepRemove {
+        #[arg(long, value_delimiter = ',', num_args = 1..)]
+        tasks: Vec<String>,
+        #[arg(long)]
+        dependency: String,
+        #[arg(long, action = ArgAction::SetTrue)]
+        touch: bool,
+        #[arg(long, action = ArgAction::SetTrue)]
+        json: bool,
+    },
+    /// Bulk append a note to tasks
+    BulkNote {
+        #[arg(long, value_delimiter = ',', num_args = 1..)]
+        tasks: Vec<String>,
+        #[arg(long)]
+        note: String,
+        #[arg(long, value_enum, default_value_t = NoteSection::Notes)]
+        section: NoteSection,
+        #[arg(long, action = ArgAction::SetTrue)]
+        touch: bool,
+        #[arg(long, action = ArgAction::SetTrue)]
+        json: bool,
     },
     /// Set a front matter field
     SetField {
@@ -784,6 +866,245 @@ fn main() -> Result<()> {
             maybe_auto_checkpoint(&backlog_dir, auto_checkpoint);
             println!("Released {} lease", task.id);
         }
+        Command::BulkSetStatus {
+            tasks: task_ids,
+            status,
+            touch,
+            json,
+        } => {
+            let ids = normalize_task_ids(split_list(&task_ids));
+            if ids.is_empty() {
+                die("No tasks provided");
+            }
+            let (selected, missing) = select_tasks_with_missing(&tasks, &ids);
+            let mut updated = Vec::new();
+            for task in selected {
+                let path = task.file_path.as_ref().unwrap_or_else(|| {
+                    die(&format!("Task not found: {}", task.id));
+                });
+                update_task_field(path, "status", Some(FieldValue::Scalar(status.clone())))?;
+                if touch {
+                    update_task_field(path, "updated_date", Some(now_timestamp().into()))?;
+                }
+                audit_event(
+                    &backlog_dir,
+                    "bulk_set_status",
+                    Some(&task.id),
+                    serde_json::json!({ "status": status.clone() }),
+                )?;
+                updated.push(task.id.clone());
+            }
+            refresh_index_best_effort(&backlog_dir);
+            maybe_auto_checkpoint(&backlog_dir, auto_checkpoint);
+            emit_bulk_result(&updated, &missing, json);
+        }
+        Command::BulkSetField {
+            tasks: task_ids,
+            field,
+            value,
+            touch,
+            json,
+        } => {
+            let ids = normalize_task_ids(split_list(&task_ids));
+            if ids.is_empty() {
+                die("No tasks provided");
+            }
+            let (selected, missing) = select_tasks_with_missing(&tasks, &ids);
+            let mut updated = Vec::new();
+            for task in selected {
+                let path = task.file_path.as_ref().unwrap_or_else(|| {
+                    die(&format!("Task not found: {}", task.id));
+                });
+                update_task_field_or_section(path, &field, Some(&value))?;
+                if touch {
+                    update_task_field(path, "updated_date", Some(now_timestamp().into()))?;
+                }
+                audit_event(
+                    &backlog_dir,
+                    "bulk_set_field",
+                    Some(&task.id),
+                    serde_json::json!({ "field": field.clone(), "value": value.clone() }),
+                )?;
+                updated.push(task.id.clone());
+            }
+            refresh_index_best_effort(&backlog_dir);
+            maybe_auto_checkpoint(&backlog_dir, auto_checkpoint);
+            emit_bulk_result(&updated, &missing, json);
+        }
+        Command::BulkLabelAdd {
+            tasks: task_ids,
+            label,
+            touch,
+            json,
+        } => {
+            let ids = normalize_task_ids(split_list(&task_ids));
+            if ids.is_empty() {
+                die("No tasks provided");
+            }
+            let (selected, missing) = select_tasks_with_missing(&tasks, &ids);
+            let mut updated = Vec::new();
+            for task in selected {
+                let path = task.file_path.as_ref().unwrap_or_else(|| {
+                    die(&format!("Task not found: {}", task.id));
+                });
+                let mut current = task.labels.clone();
+                if !current.contains(&label) {
+                    current.push(label.clone());
+                }
+                set_list_field(path, "labels", current)?;
+                if touch {
+                    update_task_field(path, "updated_date", Some(now_timestamp().into()))?;
+                }
+                audit_event(
+                    &backlog_dir,
+                    "bulk_label_add",
+                    Some(&task.id),
+                    serde_json::json!({ "label": label.clone() }),
+                )?;
+                updated.push(task.id.clone());
+            }
+            refresh_index_best_effort(&backlog_dir);
+            maybe_auto_checkpoint(&backlog_dir, auto_checkpoint);
+            emit_bulk_result(&updated, &missing, json);
+        }
+        Command::BulkLabelRemove {
+            tasks: task_ids,
+            label,
+            touch,
+            json,
+        } => {
+            let ids = normalize_task_ids(split_list(&task_ids));
+            if ids.is_empty() {
+                die("No tasks provided");
+            }
+            let (selected, missing) = select_tasks_with_missing(&tasks, &ids);
+            let mut updated = Vec::new();
+            for task in selected {
+                let path = task.file_path.as_ref().unwrap_or_else(|| {
+                    die(&format!("Task not found: {}", task.id));
+                });
+                let mut current = task.labels.clone();
+                current.retain(|entry| entry != &label);
+                set_list_field(path, "labels", current)?;
+                if touch {
+                    update_task_field(path, "updated_date", Some(now_timestamp().into()))?;
+                }
+                audit_event(
+                    &backlog_dir,
+                    "bulk_label_remove",
+                    Some(&task.id),
+                    serde_json::json!({ "label": label.clone() }),
+                )?;
+                updated.push(task.id.clone());
+            }
+            refresh_index_best_effort(&backlog_dir);
+            maybe_auto_checkpoint(&backlog_dir, auto_checkpoint);
+            emit_bulk_result(&updated, &missing, json);
+        }
+        Command::BulkDepAdd {
+            tasks: task_ids,
+            dependency,
+            touch,
+            json,
+        } => {
+            let ids = normalize_task_ids(split_list(&task_ids));
+            if ids.is_empty() {
+                die("No tasks provided");
+            }
+            let (selected, missing) = select_tasks_with_missing(&tasks, &ids);
+            let mut updated = Vec::new();
+            for task in selected {
+                let path = task.file_path.as_ref().unwrap_or_else(|| {
+                    die(&format!("Task not found: {}", task.id));
+                });
+                let mut current = task.dependencies.clone();
+                if !current.contains(&dependency) {
+                    current.push(dependency.clone());
+                }
+                set_list_field(path, "dependencies", current)?;
+                if touch {
+                    update_task_field(path, "updated_date", Some(now_timestamp().into()))?;
+                }
+                audit_event(
+                    &backlog_dir,
+                    "bulk_dependency_add",
+                    Some(&task.id),
+                    serde_json::json!({ "dependency": dependency.clone() }),
+                )?;
+                updated.push(task.id.clone());
+            }
+            refresh_index_best_effort(&backlog_dir);
+            maybe_auto_checkpoint(&backlog_dir, auto_checkpoint);
+            emit_bulk_result(&updated, &missing, json);
+        }
+        Command::BulkDepRemove {
+            tasks: task_ids,
+            dependency,
+            touch,
+            json,
+        } => {
+            let ids = normalize_task_ids(split_list(&task_ids));
+            if ids.is_empty() {
+                die("No tasks provided");
+            }
+            let (selected, missing) = select_tasks_with_missing(&tasks, &ids);
+            let mut updated = Vec::new();
+            for task in selected {
+                let path = task.file_path.as_ref().unwrap_or_else(|| {
+                    die(&format!("Task not found: {}", task.id));
+                });
+                let mut current = task.dependencies.clone();
+                current.retain(|entry| entry != &dependency);
+                set_list_field(path, "dependencies", current)?;
+                if touch {
+                    update_task_field(path, "updated_date", Some(now_timestamp().into()))?;
+                }
+                audit_event(
+                    &backlog_dir,
+                    "bulk_dependency_remove",
+                    Some(&task.id),
+                    serde_json::json!({ "dependency": dependency.clone() }),
+                )?;
+                updated.push(task.id.clone());
+            }
+            refresh_index_best_effort(&backlog_dir);
+            maybe_auto_checkpoint(&backlog_dir, auto_checkpoint);
+            emit_bulk_result(&updated, &missing, json);
+        }
+        Command::BulkNote {
+            tasks: task_ids,
+            note,
+            section,
+            touch,
+            json,
+        } => {
+            let ids = normalize_task_ids(split_list(&task_ids));
+            if ids.is_empty() {
+                die("No tasks provided");
+            }
+            let (selected, missing) = select_tasks_with_missing(&tasks, &ids);
+            let mut updated = Vec::new();
+            for task in selected {
+                let path = task.file_path.as_ref().unwrap_or_else(|| {
+                    die(&format!("Task not found: {}", task.id));
+                });
+                let new_body = append_note(&task.body, &note, section.as_str());
+                update_body(path, &new_body)?;
+                if touch {
+                    update_task_field(path, "updated_date", Some(now_timestamp().into()))?;
+                }
+                audit_event(
+                    &backlog_dir,
+                    "bulk_note",
+                    Some(&task.id),
+                    serde_json::json!({ "section": section.as_str(), "note": note }),
+                )?;
+                updated.push(task.id.clone());
+            }
+            refresh_index_best_effort(&backlog_dir);
+            maybe_auto_checkpoint(&backlog_dir, auto_checkpoint);
+            emit_bulk_result(&updated, &missing, json);
+        }
         Command::SetField { task_id, field, value, touch } => {
             let task = find_task(&tasks, &task_id).unwrap_or_else(|| {
                 die(&format!("Task not found: {}", task_id));
@@ -1112,6 +1433,57 @@ fn select_tasks_by_ids<'a>(tasks: &'a [Task], ids: &[String]) -> Vec<&'a Task> {
         }
     }
     selected
+}
+
+fn select_tasks_with_missing<'a>(
+    tasks: &'a [Task],
+    ids: &[String],
+) -> (Vec<&'a Task>, Vec<String>) {
+    let mut selected = Vec::new();
+    let mut missing = Vec::new();
+    for id in ids {
+        if let Some(task) = find_task(tasks, id) {
+            selected.push(task);
+        } else {
+            missing.push(id.to_string());
+        }
+    }
+    (selected, missing)
+}
+
+fn normalize_task_ids(ids: Vec<String>) -> Vec<String> {
+    let mut seen = HashSet::new();
+    let mut out = Vec::new();
+    for id in ids {
+        let trimmed = id.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        let key = trimmed.to_lowercase();
+        if seen.insert(key) {
+            out.push(trimmed.to_string());
+        }
+    }
+    out
+}
+
+fn emit_bulk_result(updated: &[String], missing: &[String], json: bool) {
+    let payload = serde_json::json!({
+        "ok": missing.is_empty(),
+        "updated": updated,
+        "missing": missing,
+    });
+    if json {
+        println!("{}", serde_json::to_string_pretty(&payload).unwrap_or_default());
+    } else {
+        println!("Updated {} tasks", updated.len());
+        if !missing.is_empty() {
+            println!("Missing tasks: {}", missing.join(", "));
+        }
+    }
+    if !missing.is_empty() {
+        std::process::exit(1);
+    }
 }
 
 fn best_practices_text() -> &'static str {
