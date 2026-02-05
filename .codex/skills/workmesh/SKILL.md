@@ -52,7 +52,7 @@ Use this skill to manage Markdown-backed backlogs with explicit dependencies.
 - Bulk updates
   - Use when: you need to apply the same change to many tasks quickly.
   - Workflow: choose tasks → run bulk command → review summary → re-run validate if needed.
-  - Commands: `workmesh --root /path bulk-set-status --tasks task-001,task-002 --status "In Progress"` or `bulk-label-add`, `bulk-dep-add`, `bulk-note`
+  - Commands: `workmesh --root /path bulk set-status --tasks task-001,task-002 --status "In Progress"` or `bulk label-add`, `bulk dep-add`, `bulk note` (also supports `bulk-set-status` etc.)
 - Quickstart
   - Use when: bootstrapping a new repo or enabling WorkMesh in an existing repo.
   - Workflow: run once → review scaffold → add first real tasks.

@@ -83,6 +83,14 @@ Example (MCP call shape):
 {"tool": "list_tasks", "root": "/path/to/repo", "status": ["To Do"]}
 ```
 
+Bulk MCP examples:
+```json
+{"tool": "bulk_set_status", "root": "/path/to/repo", "tasks": ["task-001","task-002"], "status": "In Progress"}
+{"tool": "bulk_add_label", "root": "/path/to/repo", "tasks": ["task-001","task-002"], "label": "docs"}
+{"tool": "bulk_add_dependency", "root": "/path/to/repo", "tasks": ["task-001","task-002"], "dependency": "task-010"}
+{"tool": "bulk_add_note", "root": "/path/to/repo", "tasks": ["task-001","task-002"], "note": "checkpointed", "section": "notes"}
+```
+
 ## Command reference (CLI)
 Read:
 - `list`, `show`, `next`, `ready`, `stats`, `export`, `issues-export`, `graph-export`
@@ -94,6 +102,7 @@ Write:
 Bulk:
 - `bulk-set-status`, `bulk-set-field`, `bulk-label-add`, `bulk-label-remove`
 - `bulk-dep-add`, `bulk-dep-remove`, `bulk-note`
+- Alias group: `bulk set-status|set-field|label-add|label-remove|dep-add|dep-remove|note`
 
 Docs/Scaffold:
 - `project-init`, `quickstart`, `validate`
