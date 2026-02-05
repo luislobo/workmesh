@@ -49,6 +49,10 @@ Use this skill to manage Markdown-backed backlogs with explicit dependencies.
   - Use when: you find new work while executing another task.
   - Workflow: create discovered task → link to source task → continue current work.
   - Command: `workmesh --root /path add-discovered --from task-042 --title "New bug"`
+- Bulk updates
+  - Use when: you need to apply the same change to many tasks quickly.
+  - Workflow: choose tasks → run bulk command → review summary → re-run validate if needed.
+  - Commands: `workmesh --root /path bulk-set-status --tasks task-001,task-002 --status "In Progress"` or `bulk-label-add`, `bulk-dep-add`, `bulk-note`
 - Quickstart
   - Use when: bootstrapping a new repo or enabling WorkMesh in an existing repo.
   - Workflow: run once → review scaffold → add first real tasks.
@@ -87,6 +91,9 @@ Index maintenance:
 Reporting/export:
 - `graph-export -> analyze`  
 - `issues-export -> consume -> discard`
+
+Bulk updates:
+- `select tasks -> bulk-set-status|bulk-set-field|bulk-label-add|bulk-dep-add|bulk-note`
 
 Resume after restart:
 - `resume -> ready -> claim -> continue`
