@@ -128,6 +128,58 @@ Then start Codex inside your repo and run:
 {"tool": "ready_tasks", "format": "json"}
 ```
 
+## Agent CLI setup (popular)
+Use these if you drive WorkMesh via a terminal agent rather than an IDE.
+
+Codex CLI (OpenAI):
+- Configure MCP via `codex mcp add` or by editing `~/.codex/config.toml` directly.
+- Example:
+  ```bash
+  codex mcp add workmesh -- /path/to/workmesh-mcp
+  ```
+
+Claude Code:
+- Add local MCP servers with `claude mcp add <name> -- <command> [args...]`.
+- Example:
+  ```bash
+  claude mcp add workmesh -- /path/to/workmesh-mcp
+  ```
+
+Gemini CLI:
+- Gemini CLI supports MCP servers and exposes `/mcp` to manage them.
+- Use `/mcp` inside the CLI to add the WorkMesh stdio server.
+
+GitHub Copilot CLI:
+- Use `/mcp add` inside Copilot CLI and save the WorkMesh server in `~/.copilot/mcp-config.json`.
+
+Cursor CLI:
+- Cursor CLI supports MCP via `cursor-agent mcp` (same configuration as the editor).
+
+## IDE/editor setup
+VS Code (Copilot Agent mode):
+- Add `.vscode/mcp.json` in your repo:
+  ```json
+  {
+    "servers": {
+      "workmesh": {
+        "type": "stdio",
+        "command": "/path/to/workmesh/target/debug/workmesh-mcp",
+        "args": []
+      }
+    }
+  }
+  ```
+
+Cursor (editor):
+- Uses the same MCP configuration as Cursor CLI. Add WorkMesh once and both use it.
+
+IntelliJ / JetBrains IDEs:
+- If your IDE doesn’t support MCP yet, use WorkMesh via the CLI or an agent CLI.
+- If you have a plugin that supports MCP, configure WorkMesh as a stdio server.
+
+Antigravity IDE:
+- Use WorkMesh via the CLI unless the IDE exposes MCP configuration; if it does, point it to `workmesh-mcp`.
+
 ## Skills (Codex/Claude)
 WorkMesh can serve its own skill content to agents.
 
