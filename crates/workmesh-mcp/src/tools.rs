@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 use async_trait::async_trait;
@@ -201,6 +202,13 @@ fn tool_catalog() -> Vec<serde_json::Value> {
         serde_json::json!({"name": "remove_label", "summary": "Remove a label from a task."}),
         serde_json::json!({"name": "add_dependency", "summary": "Add a dependency to a task."}),
         serde_json::json!({"name": "remove_dependency", "summary": "Remove a dependency from a task."}),
+        serde_json::json!({"name": "bulk_set_status", "summary": "Bulk update task statuses."}),
+        serde_json::json!({"name": "bulk_set_field", "summary": "Bulk update a front matter field."}),
+        serde_json::json!({"name": "bulk_add_label", "summary": "Bulk add a label to tasks."}),
+        serde_json::json!({"name": "bulk_remove_label", "summary": "Bulk remove a label from tasks."}),
+        serde_json::json!({"name": "bulk_add_dependency", "summary": "Bulk add a dependency to tasks."}),
+        serde_json::json!({"name": "bulk_remove_dependency", "summary": "Bulk remove a dependency from tasks."}),
+        serde_json::json!({"name": "bulk_add_note", "summary": "Bulk append a note to tasks."}),
         serde_json::json!({"name": "claim_task", "summary": "Claim a task lease."}),
         serde_json::json!({"name": "release_task", "summary": "Release a task lease."}),
         serde_json::json!({"name": "add_note", "summary": "Append a note to Notes or Implementation Notes."}),
@@ -353,6 +361,79 @@ pub struct RemoveDependencyTool {
     pub task_id: String,
     pub dependency: String,
     pub root: Option<String>,
+    #[serde(default)]
+    pub touch: bool,
+}
+
+#[mcp_tool(name = "bulk_set_status", description = "Bulk update task statuses.")]
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct BulkSetStatusTool {
+    pub tasks: Option<ListInput>,
+    pub status: String,
+    pub root: Option<String>,
+    #[serde(default)]
+    pub touch: bool,
+}
+
+#[mcp_tool(name = "bulk_set_field", description = "Bulk update a front matter field.")]
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct BulkSetFieldTool {
+    pub tasks: Option<ListInput>,
+    pub field: String,
+    pub value: String,
+    pub root: Option<String>,
+    #[serde(default)]
+    pub touch: bool,
+}
+
+#[mcp_tool(name = "bulk_add_label", description = "Bulk add a label to tasks.")]
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct BulkAddLabelTool {
+    pub tasks: Option<ListInput>,
+    pub label: String,
+    pub root: Option<String>,
+    #[serde(default)]
+    pub touch: bool,
+}
+
+#[mcp_tool(name = "bulk_remove_label", description = "Bulk remove a label from tasks.")]
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct BulkRemoveLabelTool {
+    pub tasks: Option<ListInput>,
+    pub label: String,
+    pub root: Option<String>,
+    #[serde(default)]
+    pub touch: bool,
+}
+
+#[mcp_tool(name = "bulk_add_dependency", description = "Bulk add a dependency to tasks.")]
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct BulkAddDependencyTool {
+    pub tasks: Option<ListInput>,
+    pub dependency: String,
+    pub root: Option<String>,
+    #[serde(default)]
+    pub touch: bool,
+}
+
+#[mcp_tool(name = "bulk_remove_dependency", description = "Bulk remove a dependency from tasks.")]
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct BulkRemoveDependencyTool {
+    pub tasks: Option<ListInput>,
+    pub dependency: String,
+    pub root: Option<String>,
+    #[serde(default)]
+    pub touch: bool,
+}
+
+#[mcp_tool(name = "bulk_add_note", description = "Bulk append a note to tasks.")]
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct BulkAddNoteTool {
+    pub tasks: Option<ListInput>,
+    pub note: String,
+    pub root: Option<String>,
+    #[serde(default = "default_notes_section")]
+    pub section: String,
     #[serde(default)]
     pub touch: bool,
 }
@@ -676,6 +757,13 @@ tool_box!(
         RemoveLabelTool,
         AddDependencyTool,
         RemoveDependencyTool,
+        BulkSetStatusTool,
+        BulkSetFieldTool,
+        BulkAddLabelTool,
+        BulkRemoveLabelTool,
+        BulkAddDependencyTool,
+        BulkRemoveDependencyTool,
+        BulkAddNoteTool,
         ClaimTaskTool,
         ReleaseTaskTool,
         AddNoteTool,
@@ -743,6 +831,13 @@ impl ServerHandler for WorkmeshServerHandler {
             WorkmeshTools::RemoveLabelTool(tool) => tool.call(&self.context),
             WorkmeshTools::AddDependencyTool(tool) => tool.call(&self.context),
             WorkmeshTools::RemoveDependencyTool(tool) => tool.call(&self.context),
+            WorkmeshTools::BulkSetStatusTool(tool) => tool.call(&self.context),
+            WorkmeshTools::BulkSetFieldTool(tool) => tool.call(&self.context),
+            WorkmeshTools::BulkAddLabelTool(tool) => tool.call(&self.context),
+            WorkmeshTools::BulkRemoveLabelTool(tool) => tool.call(&self.context),
+            WorkmeshTools::BulkAddDependencyTool(tool) => tool.call(&self.context),
+            WorkmeshTools::BulkRemoveDependencyTool(tool) => tool.call(&self.context),
+            WorkmeshTools::BulkAddNoteTool(tool) => tool.call(&self.context),
             WorkmeshTools::ClaimTaskTool(tool) => tool.call(&self.context),
             WorkmeshTools::ReleaseTaskTool(tool) => tool.call(&self.context),
             WorkmeshTools::AddNoteTool(tool) => tool.call(&self.context),
@@ -1048,6 +1143,280 @@ impl RemoveDependencyTool {
             false,
             self.touch,
         )
+    }
+}
+
+impl BulkSetStatusTool {
+    fn call(&self, context: &McpContext) -> Result<CallToolResult, CallToolError> {
+        let backlog_dir = match resolve_root(context, self.root.as_deref()) {
+            Ok(dir) => dir,
+            Err(err) => return ok_json(err),
+        };
+        let tasks = load_tasks(&backlog_dir);
+        let ids = match parse_bulk_ids(self.tasks.clone()) {
+            Ok(ids) => ids,
+            Err(err) => return ok_json(err),
+        };
+        let (selected, missing) = select_tasks_with_missing(&tasks, &ids);
+        let mut updated = Vec::new();
+        for task in selected {
+            let path = task
+                .file_path
+                .as_ref()
+                .ok_or_else(|| CallToolError::from_message("Missing task path"))?;
+            update_task_field(path, "status", Some(self.status.clone().into()))
+                .map_err(CallToolError::new)?;
+            if self.touch {
+                update_task_field(path, "updated_date", Some(now_timestamp().into()))
+                    .map_err(CallToolError::new)?;
+            }
+            audit_event(
+                &backlog_dir,
+                "bulk_set_status",
+                Some(&task.id),
+                serde_json::json!({ "status": self.status.clone() }),
+            )?;
+            updated.push(task.id.clone());
+        }
+        refresh_index_best_effort(&backlog_dir);
+        maybe_auto_checkpoint(&backlog_dir);
+        ok_json(bulk_result(updated, missing))
+    }
+}
+
+impl BulkSetFieldTool {
+    fn call(&self, context: &McpContext) -> Result<CallToolResult, CallToolError> {
+        let backlog_dir = match resolve_root(context, self.root.as_deref()) {
+            Ok(dir) => dir,
+            Err(err) => return ok_json(err),
+        };
+        let tasks = load_tasks(&backlog_dir);
+        let ids = match parse_bulk_ids(self.tasks.clone()) {
+            Ok(ids) => ids,
+            Err(err) => return ok_json(err),
+        };
+        let (selected, missing) = select_tasks_with_missing(&tasks, &ids);
+        let mut updated = Vec::new();
+        for task in selected {
+            let path = task
+                .file_path
+                .as_ref()
+                .ok_or_else(|| CallToolError::from_message("Missing task path"))?;
+            update_task_field_or_section(path, &self.field, Some(&self.value))
+                .map_err(CallToolError::new)?;
+            if self.touch {
+                update_task_field(path, "updated_date", Some(now_timestamp().into()))
+                    .map_err(CallToolError::new)?;
+            }
+            audit_event(
+                &backlog_dir,
+                "bulk_set_field",
+                Some(&task.id),
+                serde_json::json!({ "field": self.field.clone(), "value": self.value.clone() }),
+            )?;
+            updated.push(task.id.clone());
+        }
+        refresh_index_best_effort(&backlog_dir);
+        maybe_auto_checkpoint(&backlog_dir);
+        ok_json(bulk_result(updated, missing))
+    }
+}
+
+impl BulkAddLabelTool {
+    fn call(&self, context: &McpContext) -> Result<CallToolResult, CallToolError> {
+        let backlog_dir = match resolve_root(context, self.root.as_deref()) {
+            Ok(dir) => dir,
+            Err(err) => return ok_json(err),
+        };
+        let tasks = load_tasks(&backlog_dir);
+        let ids = match parse_bulk_ids(self.tasks.clone()) {
+            Ok(ids) => ids,
+            Err(err) => return ok_json(err),
+        };
+        let (selected, missing) = select_tasks_with_missing(&tasks, &ids);
+        let mut updated = Vec::new();
+        for task in selected {
+            let path = task
+                .file_path
+                .as_ref()
+                .ok_or_else(|| CallToolError::from_message("Missing task path"))?;
+            let mut current = task.labels.clone();
+            if !current.contains(&self.label) {
+                current.push(self.label.clone());
+            }
+            set_list_field(path, "labels", current).map_err(CallToolError::new)?;
+            if self.touch {
+                update_task_field(path, "updated_date", Some(now_timestamp().into()))
+                    .map_err(CallToolError::new)?;
+            }
+            audit_event(
+                &backlog_dir,
+                "bulk_label_add",
+                Some(&task.id),
+                serde_json::json!({ "label": self.label.clone() }),
+            )?;
+            updated.push(task.id.clone());
+        }
+        refresh_index_best_effort(&backlog_dir);
+        maybe_auto_checkpoint(&backlog_dir);
+        ok_json(bulk_result(updated, missing))
+    }
+}
+
+impl BulkRemoveLabelTool {
+    fn call(&self, context: &McpContext) -> Result<CallToolResult, CallToolError> {
+        let backlog_dir = match resolve_root(context, self.root.as_deref()) {
+            Ok(dir) => dir,
+            Err(err) => return ok_json(err),
+        };
+        let tasks = load_tasks(&backlog_dir);
+        let ids = match parse_bulk_ids(self.tasks.clone()) {
+            Ok(ids) => ids,
+            Err(err) => return ok_json(err),
+        };
+        let (selected, missing) = select_tasks_with_missing(&tasks, &ids);
+        let mut updated = Vec::new();
+        for task in selected {
+            let path = task
+                .file_path
+                .as_ref()
+                .ok_or_else(|| CallToolError::from_message("Missing task path"))?;
+            let mut current = task.labels.clone();
+            current.retain(|entry| entry != &self.label);
+            set_list_field(path, "labels", current).map_err(CallToolError::new)?;
+            if self.touch {
+                update_task_field(path, "updated_date", Some(now_timestamp().into()))
+                    .map_err(CallToolError::new)?;
+            }
+            audit_event(
+                &backlog_dir,
+                "bulk_label_remove",
+                Some(&task.id),
+                serde_json::json!({ "label": self.label.clone() }),
+            )?;
+            updated.push(task.id.clone());
+        }
+        refresh_index_best_effort(&backlog_dir);
+        maybe_auto_checkpoint(&backlog_dir);
+        ok_json(bulk_result(updated, missing))
+    }
+}
+
+impl BulkAddDependencyTool {
+    fn call(&self, context: &McpContext) -> Result<CallToolResult, CallToolError> {
+        let backlog_dir = match resolve_root(context, self.root.as_deref()) {
+            Ok(dir) => dir,
+            Err(err) => return ok_json(err),
+        };
+        let tasks = load_tasks(&backlog_dir);
+        let ids = match parse_bulk_ids(self.tasks.clone()) {
+            Ok(ids) => ids,
+            Err(err) => return ok_json(err),
+        };
+        let (selected, missing) = select_tasks_with_missing(&tasks, &ids);
+        let mut updated = Vec::new();
+        for task in selected {
+            let path = task
+                .file_path
+                .as_ref()
+                .ok_or_else(|| CallToolError::from_message("Missing task path"))?;
+            let mut current = task.dependencies.clone();
+            if !current.contains(&self.dependency) {
+                current.push(self.dependency.clone());
+            }
+            set_list_field(path, "dependencies", current).map_err(CallToolError::new)?;
+            if self.touch {
+                update_task_field(path, "updated_date", Some(now_timestamp().into()))
+                    .map_err(CallToolError::new)?;
+            }
+            audit_event(
+                &backlog_dir,
+                "bulk_dependency_add",
+                Some(&task.id),
+                serde_json::json!({ "dependency": self.dependency.clone() }),
+            )?;
+            updated.push(task.id.clone());
+        }
+        refresh_index_best_effort(&backlog_dir);
+        maybe_auto_checkpoint(&backlog_dir);
+        ok_json(bulk_result(updated, missing))
+    }
+}
+
+impl BulkRemoveDependencyTool {
+    fn call(&self, context: &McpContext) -> Result<CallToolResult, CallToolError> {
+        let backlog_dir = match resolve_root(context, self.root.as_deref()) {
+            Ok(dir) => dir,
+            Err(err) => return ok_json(err),
+        };
+        let tasks = load_tasks(&backlog_dir);
+        let ids = match parse_bulk_ids(self.tasks.clone()) {
+            Ok(ids) => ids,
+            Err(err) => return ok_json(err),
+        };
+        let (selected, missing) = select_tasks_with_missing(&tasks, &ids);
+        let mut updated = Vec::new();
+        for task in selected {
+            let path = task
+                .file_path
+                .as_ref()
+                .ok_or_else(|| CallToolError::from_message("Missing task path"))?;
+            let mut current = task.dependencies.clone();
+            current.retain(|entry| entry != &self.dependency);
+            set_list_field(path, "dependencies", current).map_err(CallToolError::new)?;
+            if self.touch {
+                update_task_field(path, "updated_date", Some(now_timestamp().into()))
+                    .map_err(CallToolError::new)?;
+            }
+            audit_event(
+                &backlog_dir,
+                "bulk_dependency_remove",
+                Some(&task.id),
+                serde_json::json!({ "dependency": self.dependency.clone() }),
+            )?;
+            updated.push(task.id.clone());
+        }
+        refresh_index_best_effort(&backlog_dir);
+        maybe_auto_checkpoint(&backlog_dir);
+        ok_json(bulk_result(updated, missing))
+    }
+}
+
+impl BulkAddNoteTool {
+    fn call(&self, context: &McpContext) -> Result<CallToolResult, CallToolError> {
+        let backlog_dir = match resolve_root(context, self.root.as_deref()) {
+            Ok(dir) => dir,
+            Err(err) => return ok_json(err),
+        };
+        let tasks = load_tasks(&backlog_dir);
+        let ids = match parse_bulk_ids(self.tasks.clone()) {
+            Ok(ids) => ids,
+            Err(err) => return ok_json(err),
+        };
+        let (selected, missing) = select_tasks_with_missing(&tasks, &ids);
+        let mut updated = Vec::new();
+        for task in selected {
+            let path = task
+                .file_path
+                .as_ref()
+                .ok_or_else(|| CallToolError::from_message("Missing task path"))?;
+            let new_body = append_note(&task.body, &self.note, &self.section);
+            update_body(path, &new_body).map_err(CallToolError::new)?;
+            if self.touch {
+                update_task_field(path, "updated_date", Some(now_timestamp().into()))
+                    .map_err(CallToolError::new)?;
+            }
+            audit_event(
+                &backlog_dir,
+                "bulk_note",
+                Some(&task.id),
+                serde_json::json!({ "section": self.section.clone(), "note": self.note.clone() }),
+            )?;
+            updated.push(task.id.clone());
+        }
+        refresh_index_best_effort(&backlog_dir);
+        maybe_auto_checkpoint(&backlog_dir);
+        ok_json(bulk_result(updated, missing))
     }
 }
 
@@ -1798,6 +2167,54 @@ fn select_tasks_by_ids<'a>(tasks: &'a [Task], ids: &[String]) -> Vec<&'a Task> {
         }
     }
     selected
+}
+
+fn select_tasks_with_missing<'a>(
+    tasks: &'a [Task],
+    ids: &[String],
+) -> (Vec<&'a Task>, Vec<String>) {
+    let mut selected = Vec::new();
+    let mut missing = Vec::new();
+    for id in ids {
+        if let Some(task) = find_task(tasks, id) {
+            selected.push(task);
+        } else {
+            missing.push(id.to_string());
+        }
+    }
+    (selected, missing)
+}
+
+fn normalize_task_ids(ids: Vec<String>) -> Vec<String> {
+    let mut seen = HashSet::new();
+    let mut out = Vec::new();
+    for id in ids {
+        let trimmed = id.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        let key = trimmed.to_lowercase();
+        if seen.insert(key) {
+            out.push(trimmed.to_string());
+        }
+    }
+    out
+}
+
+fn parse_bulk_ids(input: Option<ListInput>) -> Result<Vec<String>, serde_json::Value> {
+    let ids = normalize_task_ids(parse_list_input(input));
+    if ids.is_empty() {
+        return Err(serde_json::json!({"error": "tasks required"}));
+    }
+    Ok(ids)
+}
+
+fn bulk_result(updated: Vec<String>, missing: Vec<String>) -> serde_json::Value {
+    serde_json::json!({
+        "ok": missing.is_empty(),
+        "updated": updated,
+        "missing": missing,
+    })
 }
 
 fn next_id(tasks: &[Task]) -> String {
