@@ -91,6 +91,10 @@ Write:
 - `add`, `add-discovered`, `set-status`, `set-field`, `label-add`, `label-remove`
 - `dep-add`, `dep-remove`, `note`, `set-body`, `set-section`, `claim`, `release`
 
+Bulk:
+- `bulk-set-status`, `bulk-set-field`, `bulk-label-add`, `bulk-label-remove`
+- `bulk-dep-add`, `bulk-dep-remove`, `bulk-note`
+
 Docs/Scaffold:
 - `project-init`, `quickstart`, `validate`
 
@@ -119,6 +123,7 @@ Auto-checkpointing:
 - Project scaffolding via `project-init` (CLI) / `project_init` (MCP).
 - Validation for required fields, missing dependencies, and missing project docs.
 - Checkpoints + resume + diff for session continuity.
+- Bulk update operations for common task mutations (CLI + MCP).
 
 ## Repo layout
 - `docs/` - project documentation, PRDs, decisions, updates.
