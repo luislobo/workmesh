@@ -1710,6 +1710,18 @@ fn parse_before_date(value: &str) -> Result<NaiveDate> {
     Err(anyhow::anyhow!("Invalid date format: {}", value))
 }
 
+fn prompts_disabled() -> bool {
+    // CI-friendly: some environments report stdin as a terminal but still cannot read input.
+    // This opt-out keeps commands non-interactive and deterministic.
+    std::env::var("WORKMESH_NO_PROMPT")
+        .ok()
+        .map(|value| {
+            let v = value.trim().to_lowercase();
+            v == "1" || v == "true" || v == "yes" || v == "y"
+        })
+        .unwrap_or(false)
+}
+
 fn maybe_prompt_migration(resolution: &BacklogResolution) -> Result<PathBuf> {
     if !resolution.layout.is_legacy() {
         return Ok(resolution.backlog_dir.clone());
@@ -1722,7 +1734,7 @@ fn maybe_prompt_migration(resolution: &BacklogResolution) -> Result<PathBuf> {
     {
         return Ok(resolution.backlog_dir.clone());
     }
-    if !io::stdin().is_terminal() {
+    if prompts_disabled() || !io::stdin().is_terminal() {
         eprintln!(
             "Legacy backlog detected at {}. Run `workmesh --root . migrate` to move to workmesh/.",
             resolution.backlog_dir.display()
@@ -1750,7 +1762,7 @@ fn confirm_migration(path: &Path) -> Result<bool> {
 }
 
 fn handle_migrate_command(resolution: &BacklogResolution, target: &str, yes: bool) -> Result<()> {
-    if !yes && io::stdin().is_terminal() {
+    if !yes && io::stdin().is_terminal() && !prompts_disabled() {
         if !confirm_migration(&resolution.backlog_dir)? {
             let _ = update_do_not_migrate(&resolution.repo_root, true);
             println!("Migration cancelled.");

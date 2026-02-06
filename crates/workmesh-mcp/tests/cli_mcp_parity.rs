@@ -49,6 +49,7 @@ fn cli() -> Command {
         let mut cmd = Command::new(path);
         // Avoid interactive prompts (e.g. legacy backlog migration confirmation) in CI.
         cmd.stdin(Stdio::null());
+        cmd.env("WORKMESH_NO_PROMPT", "1");
         return cmd;
     }
     static BUILD: Once = Once::new();
@@ -71,6 +72,7 @@ fn cli() -> Command {
     let mut cmd = Command::new(candidate);
     // Avoid interactive prompts (e.g. legacy backlog migration confirmation) in CI.
     cmd.stdin(Stdio::null());
+    cmd.env("WORKMESH_NO_PROMPT", "1");
     cmd
 }
 
