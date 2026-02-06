@@ -1,5 +1,4 @@
 use std::collections::BTreeSet;
-use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::Arc;
@@ -19,6 +18,9 @@ use rust_mcp_sdk::{
 };
 
 use workmesh_core::task::parse_task_file;
+
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
 
 struct NoopClientHandler;
 
@@ -173,13 +175,54 @@ fn find_task_path(tasks_dir: &Path, id: &str) -> PathBuf {
 }
 
 fn write_fake_plantuml(dir: &Path) -> PathBuf {
-    let path = dir.join("fake-plantuml.sh");
-    let script = "#!/bin/sh\ncat >/dev/null\necho \"<svg></svg>\"\n";
+    let path = fake_plantuml_path(dir);
+    let script = fake_plantuml_script();
     std::fs::write(&path, script).expect("write plantuml script");
-    let mut perms = std::fs::metadata(&path).expect("stat").permissions();
-    perms.set_mode(0o755);
-    std::fs::set_permissions(&path, perms).expect("chmod");
+    make_executable_best_effort(&path);
     path
+}
+
+#[cfg(unix)]
+fn fake_plantuml_path(dir: &Path) -> PathBuf {
+    dir.join("fake-plantuml.sh")
+}
+
+#[cfg(windows)]
+fn fake_plantuml_path(dir: &Path) -> PathBuf {
+    dir.join("fake-plantuml.cmd")
+}
+
+#[cfg(unix)]
+fn fake_plantuml_script() -> &'static str {
+    "#!/bin/sh\ncat >/dev/null\necho \"<svg></svg>\"\n"
+}
+
+#[cfg(windows)]
+fn fake_plantuml_script() -> &'static str {
+    "@echo off\r\nmore >nul\r\necho <svg></svg>\r\n"
+}
+
+#[cfg(unix)]
+fn make_executable_best_effort(path: &Path) {
+    let mut perms = std::fs::metadata(path).expect("stat").permissions();
+    perms.set_mode(0o755);
+    std::fs::set_permissions(path, perms).expect("chmod");
+}
+
+#[cfg(windows)]
+fn make_executable_best_effort(_path: &Path) {
+    // No-op: we'll invoke via `cmd /C`, so executable permissions are irrelevant.
+}
+
+fn plantuml_cmd_arg(script_path: &Path) -> String {
+    #[cfg(windows)]
+    {
+        format!("cmd /C {}", script_path.display())
+    }
+    #[cfg(not(windows))]
+    {
+        script_path.display().to_string()
+    }
 }
 
 fn ids_from_json(text: &str) -> BTreeSet<String> {
@@ -507,7 +550,7 @@ async fn cli_and_mcp_graph_issues_index_gantt_parity() {
         .arg("--output")
         .arg(&cli_gantt_svg_path)
         .arg("--plantuml-cmd")
-        .arg(fake_plantuml.display().to_string())
+        .arg(plantuml_cmd_arg(&fake_plantuml))
         .output()
         .expect("cli gantt-svg");
     assert!(cli_gantt_svg.status.success());
@@ -587,7 +630,7 @@ async fn cli_and_mcp_graph_issues_index_gantt_parity() {
             "root": temp.path().display().to_string(),
             "zoom": 3,
             "output": mcp_gantt_svg_path.display().to_string(),
-            "plantuml_cmd": fake_plantuml.display().to_string()
+            "plantuml_cmd": plantuml_cmd_arg(&fake_plantuml)
         }),
     )
     .await;
