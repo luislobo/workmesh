@@ -91,8 +91,8 @@ fn task_date(task: &Task) -> Option<NaiveDate> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::task_ops::create_task_file;
     use crate::task::load_tasks;
+    use crate::task_ops::create_task_file;
     use tempfile::TempDir;
 
     #[test]

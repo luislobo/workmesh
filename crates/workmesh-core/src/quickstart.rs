@@ -56,7 +56,13 @@ pub fn quickstart(
 fn create_sample_task_if_missing(tasks_dir: &Path) -> Result<Option<PathBuf>, QuickstartError> {
     let has_tasks = fs::read_dir(tasks_dir)?
         .filter_map(Result::ok)
-        .any(|entry| entry.path().extension().map(|ext| ext == "md").unwrap_or(false));
+        .any(|entry| {
+            entry
+                .path()
+                .extension()
+                .map(|ext| ext == "md")
+                .unwrap_or(false)
+        });
     if has_tasks {
         return Ok(None);
     }

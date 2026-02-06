@@ -65,8 +65,7 @@ fn show_outputs_file_when_full() {
 fn next_returns_empty_json_when_none_ready() {
     let temp = to_temp_path("repo/backlog/tasks");
     let tasks_dir = temp.path().join("repo/backlog/tasks");
-    let content = "---\n"
-        .to_string()
+    let content = "---\n".to_string()
         + "id: task-001\n"
         + "title: Blocked\n"
         + "status: To Do\n"

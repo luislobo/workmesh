@@ -10,7 +10,9 @@ fn bin() -> Command {
 fn write_task(dir: &std::path::Path, id: &str, title: &str, status: &str, updated: Option<&str>) {
     let filename = format!("{} - {}.md", id, title.to_lowercase());
     let path = dir.join(filename);
-    let updated_line = updated.map(|value| format!("updated_date: {}\n", value)).unwrap_or_default();
+    let updated_line = updated
+        .map(|value| format!("updated_date: {}\n", value))
+        .unwrap_or_default();
     let content = format!(
         "---\nid: {id}\ntitle: {title}\nstatus: {status}\npriority: P2\nphase: Phase3\ndependencies: []\nlabels: []\nassignee: []\n{updated}---\n\nBody\n",
         id = id,
@@ -28,7 +30,13 @@ fn checkpoint_diff_shows_updates() {
     let tasks_dir = backlog_dir.join("tasks");
     fs::create_dir_all(&tasks_dir).expect("tasks dir");
 
-    write_task(&tasks_dir, "task-001", "Alpha", "To Do", Some("2099-01-01 00:00"));
+    write_task(
+        &tasks_dir,
+        "task-001",
+        "Alpha",
+        "To Do",
+        Some("2099-01-01 00:00"),
+    );
 
     let output = bin()
         .arg("--root")

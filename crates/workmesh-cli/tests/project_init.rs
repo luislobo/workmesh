@@ -30,4 +30,3 @@ fn project_init_creates_docs() {
     assert!(docs_root.join("updates").is_dir());
     assert!(docs_root.join("initiatives").is_dir());
 }
-

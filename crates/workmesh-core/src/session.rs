@@ -155,7 +155,10 @@ pub fn write_checkpoint(
     let json_path = updates_dir.join(format!("checkpoint-{}.json", checkpoint_id));
     let markdown_path = updates_dir.join(format!("checkpoint-{}.md", checkpoint_id));
 
-    fs::write(&json_path, serde_json::to_string_pretty(&snapshot).unwrap_or_default())?;
+    fs::write(
+        &json_path,
+        serde_json::to_string_pretty(&snapshot).unwrap_or_default(),
+    )?;
     fs::write(&markdown_path, render_checkpoint_markdown(&snapshot))?;
 
     Ok(CheckpointResult {
@@ -324,7 +327,10 @@ pub fn render_diff(report: &DiffReport) -> String {
         lines.push("Recent audit events:".to_string());
         for event in &report.audit_events {
             let task = event.task_id.as_deref().unwrap_or("-");
-            lines.push(format!("- {} | {} | {}", event.timestamp, event.action, task));
+            lines.push(format!(
+                "- {} | {} | {}",
+                event.timestamp, event.action, task
+            ));
         }
     }
 
@@ -512,10 +518,7 @@ fn pick_current_task(tasks: &[Task]) -> Option<&Task> {
 }
 
 fn active_lease_tasks(tasks: &[Task]) -> Vec<&Task> {
-    let mut leased: Vec<&Task> = tasks
-        .iter()
-        .filter(|task| is_lease_active(task))
-        .collect();
+    let mut leased: Vec<&Task> = tasks.iter().filter(|task| is_lease_active(task)).collect();
     leased.sort_by(|a, b| a.id_num().cmp(&b.id_num()));
     leased
 }
