@@ -30,7 +30,7 @@ audit trails.
 
 ## Index design (proposed)
 - Source of truth: Markdown tasks on disk.
-- Index file: `backlog/.index/tasks.jsonl` (newline-delimited JSON per task).
+- Index file: `workmesh/.index/tasks.jsonl` (newline-delimited JSON per task).
 - Entry fields: `id`, `path`, `status`, `priority`, `phase`, `dependencies`, `labels`,
   `assignee`, `project`, `initiative`, `updated_date`, `mtime`, `hash`.
 - Operations:

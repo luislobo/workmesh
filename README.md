@@ -35,7 +35,7 @@ cargo build -p workmesh-mcp
 
 ## Quickstart (60 seconds)
 ```bash
-# create docs + backlog + seed task
+# create docs + workmesh + seed task
 workmesh --root . quickstart workmesh --agents-snippet
 
 # list tasks
@@ -62,7 +62,7 @@ docs/
       README.md
       prds/
       updates/
-backlog/
+workmesh/
   tasks/
     task-001 - seed task.md
 ```
@@ -99,6 +99,31 @@ workmesh --root . resume --project workmesh
 workmesh --root . checkpoint-diff --project workmesh
 ```
 
+## Migration from legacy backlog/
+WorkMesh prefers `workmesh/` (or `.workmesh/`). If it detects a legacy `backlog/` layout, the CLI will prompt to migrate.
+
+If you choose **No**, it writes an optional config file so you won’t be prompted again:
+```toml
+# .workmesh.toml
+do_not_migrate = true
+# Optional: use a different root (e.g., .workmesh)
+# root_dir = ".workmesh"
+```
+
+You can migrate later at any time:
+```bash
+workmesh --root . migrate
+```
+
+## Archive (date-based)
+Archive moves **Done** tasks into `workmesh/archive/YYYY-MM/` based on task dates:
+```bash
+# archive Done tasks older than 30 days (default)
+workmesh --root . archive
+
+# archive Done tasks before a specific date
+workmesh --root . archive --before 2024-12-31
+```
 ## MCP usage
 If the MCP server is started inside a repo, `root` can be omitted. Otherwise pass `root`.
 
@@ -204,7 +229,7 @@ Bulk:
 - Alias group: `bulk set-status|set-field|label-add|label-remove|dep-add|dep-remove|note`
 
 Docs/Scaffold:
-- `project-init`, `quickstart`, `validate`
+- `project-init`, `quickstart`, `validate`, `migrate`, `archive`
 
 Index:
 - `index-rebuild`, `index-refresh`, `index-verify`
@@ -221,9 +246,9 @@ Auto-checkpointing:
 
 ## Features
 - CLI for list/next/show/stats/export, plus task mutation (status, fields, labels, deps, notes).
-- MCP server with parity tools and rootless resolution (infer backlog from CWD).
+- MCP server with parity tools and rootless resolution (infer workmesh from CWD).
 - Markdown task format with tolerant front-matter parsing.
-- Backlog discovery supports `tasks/`, `backlog/tasks/`, or `project/tasks/`.
+- Backlog discovery supports `workmesh/tasks/`, `.workmesh/tasks/`, `tasks/`, `backlog/tasks/`, or `project/tasks/`.
 - Gantt output (PlantUML text/file/svg) with dependency links.
 - Graph export command (property-graph JSON for nodes + edges).
 - JSONL task index with rebuild/refresh/verify for fast queries.
@@ -235,12 +260,12 @@ Auto-checkpointing:
 
 ## Repo layout
 - `docs/` - project documentation, PRDs, decisions, updates.
-- `backlog/tasks/` - Markdown tasks managed by the CLI/MCP tools.
+- `workmesh/tasks/` - Markdown tasks managed by the CLI/MCP tools.
 - `crates/` - Rust crates (CLI, core, MCP server).
 - `.codex/skills/` - WorkMesh agent skills.
 
 ## Troubleshooting
-- **No tasks found**: ensure `backlog/tasks/` exists or run `quickstart`.
+- **No tasks found**: ensure `workmesh/tasks/` exists or run `quickstart`.
 - **PlantUML SVG fails**: install `plantuml` or set `PLANTUML_CMD`/`PLANTUML_JAR`.
 - **MCP tool can’t find root**: start MCP in repo or pass `root` explicitly.
 

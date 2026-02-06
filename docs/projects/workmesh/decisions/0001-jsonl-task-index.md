@@ -10,7 +10,7 @@ We considered a binary index (B-Tree/SQLite) but want low friction, git-friendly
 storage, and deterministic rebuilds.
 
 ## Decision
-Use a newline-delimited JSON (JSONL) index at `backlog/.index/tasks.jsonl`.
+Use a newline-delimited JSON (JSONL) index at `workmesh/.index/tasks.jsonl`.
 Each line is a full task snapshot with `mtime` and a `sha256` hash of the source
 task file. The index is rebuildable and can be verified against Markdown.
 
