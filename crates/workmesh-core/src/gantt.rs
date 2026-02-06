@@ -191,7 +191,7 @@ fn resolve_plantuml_command(
     env_map: Option<&HashMap<String, String>>,
 ) -> Result<Vec<String>, PlantumlRenderError> {
     if let Some(cmd) = cmd {
-        return Ok(ensure_svg_pipe(cmd));
+        return Ok(wrap_windows_script(ensure_svg_pipe(cmd)));
     }
 
     let env_map = env_map.cloned().unwrap_or_else(|| env::vars().collect());
@@ -201,7 +201,7 @@ fn resolve_plantuml_command(
     {
         let parts =
             shell_words::split(env_cmd).map_err(|_| PlantumlRenderError::MissingPlantuml)?;
-        return Ok(ensure_svg_pipe(parts));
+        return Ok(wrap_windows_script(ensure_svg_pipe(parts)));
     }
 
     let jar_env = env_map
@@ -212,17 +212,17 @@ fn resolve_plantuml_command(
         .map(|path| path.to_path_buf())
         .or(jar_env.map(PathBuf::from))
     {
-        return Ok(ensure_svg_pipe(vec![
+        return Ok(wrap_windows_script(ensure_svg_pipe(vec![
             "java".to_string(),
             "-jar".to_string(),
             jar.to_string_lossy().to_string(),
-        ]));
+        ])));
     }
 
     if let Ok(plantuml) = which::which("plantuml") {
-        return Ok(ensure_svg_pipe(vec![plantuml
+        return Ok(wrap_windows_script(ensure_svg_pipe(vec![plantuml
             .to_string_lossy()
-            .to_string()]));
+            .to_string()])));
     }
 
     Err(PlantumlRenderError::MissingPlantuml)
@@ -237,6 +237,25 @@ fn ensure_svg_pipe(args: Vec<String>) -> Vec<String> {
         next.push("-pipe".to_string());
     }
     next
+}
+
+fn wrap_windows_script(args: Vec<String>) -> Vec<String> {
+    // `std::process::Command` can't execute `.cmd` / `.bat` directly; it must go through `cmd.exe`.
+    // Supporting this makes it easier to inject fake PlantUML commands in tests and supports
+    // common Windows install patterns.
+    if cfg!(windows) {
+        if let Some(first) = args.first() {
+            let lower = first.to_lowercase();
+            if lower.ends_with(".cmd") || lower.ends_with(".bat") {
+                let mut wrapped = Vec::with_capacity(args.len() + 2);
+                wrapped.push("cmd".to_string());
+                wrapped.push("/C".to_string());
+                wrapped.extend(args);
+                return wrapped;
+            }
+        }
+    }
+    args
 }
 
 fn start_to_iso(start: Option<&str>) -> String {
