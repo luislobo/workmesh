@@ -221,8 +221,6 @@ fn recommended_kinds() -> Vec<&'static str> {
 fn tool_catalog() -> Vec<serde_json::Value> {
     vec![
         serde_json::json!({"name": "version", "summary": "Return WorkMesh version information."}),
-        serde_json::json!({"name": "server_shutdown", "summary": "Exit the MCP server process (client will reconnect)."}),
-        serde_json::json!({"name": "server_restart", "summary": "Restart the MCP server process (client will reconnect)."}),
         serde_json::json!({"name": "list_tasks", "summary": "List tasks with filters and sorting."}),
         serde_json::json!({"name": "show_task", "summary": "Show a single task by id."}),
         serde_json::json!({"name": "next_task", "summary": "Get the next ready task (lowest id, deps satisfied)."}),
@@ -277,20 +275,6 @@ fn tool_catalog() -> Vec<serde_json::Value> {
 #[mcp_tool(name = "version", description = "Return WorkMesh version information.")]
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct VersionTool {
-    #[serde(default = "default_format")]
-    pub format: String,
-}
-
-#[mcp_tool(name = "server_shutdown", description = "Exit the MCP server process (client will reconnect).")]
-#[derive(Debug, Deserialize, Serialize, JsonSchema)]
-pub struct ServerShutdownTool {
-    #[serde(default = "default_format")]
-    pub format: String,
-}
-
-#[mcp_tool(name = "server_restart", description = "Restart the MCP server process (client will reconnect).")]
-#[derive(Debug, Deserialize, Serialize, JsonSchema)]
-pub struct ServerRestartTool {
     #[serde(default = "default_format")]
     pub format: String,
 }
@@ -909,8 +893,6 @@ tool_box!(
     WorkmeshTools,
     [
         VersionTool,
-        ServerShutdownTool,
-        ServerRestartTool,
         ListTasksTool,
         ShowTaskTool,
         NextTaskTool,
@@ -989,8 +971,6 @@ impl ServerHandler for WorkmeshServerHandler {
         let tool = WorkmeshTools::try_from(params).map_err(CallToolError::new)?;
         match tool {
             WorkmeshTools::VersionTool(tool) => tool.call(&self.context),
-            WorkmeshTools::ServerShutdownTool(tool) => tool.call(&self.context),
-            WorkmeshTools::ServerRestartTool(tool) => tool.call(&self.context),
             WorkmeshTools::ListTasksTool(tool) => tool.call(&self.context),
             WorkmeshTools::ShowTaskTool(tool) => tool.call(&self.context),
             WorkmeshTools::NextTaskTool(tool) => tool.call(&self.context),
@@ -1063,44 +1043,6 @@ impl VersionTool {
             ));
         }
 
-        ok_json(payload)
-    }
-}
-
-fn schedule_exit_after_response() {
-    // Best-effort: allow the JSON-RPC response to flush before exiting.
-    std::thread::spawn(|| {
-        std::thread::sleep(std::time::Duration::from_millis(50));
-        std::process::exit(0);
-    });
-}
-
-impl ServerShutdownTool {
-    fn call(&self, _context: &McpContext) -> Result<CallToolResult, CallToolError> {
-        let payload = serde_json::json!({
-            "ok": true,
-            "action": "shutdown",
-            "note": "MCP server will exit; clients should reconnect and re-initialize."
-        });
-        schedule_exit_after_response();
-        if self.format == "text" {
-            return ok_text("ok: server shutdown scheduled\n".to_string());
-        }
-        ok_json(payload)
-    }
-}
-
-impl ServerRestartTool {
-    fn call(&self, _context: &McpContext) -> Result<CallToolResult, CallToolError> {
-        let payload = serde_json::json!({
-            "ok": true,
-            "action": "restart",
-            "note": "MCP server will exit; process managers will restart it. Clients should reconnect and re-initialize."
-        });
-        schedule_exit_after_response();
-        if self.format == "text" {
-            return ok_text("ok: server restart scheduled\n".to_string());
-        }
         ok_json(payload)
     }
 }
@@ -2422,14 +2364,6 @@ fn tool_examples(name: &str) -> Vec<serde_json::Value> {
     match name {
         "version" => vec![serde_json::json!({
             "tool": "version",
-            "arguments": { "format": "json" }
-        })],
-        "server_shutdown" => vec![serde_json::json!({
-            "tool": "server_shutdown",
-            "arguments": { "format": "json" }
-        })],
-        "server_restart" => vec![serde_json::json!({
-            "tool": "server_restart",
             "arguments": { "format": "json" }
         })],
         "list_tasks" => vec![serde_json::json!({
