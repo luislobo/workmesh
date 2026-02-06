@@ -2252,7 +2252,7 @@ impl GanttSvgTool {
         let tasks = load_tasks(&backlog_dir);
         let text = plantuml_gantt(&tasks, self.start.as_deref(), None, self.zoom, None, true);
         let cmd = match &self.plantuml_cmd {
-            Some(cmd) => Some(shell_words::split(cmd).map_err(CallToolError::new)?),
+            Some(cmd) => Some(parse_command_string(cmd)?),
             None => None,
         };
         let jar_path = self.plantuml_jar.as_ref().map(Path::new);
@@ -2267,6 +2267,19 @@ impl GanttSvgTool {
             return ok_json(serde_json::json!({"ok": true, "path": path}));
         }
         ok_text(svg)
+    }
+}
+
+fn parse_command_string(raw: &str) -> Result<Vec<String>, CallToolError> {
+    // `shell_words` is Unix-shell oriented and treats backslashes as escapes, which breaks Windows
+    // strings like `cmd /C C:\path\plantuml.cmd`. Keep parsing predictable on Windows.
+    if cfg!(windows) {
+        Ok(raw
+            .split_whitespace()
+            .map(|part| part.to_string())
+            .collect())
+    } else {
+        shell_words::split(raw).map_err(CallToolError::new)
     }
 }
 
