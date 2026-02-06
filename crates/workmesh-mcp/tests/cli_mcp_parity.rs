@@ -6,6 +6,7 @@ use std::sync::Once;
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use chrono::Local;
 use tempfile::TempDir;
 
 use rust_mcp_sdk::schema::{
@@ -141,6 +142,26 @@ fn write_task(
         title = title,
         status = status,
         deps = deps
+    );
+    std::fs::write(&path, content).expect("write task");
+    path
+}
+
+fn write_task_with_updated(
+    dir: &Path,
+    id: &str,
+    title: &str,
+    status: &str,
+    updated: &str,
+) -> PathBuf {
+    let filename = format!("{} - {}.md", id, title.to_lowercase());
+    let path = dir.join(filename);
+    let content = format!(
+        "---\nid: {id}\ntitle: {title}\nstatus: {status}\npriority: P2\nphase: Phase3\nupdated_date: {updated}\ndependencies: []\nlabels: []\nassignee: []\n---\n\n## Notes\n- initial\n",
+        id = id,
+        title = title,
+        status = status,
+        updated = updated
     );
     std::fs::write(&path, content).expect("write task");
     path
@@ -1166,6 +1187,71 @@ fn cli_best_practices_command() {
     assert!(output.status.success());
     let text = String::from_utf8_lossy(&output.stdout).to_string();
     assert!(text.contains("Dependencies"));
+}
+
+#[tokio::test]
+async fn cli_and_mcp_migrate_archive_parity() {
+    let temp = TempDir::new().expect("tempdir");
+    let legacy_tasks = temp.path().join("backlog").join("tasks");
+    std::fs::create_dir_all(&legacy_tasks).expect("legacy tasks");
+    let today = Local::now().format("%Y-%m-%d %H:%M").to_string();
+    write_task_with_updated(&legacy_tasks, "task-001", "Legacy", "Done", &today);
+
+    let cli_migrate = cli()
+        .arg("--root")
+        .arg(temp.path())
+        .arg("migrate")
+        .arg("--yes")
+        .output()
+        .expect("cli migrate");
+    assert!(cli_migrate.status.success());
+
+    let workmesh_tasks = temp.path().join("workmesh").join("tasks");
+    assert!(workmesh_tasks.is_dir());
+
+    let cli_archive = cli()
+        .arg("--root")
+        .arg(temp.path())
+        .arg("archive")
+        .arg("--before")
+        .arg("2999-01-01")
+        .arg("--json")
+        .output()
+        .expect("cli archive");
+    assert!(cli_archive.status.success());
+    let archive_root = temp.path().join("workmesh").join("archive");
+    assert!(archive_root.is_dir());
+
+    let temp2 = TempDir::new().expect("tempdir2");
+    let legacy_tasks2 = temp2.path().join("backlog").join("tasks");
+    std::fs::create_dir_all(&legacy_tasks2).expect("legacy tasks2");
+    write_task_with_updated(&legacy_tasks2, "task-002", "Legacy", "Done", &today);
+
+    let client = start_client(temp2.path()).await;
+    let _ = call_tool_text(
+        &client,
+        "migrate_backlog",
+        serde_json::json!({
+            "root": temp2.path().display().to_string(),
+            "to": "workmesh"
+        }),
+    )
+    .await;
+
+    let _ = call_tool_text(
+        &client,
+        "archive_tasks",
+        serde_json::json!({
+            "root": temp2.path().display().to_string(),
+            "before": "2999-01-01",
+            "status": "Done"
+        }),
+    )
+    .await;
+    client.shut_down().await.expect("shutdown");
+
+    let archive_root2 = temp2.path().join("workmesh").join("archive");
+    assert!(archive_root2.is_dir());
 }
 
 #[tokio::test]

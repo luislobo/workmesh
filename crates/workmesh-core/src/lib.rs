@@ -2,6 +2,9 @@
 
 pub mod backlog;
 pub mod audit;
+pub mod config;
+pub mod archive;
+pub mod migration;
 pub mod project;
 pub mod index;
 pub mod quickstart;

@@ -1,14 +1,18 @@
 use std::collections::HashSet;
-use std::io::Read;
+use std::io::{self, Read, IsTerminal};
 use std::path::{Path, PathBuf};
 
 use anyhow::Result;
+use chrono::{Duration, Local, NaiveDate};
 use clap::{ArgAction, Parser, Subcommand, ValueEnum};
 
-use workmesh_core::backlog::resolve_backlog_dir;
+use workmesh_core::archive::{archive_tasks, ArchiveOptions};
+use workmesh_core::backlog::{resolve_backlog, BacklogResolution};
 use workmesh_core::audit::{append_audit_event, AuditEvent};
+use workmesh_core::config::update_do_not_migrate;
 use workmesh_core::gantt::{plantuml_gantt, render_plantuml_svg, write_text_file, PlantumlRenderError};
 use workmesh_core::index::{rebuild_index, refresh_index, verify_index};
+use workmesh_core::migration::{migrate_backlog, MigrationError};
 use workmesh_core::quickstart::quickstart;
 use workmesh_core::session::{
     append_session_journal, diff_since_checkpoint, render_diff, render_resume, resume_summary,
@@ -407,6 +411,22 @@ enum Command {
         #[arg(long, action = ArgAction::SetTrue)]
         json: bool,
     },
+    /// Migrate legacy backlog layout to workmesh/
+    Migrate {
+        #[arg(long)]
+        to: Option<String>,
+        #[arg(long, action = ArgAction::SetTrue)]
+        yes: bool,
+    },
+    /// Archive done tasks into date-based folders
+    Archive {
+        #[arg(long, default_value = "30d")]
+        before: String,
+        #[arg(long, default_value = "Done")]
+        status: String,
+        #[arg(long, action = ArgAction::SetTrue)]
+        json: bool,
+    },
     /// Validate task files
     Validate {
         #[arg(long, action = ArgAction::SetTrue)]
@@ -586,7 +606,7 @@ fn main() -> Result<()> {
             println!("{}", serde_json::to_string_pretty(&result)?);
         } else {
             println!("Docs: {}", result.project_dir.display());
-            println!("Backlog: {}", result.backlog_dir.display());
+            println!("WorkMesh: {}", result.backlog_dir.display());
             if let Some(task_path) = result.created_task.as_ref() {
                 println!("Seed task: {}", task_path.display());
             }
@@ -596,7 +616,16 @@ fn main() -> Result<()> {
         }
         return Ok(());
     }
-    let backlog_dir = resolve_backlog_dir(&cli.root)?;
+
+    if let Command::Migrate { to, yes } = &cli.command {
+        let resolution = resolve_backlog(&cli.root)?;
+        let target = to.as_deref().unwrap_or("workmesh");
+        handle_migrate_command(&resolution, target, *yes)?;
+        return Ok(());
+    }
+
+    let resolution = resolve_backlog(&cli.root)?;
+    let backlog_dir = maybe_prompt_migration(&resolution)?;
     let tasks = load_tasks(&backlog_dir);
     let auto_checkpoint = auto_checkpoint_enabled(&cli);
 
@@ -1458,6 +1487,36 @@ fn main() -> Result<()> {
         Command::Quickstart { .. } => {
             unreachable!("quickstart handled before backlog resolution");
         }
+        Command::Migrate { .. } => {
+            unreachable!("migrate handled before backlog resolution");
+        }
+        Command::Archive { before, status, json } => {
+            let before_date = parse_before_date(&before)?;
+            let result = archive_tasks(
+                &backlog_dir,
+                &tasks,
+                &ArchiveOptions {
+                    before: before_date,
+                    status: status.clone(),
+                },
+            )?;
+            refresh_index_best_effort(&backlog_dir);
+            maybe_auto_checkpoint(&backlog_dir, auto_checkpoint);
+            if json {
+                let payload = serde_json::json!({
+                    "archived": result.archived,
+                    "skipped": result.skipped,
+                    "archive_dir": result.archive_dir
+                });
+                println!("{}", serde_json::to_string_pretty(&payload)?);
+            } else {
+                println!("Archived {} tasks", result.archived.len());
+                if !result.skipped.is_empty() {
+                    println!("Skipped: {}", result.skipped.join(", "));
+                }
+                println!("Archive: {}", result.archive_dir.display());
+            }
+        }
     }
 
     Ok(())
@@ -1555,6 +1614,87 @@ fn emit_bulk_result(updated: &[String], missing: &[String], json: bool) {
     if !missing.is_empty() {
         std::process::exit(1);
     }
+}
+
+fn parse_before_date(value: &str) -> Result<NaiveDate> {
+    let trimmed = value.trim();
+    if let Ok(date) = NaiveDate::parse_from_str(trimmed, "%Y-%m-%d") {
+        return Ok(date);
+    }
+    if let Some(days) = trimmed.strip_suffix('d') {
+        if let Ok(days) = days.parse::<i64>() {
+            let date = Local::now().date_naive() - Duration::days(days);
+            return Ok(date);
+        }
+    }
+    Err(anyhow::anyhow!("Invalid date format: {}", value))
+}
+
+fn maybe_prompt_migration(resolution: &BacklogResolution) -> Result<PathBuf> {
+    if !resolution.layout.is_legacy() {
+        return Ok(resolution.backlog_dir.clone());
+    }
+    if resolution
+        .config
+        .as_ref()
+        .and_then(|cfg| cfg.do_not_migrate)
+        .unwrap_or(false)
+    {
+        return Ok(resolution.backlog_dir.clone());
+    }
+    if !io::stdin().is_terminal() {
+        eprintln!(
+            "Legacy backlog detected at {}. Run `workmesh --root . migrate` to move to workmesh/.",
+            resolution.backlog_dir.display()
+        );
+        return Ok(resolution.backlog_dir.clone());
+    }
+    if confirm_migration(&resolution.backlog_dir)? {
+        let result = migrate_backlog(resolution, "workmesh")?;
+        let _ = update_do_not_migrate(&resolution.repo_root, false);
+        return Ok(result.to);
+    }
+    let _ = update_do_not_migrate(&resolution.repo_root, true);
+    Ok(resolution.backlog_dir.clone())
+}
+
+fn confirm_migration(path: &Path) -> Result<bool> {
+    eprint!(
+        "Legacy backlog found at {}. Migrate to workmesh/? [y/N] ",
+        path.display()
+    );
+    let mut input = String::new();
+    io::stdin().read_line(&mut input)?;
+    let value = input.trim().to_lowercase();
+    Ok(matches!(value.as_str(), "y" | "yes"))
+}
+
+fn handle_migrate_command(
+    resolution: &BacklogResolution,
+    target: &str,
+    yes: bool,
+) -> Result<()> {
+    if !yes && io::stdin().is_terminal() {
+        if !confirm_migration(&resolution.backlog_dir)? {
+            let _ = update_do_not_migrate(&resolution.repo_root, true);
+            println!("Migration cancelled.");
+            return Ok(());
+        }
+    }
+    match migrate_backlog(resolution, target) {
+        Ok(result) => {
+            let _ = update_do_not_migrate(&resolution.repo_root, false);
+            println!("Migrated {} -> {}", result.from.display(), result.to.display());
+        }
+        Err(MigrationError::AlreadyMigrated(path)) => {
+            println!("Already migrated at {}", path.display());
+        }
+        Err(MigrationError::DestinationExists(path)) => {
+            println!("Destination exists: {}", path.display());
+        }
+        Err(err) => return Err(err.into()),
+    }
+    Ok(())
 }
 
 fn handle_bulk_set_status(

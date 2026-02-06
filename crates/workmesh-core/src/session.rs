@@ -280,7 +280,7 @@ pub fn render_resume(summary: &ResumeSummary) -> String {
     } else if let Some(task) = snapshot.ready.first() {
         lines.push(format!("- Start {}", task.id));
     } else {
-        lines.push("- Review backlog for next task".to_string());
+        lines.push("- Review tasks for next work item".to_string());
     }
 
     if let Some(working_set) = summary.working_set.as_ref() {

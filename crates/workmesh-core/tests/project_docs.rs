@@ -61,3 +61,21 @@ fn validate_errors_when_project_docs_missing() {
     let report = validate_tasks(&[task_with_project("alpha")], Some(&backlog_dir));
     assert!(report.errors.iter().all(|err| !err.contains("project docs missing")));
 }
+
+#[test]
+fn repo_root_from_backlog_handles_workmesh_layouts() {
+    let temp = TempDir::new().expect("tempdir");
+    let workmesh_dir = temp.path().join("workmesh");
+    let hidden_dir = temp.path().join(".workmesh");
+    std::fs::create_dir_all(&workmesh_dir).expect("workmesh dir");
+    std::fs::create_dir_all(&hidden_dir).expect("hidden dir");
+
+    assert_eq!(
+        repo_root_from_backlog(&workmesh_dir),
+        temp.path().to_path_buf()
+    );
+    assert_eq!(
+        repo_root_from_backlog(&hidden_dir),
+        temp.path().to_path_buf()
+    );
+}
