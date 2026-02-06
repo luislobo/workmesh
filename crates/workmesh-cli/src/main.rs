@@ -1541,11 +1541,11 @@ fn main() -> Result<()> {
             let text = plantuml_gantt(&tasks, start.as_deref(), None, zoom, None, true);
             let cmd = match plantuml_cmd {
                 Some(cmd) => {
-                    // `shell_words` treats backslashes as escapes, which breaks Windows paths like
-                    // `C:\Users\...\plantuml.cmd`. On Windows we treat this as an executable path
-                    // only (no extra args).
+                    // `shell_words` is Unix-shell oriented and treats backslashes as escapes,
+                    // which breaks Windows strings like `cmd /C C:\path\plantuml.cmd`.
+                    // On Windows, keep parsing simple and predictable: whitespace-split.
                     if cfg!(windows) {
-                        Some(vec![cmd])
+                        Some(cmd.split_whitespace().map(|part| part.to_string()).collect())
                     } else {
                         Some(shell_words::split(&cmd).map_err(anyhow::Error::msg)?)
                     }
