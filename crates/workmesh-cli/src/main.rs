@@ -6,6 +6,8 @@ use anyhow::Result;
 use chrono::{Duration, Local, NaiveDate};
 use clap::{ArgAction, Parser, Subcommand, ValueEnum};
 
+mod version;
+
 use workmesh_core::archive::{archive_tasks, ArchiveOptions};
 use workmesh_core::audit::{append_audit_event, AuditEvent};
 use workmesh_core::backlog::{resolve_backlog, BacklogResolution};
@@ -31,7 +33,7 @@ use workmesh_core::task_ops::{
 };
 
 #[derive(Parser)]
-#[command(name = "workmesh", version, about = "WorkMesh CLI (WIP)")]
+#[command(name = "workmesh", version = version::FULL, about = "WorkMesh CLI (WIP)")]
 struct Cli {
     /// Path to repo root or backlog directory
     #[arg(long, required = true)]
