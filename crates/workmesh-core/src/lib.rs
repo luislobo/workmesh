@@ -1,17 +1,17 @@
 //! Core domain types for WorkMesh.
 
-pub mod backlog;
-pub mod audit;
-pub mod config;
 pub mod archive;
+pub mod audit;
+pub mod backlog;
+pub mod config;
+pub mod gantt;
+pub mod index;
 pub mod migration;
 pub mod project;
-pub mod index;
 pub mod quickstart;
+pub mod session;
 pub mod task;
 pub mod task_ops;
-pub mod gantt;
-pub mod session;
 
 pub fn version() -> &'static str {
     env!("CARGO_PKG_VERSION")

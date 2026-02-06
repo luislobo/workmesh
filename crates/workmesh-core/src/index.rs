@@ -206,7 +206,10 @@ fn build_entry(task: &Task, mtime: i64, hash: String) -> IndexEntry {
         labels: task.labels.clone(),
         assignee: task.assignee.clone(),
         lease_owner: task.lease.as_ref().map(|lease| lease.owner.clone()),
-        lease_expires_at: task.lease.as_ref().and_then(|lease| lease.expires_at.clone()),
+        lease_expires_at: task
+            .lease
+            .as_ref()
+            .and_then(|lease| lease.expires_at.clone()),
         project: task.project.clone(),
         initiative: task.initiative.clone(),
         updated_date: task.updated_date.clone(),

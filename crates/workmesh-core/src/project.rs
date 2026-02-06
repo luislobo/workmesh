@@ -56,13 +56,18 @@ pub fn ensure_project_docs(
     fs::create_dir_all(&updates_dir)?;
     fs::create_dir_all(&initiatives_dir)?;
 
-    let project_name = name.filter(|value| !value.trim().is_empty()).unwrap_or(project_id);
+    let project_name = name
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or(project_id);
     write_if_missing(
         &project_dir.join("README.md"),
         project_readme(project_id, project_name),
     )?;
     write_if_missing(&prds_dir.join("README.md"), section_readme("PRDs"))?;
-    write_if_missing(&decisions_dir.join("README.md"), section_readme("Decisions"))?;
+    write_if_missing(
+        &decisions_dir.join("README.md"),
+        section_readme("Decisions"),
+    )?;
     write_if_missing(&updates_dir.join("README.md"), section_readme("Updates"))?;
 
     Ok(project_dir)

@@ -25,7 +25,10 @@ impl BacklogLayout {
     pub fn is_legacy(self) -> bool {
         matches!(
             self,
-            BacklogLayout::Backlog | BacklogLayout::Project | BacklogLayout::RootTasks | BacklogLayout::TasksDir
+            BacklogLayout::Backlog
+                | BacklogLayout::Project
+                | BacklogLayout::RootTasks
+                | BacklogLayout::TasksDir
         )
     }
 }
@@ -63,9 +66,7 @@ pub fn resolve_backlog(root: &Path) -> Result<BacklogResolution, BacklogError> {
 }
 
 pub fn locate_backlog_dir(start: &Path) -> Result<PathBuf, BacklogError> {
-    let start = start
-        .canonicalize()
-        .unwrap_or_else(|_| start.to_path_buf());
+    let start = start.canonicalize().unwrap_or_else(|_| start.to_path_buf());
     if let Some(config_root) = find_config_root(&start) {
         if let Ok(resolution) = resolve_backlog(&config_root) {
             return Ok(resolution.backlog_dir);
@@ -122,7 +123,12 @@ fn resolve_explicit_root(
         });
     }
     if is_named(root, "workmesh") && root.join("tasks").is_dir() {
-        return Some(resolution_for(root, BacklogLayout::Workmesh, repo_root, config));
+        return Some(resolution_for(
+            root,
+            BacklogLayout::Workmesh,
+            repo_root,
+            config,
+        ));
     }
     if is_named(root, ".workmesh") && root.join("tasks").is_dir() {
         return Some(resolution_for(
@@ -133,13 +139,28 @@ fn resolve_explicit_root(
         ));
     }
     if is_named(root, "backlog") && root.join("tasks").is_dir() {
-        return Some(resolution_for(root, BacklogLayout::Backlog, repo_root, config));
+        return Some(resolution_for(
+            root,
+            BacklogLayout::Backlog,
+            repo_root,
+            config,
+        ));
     }
     if is_named(root, "project") && root.join("tasks").is_dir() {
-        return Some(resolution_for(root, BacklogLayout::Project, repo_root, config));
+        return Some(resolution_for(
+            root,
+            BacklogLayout::Project,
+            repo_root,
+            config,
+        ));
     }
     if root.join("tasks").is_dir() {
-        return Some(resolution_for(root, BacklogLayout::RootTasks, repo_root, config));
+        return Some(resolution_for(
+            root,
+            BacklogLayout::RootTasks,
+            repo_root,
+            config,
+        ));
     }
     None
 }
@@ -166,7 +187,12 @@ fn resolve_default_dirs(
 ) -> Option<BacklogResolution> {
     let workmesh = repo_root.join("workmesh");
     if workmesh.join("tasks").is_dir() {
-        return Some(resolution_for(&workmesh, BacklogLayout::Workmesh, repo_root, config));
+        return Some(resolution_for(
+            &workmesh,
+            BacklogLayout::Workmesh,
+            repo_root,
+            config,
+        ));
     }
     let hidden = repo_root.join(".workmesh");
     if hidden.join("tasks").is_dir() {
@@ -179,15 +205,30 @@ fn resolve_default_dirs(
     }
     let backlog = repo_root.join("backlog");
     if backlog.join("tasks").is_dir() {
-        return Some(resolution_for(&backlog, BacklogLayout::Backlog, repo_root, config));
+        return Some(resolution_for(
+            &backlog,
+            BacklogLayout::Backlog,
+            repo_root,
+            config,
+        ));
     }
     let project = repo_root.join("project");
     if project.join("tasks").is_dir() {
-        return Some(resolution_for(&project, BacklogLayout::Project, repo_root, config));
+        return Some(resolution_for(
+            &project,
+            BacklogLayout::Project,
+            repo_root,
+            config,
+        ));
     }
     let tasks_root = repo_root.join("tasks");
     if tasks_root.is_dir() {
-        return Some(resolution_for(repo_root, BacklogLayout::RootTasks, repo_root, config));
+        return Some(resolution_for(
+            repo_root,
+            BacklogLayout::RootTasks,
+            repo_root,
+            config,
+        ));
     }
     None
 }

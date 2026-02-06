@@ -126,7 +126,10 @@ pub fn plantuml_gantt(
                 if dep.trim().is_empty() {
                     continue;
                 }
-                let dep_label = id_map.get(&dep.to_lowercase()).cloned().unwrap_or_else(|| dep.clone());
+                let dep_label = id_map
+                    .get(&dep.to_lowercase())
+                    .cloned()
+                    .unwrap_or_else(|| dep.clone());
                 let task_label = id_map
                     .get(&task.id.to_lowercase())
                     .cloned()
@@ -196,8 +199,8 @@ fn resolve_plantuml_command(
         .get("XH_TASKS_PLANTUML_CMD")
         .or_else(|| env_map.get("PLANTUML_CMD"))
     {
-        let parts = shell_words::split(env_cmd)
-            .map_err(|_| PlantumlRenderError::MissingPlantuml)?;
+        let parts =
+            shell_words::split(env_cmd).map_err(|_| PlantumlRenderError::MissingPlantuml)?;
         return Ok(ensure_svg_pipe(parts));
     }
 
@@ -205,12 +208,21 @@ fn resolve_plantuml_command(
         .get("XH_TASKS_PLANTUML_JAR")
         .or_else(|| env_map.get("PLANTUML_JAR"))
         .cloned();
-    if let Some(jar) = jar_path.map(|path| path.to_path_buf()).or(jar_env.map(PathBuf::from)) {
-        return Ok(ensure_svg_pipe(vec!["java".to_string(), "-jar".to_string(), jar.to_string_lossy().to_string()]));
+    if let Some(jar) = jar_path
+        .map(|path| path.to_path_buf())
+        .or(jar_env.map(PathBuf::from))
+    {
+        return Ok(ensure_svg_pipe(vec![
+            "java".to_string(),
+            "-jar".to_string(),
+            jar.to_string_lossy().to_string(),
+        ]));
     }
 
     if let Ok(plantuml) = which::which("plantuml") {
-        return Ok(ensure_svg_pipe(vec![plantuml.to_string_lossy().to_string()]));
+        return Ok(ensure_svg_pipe(vec![plantuml
+            .to_string_lossy()
+            .to_string()]));
     }
 
     Err(PlantumlRenderError::MissingPlantuml)

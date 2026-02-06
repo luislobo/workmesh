@@ -33,10 +33,14 @@ pub fn migrate_backlog(
         return Err(MigrationError::DestinationExists(target_dir));
     }
     if resolution.layout == BacklogLayout::Workmesh && target_root == "workmesh" {
-        return Err(MigrationError::AlreadyMigrated(resolution.backlog_dir.clone()));
+        return Err(MigrationError::AlreadyMigrated(
+            resolution.backlog_dir.clone(),
+        ));
     }
     if resolution.layout == BacklogLayout::HiddenWorkmesh && target_root == ".workmesh" {
-        return Err(MigrationError::AlreadyMigrated(resolution.backlog_dir.clone()));
+        return Err(MigrationError::AlreadyMigrated(
+            resolution.backlog_dir.clone(),
+        ));
     }
 
     match resolution.layout {
@@ -63,11 +67,7 @@ pub fn migrate_backlog(
     })
 }
 
-fn move_if_exists(
-    src_root: &Path,
-    dest_root: &Path,
-    name: &str,
-) -> Result<(), std::io::Error> {
+fn move_if_exists(src_root: &Path, dest_root: &Path, name: &str) -> Result<(), std::io::Error> {
     let src = src_root.join(name);
     if src.exists() {
         fs::rename(&src, dest_root.join(name))?;

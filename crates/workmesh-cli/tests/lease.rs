@@ -7,8 +7,7 @@ fn bin() -> Command {
 }
 
 fn write_task(tasks_dir: &std::path::Path) {
-    let content = "---\n"
-        .to_string()
+    let content = "---\n".to_string()
         + "id: task-001\n"
         + "title: Lease Test\n"
         + "status: To Do\n"

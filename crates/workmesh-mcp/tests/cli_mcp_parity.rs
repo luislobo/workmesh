@@ -2,8 +2,8 @@ use std::collections::BTreeSet;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::sync::Once;
 use std::sync::Arc;
+use std::sync::Once;
 
 use async_trait::async_trait;
 use chrono::Local;
@@ -122,13 +122,7 @@ async fn call_tool_text(
         .clone()
 }
 
-fn write_task(
-    dir: &Path,
-    id: &str,
-    title: &str,
-    status: &str,
-    dependencies: &[&str],
-) -> PathBuf {
+fn write_task(dir: &Path, id: &str, title: &str, status: &str, dependencies: &[&str]) -> PathBuf {
     let filename = format!("{} - {}.md", id, title.to_lowercase());
     let path = dir.join(filename);
     let deps = if dependencies.is_empty() {
@@ -194,7 +188,11 @@ fn ids_from_json(text: &str) -> BTreeSet<String> {
         .as_array()
         .expect("array")
         .iter()
-        .filter_map(|item| item.get("id").and_then(|id| id.as_str()).map(|s| s.to_string()))
+        .filter_map(|item| {
+            item.get("id")
+                .and_then(|id| id.as_str())
+                .map(|s| s.to_string())
+        })
         .collect()
 }
 
@@ -222,7 +220,11 @@ fn graph_signature(value: serde_json::Value) -> (BTreeSet<String>, BTreeSet<Stri
         .unwrap_or_default();
     let node_ids = nodes
         .iter()
-        .filter_map(|node| node.get("id").and_then(|id| id.as_str()).map(|s| s.to_string()))
+        .filter_map(|node| {
+            node.get("id")
+                .and_then(|id| id.as_str())
+                .map(|s| s.to_string())
+        })
         .collect();
     let edge_ids = edges
         .iter()
@@ -294,7 +296,10 @@ async fn cli_and_mcp_list_ready_parity() {
     client.shut_down().await.expect("shutdown");
 
     assert_eq!(ids_from_json(&cli_list_text), ids_from_json(&mcp_list_text));
-    assert_eq!(ids_from_json(&cli_ready_text), ids_from_json(&mcp_ready_text));
+    assert_eq!(
+        ids_from_json(&cli_ready_text),
+        ids_from_json(&mcp_ready_text)
+    );
 }
 
 #[tokio::test]
@@ -506,8 +511,7 @@ async fn cli_and_mcp_graph_issues_index_gantt_parity() {
         .output()
         .expect("cli gantt-svg");
     assert!(cli_gantt_svg.status.success());
-    let cli_gantt_svg_text =
-        std::fs::read_to_string(&cli_gantt_svg_path).expect("gantt svg text");
+    let cli_gantt_svg_text = std::fs::read_to_string(&cli_gantt_svg_path).expect("gantt svg text");
 
     let client = start_client(temp.path()).await;
 
@@ -570,7 +574,8 @@ async fn cli_and_mcp_graph_issues_index_gantt_parity() {
         }),
     )
     .await;
-    let mcp_gantt_file_value: serde_json::Value = serde_json::from_str(&mcp_gantt_file_text).unwrap();
+    let mcp_gantt_file_value: serde_json::Value =
+        serde_json::from_str(&mcp_gantt_file_text).unwrap();
     let mcp_gantt_file_content =
         std::fs::read_to_string(&mcp_gantt_file_path).expect("mcp gantt file");
 
@@ -596,10 +601,16 @@ async fn cli_and_mcp_graph_issues_index_gantt_parity() {
     let mcp_graph_sig = graph_signature(mcp_graph_value);
     assert_eq!(cli_graph_sig, mcp_graph_sig);
 
-    assert_eq!(parse_lineset(&cli_issues_text), parse_lineset(&mcp_issues_text));
+    assert_eq!(
+        parse_lineset(&cli_issues_text),
+        parse_lineset(&mcp_issues_text)
+    );
 
     assert!(cli_index_value.get("entries").is_some());
-    assert_eq!(cli_index_value.get("entries"), mcp_index_value.get("entries"));
+    assert_eq!(
+        cli_index_value.get("entries"),
+        mcp_index_value.get("entries")
+    );
     assert_eq!(
         cli_index_refresh_value.get("entries"),
         mcp_index_refresh_value.get("entries")
@@ -614,11 +625,17 @@ async fn cli_and_mcp_graph_issues_index_gantt_parity() {
     assert_eq!(cli_gantt_text.trim(), mcp_gantt_file_content.trim());
     assert_eq!(
         mcp_gantt_file_path.display().to_string(),
-        mcp_gantt_file_value.get("path").and_then(|v| v.as_str()).unwrap_or("")
+        mcp_gantt_file_value
+            .get("path")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
     );
     assert_eq!(
         mcp_gantt_svg_path.display().to_string(),
-        mcp_gantt_svg_value.get("path").and_then(|v| v.as_str()).unwrap_or("")
+        mcp_gantt_svg_value
+            .get("path")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
     );
     assert_eq!(cli_gantt_svg_text.trim(), mcp_gantt_svg_content.trim());
 }
@@ -1039,14 +1056,9 @@ async fn cli_and_mcp_write_and_session_parity() {
     .await;
 
     // Best practices + skills
-    let skill_dir = temp
-        .path()
-        .join(".codex")
-        .join("skills")
-        .join("workmesh");
+    let skill_dir = temp.path().join(".codex").join("skills").join("workmesh");
     std::fs::create_dir_all(&skill_dir).expect("skill dir");
-    std::fs::write(skill_dir.join("SKILL.md"), "# WorkMesh skill\n")
-        .expect("skill content");
+    std::fs::write(skill_dir.join("SKILL.md"), "# WorkMesh skill\n").expect("skill content");
 
     let best_practices = call_tool_text(
         &client,
