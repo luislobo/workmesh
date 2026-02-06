@@ -104,7 +104,7 @@ WorkMesh prefers `workmesh/` (or `.workmesh/`). If it detects a legacy `backlog/
 
 If you choose **No**, it writes an optional config file so you won’t be prompted again:
 ```toml
-# .workmesh.toml
+# .workmesh.toml (preferred) or .workmeshrc
 do_not_migrate = true
 # Optional: use a different root (e.g., .workmesh)
 # root_dir = ".workmesh"
