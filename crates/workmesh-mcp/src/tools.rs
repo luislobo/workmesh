@@ -12,6 +12,8 @@ use rust_mcp_sdk::tool_box;
 use rust_mcp_sdk::{mcp_server::ServerHandler, McpServer};
 use serde::{Deserialize, Serialize};
 
+use crate::version;
+
 use workmesh_core::archive::{archive_tasks, ArchiveOptions};
 use workmesh_core::audit::{append_audit_event, AuditEvent};
 use workmesh_core::backlog::{
@@ -218,6 +220,7 @@ fn recommended_kinds() -> Vec<&'static str> {
 
 fn tool_catalog() -> Vec<serde_json::Value> {
     vec![
+        serde_json::json!({"name": "version", "summary": "Return WorkMesh version information."}),
         serde_json::json!({"name": "list_tasks", "summary": "List tasks with filters and sorting."}),
         serde_json::json!({"name": "show_task", "summary": "Show a single task by id."}),
         serde_json::json!({"name": "next_task", "summary": "Get the next ready task (lowest id, deps satisfied)."}),
@@ -267,6 +270,13 @@ fn tool_catalog() -> Vec<serde_json::Value> {
         serde_json::json!({"name": "skill_content", "summary": "Return SKILL.md content for a repo skill."}),
         serde_json::json!({"name": "project_management_skill", "summary": "Return project management guide."}),
     ]
+}
+
+#[mcp_tool(name = "version", description = "Return WorkMesh version information.")]
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct VersionTool {
+    #[serde(default = "default_format")]
+    pub format: String,
 }
 
 #[mcp_tool(name = "list_tasks", description = "List tasks with optional filters.")]
@@ -882,6 +892,7 @@ fn is_done_status(status: &str) -> bool {
 tool_box!(
     WorkmeshTools,
     [
+        VersionTool,
         ListTasksTool,
         ShowTaskTool,
         NextTaskTool,
@@ -959,6 +970,7 @@ impl ServerHandler for WorkmeshServerHandler {
     ) -> Result<CallToolResult, CallToolError> {
         let tool = WorkmeshTools::try_from(params).map_err(CallToolError::new)?;
         match tool {
+            WorkmeshTools::VersionTool(tool) => tool.call(&self.context),
             WorkmeshTools::ListTasksTool(tool) => tool.call(&self.context),
             WorkmeshTools::ShowTaskTool(tool) => tool.call(&self.context),
             WorkmeshTools::NextTaskTool(tool) => tool.call(&self.context),
@@ -1009,6 +1021,29 @@ impl ServerHandler for WorkmeshServerHandler {
             WorkmeshTools::ToolInfoTool(tool) => tool.call(&self.context),
             WorkmeshTools::ProjectManagementSkillTool(tool) => tool.call(&self.context),
         }
+    }
+}
+
+impl VersionTool {
+    fn call(&self, _context: &McpContext) -> Result<CallToolResult, CallToolError> {
+        let payload = serde_json::json!({
+            "name": "workmesh",
+            "version": env!("CARGO_PKG_VERSION"),
+            "full": version::FULL,
+        });
+
+        if self.format == "text" {
+            return ok_text(format!(
+                "workmesh {}\n{}\n",
+                payload
+                    .get("version")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or_default(),
+                payload.get("full").and_then(|v| v.as_str()).unwrap_or_default()
+            ));
+        }
+
+        ok_json(payload)
     }
 }
 
@@ -2327,6 +2362,10 @@ fn sdk_tool_definition(name: &str) -> Option<serde_json::Value> {
 fn tool_examples(name: &str) -> Vec<serde_json::Value> {
     let name = name.trim();
     match name {
+        "version" => vec![serde_json::json!({
+            "tool": "version",
+            "arguments": { "format": "json" }
+        })],
         "list_tasks" => vec![serde_json::json!({
             "tool": "list_tasks",
             "arguments": {

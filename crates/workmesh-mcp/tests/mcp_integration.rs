@@ -75,6 +75,25 @@ async fn mcp_list_tasks_and_checkpoint() {
 
     client.clone().start().await.expect("start client");
 
+    let version_result = client
+        .request_tool_call(CallToolRequestParams {
+            name: "version".to_string(),
+            arguments: Some(serde_json::json!({}).as_object().unwrap().clone()),
+            meta: None,
+            task: None,
+        })
+        .await
+        .expect("version");
+    let version_text = version_result
+        .content
+        .first()
+        .unwrap()
+        .as_text_content()
+        .unwrap()
+        .text
+        .clone();
+    assert!(version_text.contains("version"));
+
     let list_result = client
         .request_tool_call(CallToolRequestParams {
             name: "list_tasks".to_string(),
