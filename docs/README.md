@@ -10,4 +10,4 @@ All project documentation lives under `docs/`.
   - `comments/` - comment history (append-only).
   - `events/` - normalized change events (append-only).
 
-Tasks live in `backlog/tasks/` and should reference the relevant PRD.
+Tasks live in `workmesh/tasks/` (or `.workmesh/tasks/`) and should reference the relevant PRD.

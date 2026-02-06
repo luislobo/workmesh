@@ -5,7 +5,7 @@ description: Project management workflow for Markdown-backed backlogs using the 
 
 # WorkMesh skill
 
-Use this skill to manage Markdown-backed backlogs with explicit dependencies.
+Use this skill to manage Markdown-backed workmesh tasks with explicit dependencies.
 
 ## Core workflow
 - Keep tasks small (1-3 days) and outcome-based.
@@ -41,6 +41,14 @@ Use this skill to manage Markdown-backed backlogs with explicit dependencies.
   - Use when: bulk edits happened or index may be stale, or you want fast queries.
   - Workflow: rebuild once on new repo, refresh after edits, verify if results look off.
   - Commands: `workmesh --root /path index-rebuild|index-refresh|index-verify`
+- Migration
+  - Use when: a repo still has `backlog/` or `tasks/` at root.
+  - Workflow: `migrate` → verify new `workmesh/` layout → continue.
+  - Command: `workmesh --root /path migrate`
+- Archive
+  - Use when: Done tasks are older and should be moved out of active lists.
+  - Workflow: archive by date → keep `workmesh/tasks` lean.
+  - Command: `workmesh --root /path archive --before 2024-12-31`
 - JSONL issues export
   - Use when: you want a canonical, machine-readable snapshot of tasks.
   - Workflow: export → consume in another tool/report → discard (source remains Markdown).
@@ -99,5 +107,5 @@ Resume after restart:
 - `resume -> ready -> claim -> continue`
 
 ## Review cadence
-- Weekly backlog review and priority updates.
+- Weekly task review and priority updates.
 - Run `validate` before planning and fix errors/warnings.
