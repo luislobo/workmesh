@@ -2,6 +2,7 @@ use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::process::Stdio;
+use std::process::Output;
 use std::sync::Arc;
 use std::sync::Once;
 
@@ -44,12 +45,34 @@ fn client_details() -> InitializeRequestParams {
     }
 }
 
+fn assert_output_success(output: &Output, label: &str) {
+    if output.status.success() {
+        return;
+    }
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    panic!(
+        "{label} failed: status={status:?}\n--- stdout ---\n{stdout}\n--- stderr ---\n{stderr}\n",
+        label = label,
+        status = output.status,
+        stdout = stdout,
+        stderr = stderr
+    );
+}
+
+macro_rules! assert_output_ok {
+    ($output:expr) => {
+        assert_output_success(&$output, stringify!($output))
+    };
+}
+
 fn cli() -> Command {
     if let Ok(path) = std::env::var("CARGO_BIN_EXE_workmesh") {
         let mut cmd = Command::new(path);
         // Avoid interactive prompts (e.g. legacy backlog migration confirmation) in CI.
         cmd.stdin(Stdio::null());
         cmd.env("WORKMESH_NO_PROMPT", "1");
+        cmd.env("RUST_BACKTRACE", "1");
         return cmd;
     }
     static BUILD: Once = Once::new();
@@ -73,6 +96,7 @@ fn cli() -> Command {
     // Avoid interactive prompts (e.g. legacy backlog migration confirmation) in CI.
     cmd.stdin(Stdio::null());
     cmd.env("WORKMESH_NO_PROMPT", "1");
+    cmd.env("RUST_BACKTRACE", "1");
     cmd
 }
 
@@ -316,7 +340,7 @@ async fn cli_and_mcp_list_ready_parity() {
         .arg("--json")
         .output()
         .expect("cli list");
-    assert!(cli_list.status.success());
+    assert_output_ok!(cli_list);
     let cli_list_text = String::from_utf8_lossy(&cli_list.stdout).to_string();
 
     let cli_ready = cli()
@@ -326,7 +350,7 @@ async fn cli_and_mcp_list_ready_parity() {
         .arg("--json")
         .output()
         .expect("cli ready");
-    assert!(cli_ready.status.success());
+    assert_output_ok!(cli_ready);
     let cli_ready_text = String::from_utf8_lossy(&cli_ready.stdout).to_string();
 
     let client = start_client(temp.path()).await;
@@ -372,7 +396,7 @@ async fn cli_and_mcp_show_next_stats_export_parity() {
         .arg("--json")
         .output()
         .expect("cli show");
-    assert!(cli_show.status.success());
+    assert_output_ok!(cli_show);
     let cli_show_value: serde_json::Value =
         serde_json::from_slice(&cli_show.stdout).expect("cli show json");
 
@@ -383,7 +407,7 @@ async fn cli_and_mcp_show_next_stats_export_parity() {
         .arg("--json")
         .output()
         .expect("cli next");
-    assert!(cli_next.status.success());
+    assert_output_ok!(cli_next);
     let cli_next_value: serde_json::Value =
         serde_json::from_slice(&cli_next.stdout).expect("cli next json");
 
@@ -394,7 +418,7 @@ async fn cli_and_mcp_show_next_stats_export_parity() {
         .arg("--json")
         .output()
         .expect("cli stats");
-    assert!(cli_stats.status.success());
+    assert_output_ok!(cli_stats);
     let cli_stats_value: serde_json::Value =
         serde_json::from_slice(&cli_stats.stdout).expect("cli stats json");
 
@@ -405,7 +429,7 @@ async fn cli_and_mcp_show_next_stats_export_parity() {
         .arg("--pretty")
         .output()
         .expect("cli export");
-    assert!(cli_export.status.success());
+    assert_output_ok!(cli_export);
     let cli_export_value: serde_json::Value =
         serde_json::from_slice(&cli_export.stdout).expect("cli export json");
 
@@ -476,7 +500,7 @@ async fn cli_and_mcp_graph_issues_index_gantt_parity() {
         .arg("--pretty")
         .output()
         .expect("cli graph");
-    assert!(cli_graph.status.success());
+    assert_output_ok!(cli_graph);
     let cli_graph_value: serde_json::Value =
         serde_json::from_slice(&cli_graph.stdout).expect("cli graph json");
 
@@ -486,7 +510,7 @@ async fn cli_and_mcp_graph_issues_index_gantt_parity() {
         .arg("issues-export")
         .output()
         .expect("cli issues");
-    assert!(cli_issues.status.success());
+    assert_output_ok!(cli_issues);
     let cli_issues_text = String::from_utf8_lossy(&cli_issues.stdout).to_string();
 
     let cli_index = cli()
@@ -496,7 +520,7 @@ async fn cli_and_mcp_graph_issues_index_gantt_parity() {
         .arg("--json")
         .output()
         .expect("cli index");
-    assert!(cli_index.status.success());
+    assert_output_ok!(cli_index);
     let cli_index_value: serde_json::Value =
         serde_json::from_slice(&cli_index.stdout).expect("cli index json");
 
@@ -507,7 +531,7 @@ async fn cli_and_mcp_graph_issues_index_gantt_parity() {
         .arg("--json")
         .output()
         .expect("cli index refresh");
-    assert!(cli_index_refresh.status.success());
+    assert_output_ok!(cli_index_refresh);
     let cli_index_refresh_value: serde_json::Value =
         serde_json::from_slice(&cli_index_refresh.stdout).expect("cli index refresh json");
 
@@ -518,7 +542,7 @@ async fn cli_and_mcp_graph_issues_index_gantt_parity() {
         .arg("--json")
         .output()
         .expect("cli index verify");
-    assert!(cli_index_verify.status.success());
+    assert_output_ok!(cli_index_verify);
     let cli_index_verify_value: serde_json::Value =
         serde_json::from_slice(&cli_index_verify.stdout).expect("cli index verify json");
 
@@ -530,7 +554,7 @@ async fn cli_and_mcp_graph_issues_index_gantt_parity() {
         .arg("3")
         .output()
         .expect("cli gantt");
-    assert!(cli_gantt.status.success());
+    assert_output_ok!(cli_gantt);
     let cli_gantt_text = String::from_utf8_lossy(&cli_gantt.stdout).to_string();
 
     let cli_gantt_file_path = temp.path().join("gantt-cli.txt");
@@ -544,7 +568,7 @@ async fn cli_and_mcp_graph_issues_index_gantt_parity() {
         .arg(&cli_gantt_file_path)
         .output()
         .expect("cli gantt-file");
-    assert!(cli_gantt_file.status.success());
+    assert_output_ok!(cli_gantt_file);
     let cli_gantt_file_text =
         std::fs::read_to_string(&cli_gantt_file_path).expect("gantt file text");
 
@@ -562,7 +586,7 @@ async fn cli_and_mcp_graph_issues_index_gantt_parity() {
         .arg(plantuml_cmd_arg(&fake_plantuml))
         .output()
         .expect("cli gantt-svg");
-    assert!(cli_gantt_svg.status.success());
+    assert_output_ok!(cli_gantt_svg);
     let cli_gantt_svg_text = std::fs::read_to_string(&cli_gantt_svg_path).expect("gantt svg text");
 
     let client = start_client(temp.path()).await;
@@ -714,7 +738,7 @@ async fn cli_and_mcp_write_and_session_parity() {
         .arg("seed")
         .output()
         .expect("cli add");
-    assert!(cli_add.status.success());
+    assert_output_ok!(cli_add);
     let task_path3 = find_task_path(&tasks_dir, "task-003");
 
     // CLI set-status
@@ -726,7 +750,7 @@ async fn cli_and_mcp_write_and_session_parity() {
         .arg("In Progress")
         .output()
         .expect("cli set-status");
-    assert!(cli_status.status.success());
+    assert_output_ok!(cli_status);
 
     // MCP set_status
     let client = start_client(temp.path()).await;
@@ -752,7 +776,7 @@ async fn cli_and_mcp_write_and_session_parity() {
         .arg("P1")
         .output()
         .expect("cli set-field");
-    assert!(cli_set_field.status.success());
+    assert_output_ok!(cli_set_field);
 
     let _ = call_tool_text(
         &client,
@@ -788,7 +812,7 @@ async fn cli_and_mcp_write_and_session_parity() {
         .arg("docs")
         .output()
         .expect("cli label-add");
-    assert!(cli_label.status.success());
+    assert_output_ok!(cli_label);
 
     let cli_label_keep = cli()
         .arg("--root")
@@ -798,7 +822,7 @@ async fn cli_and_mcp_write_and_session_parity() {
         .arg("keep")
         .output()
         .expect("cli label-add keep");
-    assert!(cli_label_keep.status.success());
+    assert_output_ok!(cli_label_keep);
 
     let _ = call_tool_text(
         &client,
@@ -829,7 +853,7 @@ async fn cli_and_mcp_write_and_session_parity() {
         .arg("docs")
         .output()
         .expect("cli label-remove");
-    assert!(cli_label_remove.status.success());
+    assert_output_ok!(cli_label_remove);
 
     let _ = call_tool_text(
         &client,
@@ -851,7 +875,7 @@ async fn cli_and_mcp_write_and_session_parity() {
         .arg("task-002")
         .output()
         .expect("cli dep-add");
-    assert!(cli_dep.status.success());
+    assert_output_ok!(cli_dep);
 
     let cli_dep_extra = cli()
         .arg("--root")
@@ -861,7 +885,7 @@ async fn cli_and_mcp_write_and_session_parity() {
         .arg("task-003")
         .output()
         .expect("cli dep-add extra");
-    assert!(cli_dep_extra.status.success());
+    assert_output_ok!(cli_dep_extra);
 
     let cli_dep_remove = cli()
         .arg("--root")
@@ -871,7 +895,7 @@ async fn cli_and_mcp_write_and_session_parity() {
         .arg("task-002")
         .output()
         .expect("cli dep-remove");
-    assert!(cli_dep_remove.status.success());
+    assert_output_ok!(cli_dep_remove);
 
     let _ = call_tool_text(
         &client,
@@ -903,7 +927,7 @@ async fn cli_and_mcp_write_and_session_parity() {
         .arg("cli note")
         .output()
         .expect("cli note");
-    assert!(cli_note.status.success());
+    assert_output_ok!(cli_note);
 
     let _ = call_tool_text(
         &client,
@@ -925,7 +949,7 @@ async fn cli_and_mcp_write_and_session_parity() {
         .arg("Body via CLI")
         .output()
         .expect("cli set-body");
-    assert!(cli_body.status.success());
+    assert_output_ok!(cli_body);
 
     let _ = call_tool_text(
         &client,
@@ -948,7 +972,7 @@ async fn cli_and_mcp_write_and_session_parity() {
         .arg("replaced")
         .output()
         .expect("cli set-section");
-    assert!(cli_section.status.success());
+    assert_output_ok!(cli_section);
 
     let _ = call_tool_text(
         &client,
@@ -973,7 +997,7 @@ async fn cli_and_mcp_write_and_session_parity() {
         .arg("30")
         .output()
         .expect("cli claim");
-    assert!(cli_claim.status.success());
+    assert_output_ok!(cli_claim);
 
     let _ = call_tool_text(
         &client,
@@ -994,7 +1018,7 @@ async fn cli_and_mcp_write_and_session_parity() {
         .arg("task-001")
         .output()
         .expect("cli release");
-    assert!(cli_release.status.success());
+    assert_output_ok!(cli_release);
 
     let _ = call_tool_text(
         &client,
@@ -1019,7 +1043,7 @@ async fn cli_and_mcp_write_and_session_parity() {
         .arg("discovered")
         .output()
         .expect("cli add-discovered");
-    assert!(cli_discovered.status.success());
+    assert_output_ok!(cli_discovered);
 
     let _ = call_tool_text(
         &client,
@@ -1044,7 +1068,7 @@ async fn cli_and_mcp_write_and_session_parity() {
         .arg("20260204-130000")
         .output()
         .expect("cli checkpoint");
-    assert!(cli_checkpoint.status.success());
+    assert_output_ok!(cli_checkpoint);
 
     let _ = call_tool_text(
         &client,
@@ -1101,7 +1125,7 @@ async fn cli_and_mcp_write_and_session_parity() {
         .arg("validate")
         .output()
         .expect("cli validate");
-    assert!(cli_validate.status.success());
+    assert_output_ok!(cli_validate);
 
     let _ = call_tool_text(
         &client,
@@ -1230,7 +1254,7 @@ async fn cli_and_mcp_project_scaffold_parity() {
         .arg("Alpha Project")
         .output()
         .expect("cli project-init");
-    assert!(cli_init.status.success());
+    assert_output_ok!(cli_init);
 
     let cli_quickstart = cli()
         .arg("--root")
@@ -1241,7 +1265,7 @@ async fn cli_and_mcp_project_scaffold_parity() {
         .arg("Beta Project")
         .output()
         .expect("cli quickstart");
-    assert!(cli_quickstart.status.success());
+    assert_output_ok!(cli_quickstart);
 
     let client = start_client(temp.path()).await;
 
@@ -1293,7 +1317,7 @@ fn cli_best_practices_command() {
         .arg("best-practices")
         .output()
         .expect("cli best-practices");
-    assert!(output.status.success());
+    assert_output_ok!(output);
     let text = String::from_utf8_lossy(&output.stdout).to_string();
     assert!(text.contains("Dependencies"));
 }
@@ -1313,7 +1337,7 @@ async fn cli_and_mcp_migrate_archive_parity() {
         .arg("--yes")
         .output()
         .expect("cli migrate");
-    assert!(cli_migrate.status.success());
+    assert_output_ok!(cli_migrate);
 
     let workmesh_tasks = temp.path().join("workmesh").join("tasks");
     assert!(workmesh_tasks.is_dir());
@@ -1327,7 +1351,7 @@ async fn cli_and_mcp_migrate_archive_parity() {
         .arg("--json")
         .output()
         .expect("cli archive");
-    assert!(cli_archive.status.success());
+    assert_output_ok!(cli_archive);
     let archive_root = temp.path().join("workmesh").join("archive");
     assert!(archive_root.is_dir());
 
@@ -1386,7 +1410,7 @@ async fn cli_and_mcp_bulk_ops_parity() {
         .arg("--json")
         .output()
         .expect("cli bulk status");
-    assert!(cli_bulk_status.status.success());
+    assert_output_ok!(cli_bulk_status);
 
     let cli_bulk_field = cli()
         .arg("--root")
@@ -1401,7 +1425,7 @@ async fn cli_and_mcp_bulk_ops_parity() {
         .arg("--json")
         .output()
         .expect("cli bulk field");
-    assert!(cli_bulk_field.status.success());
+    assert_output_ok!(cli_bulk_field);
 
     let cli_bulk_label_add = cli()
         .arg("--root")
@@ -1415,7 +1439,7 @@ async fn cli_and_mcp_bulk_ops_parity() {
         .arg("--json")
         .output()
         .expect("cli bulk label add");
-    assert!(cli_bulk_label_add.status.success());
+    assert_output_ok!(cli_bulk_label_add);
 
     let cli_bulk_label_remove = cli()
         .arg("--root")
@@ -1428,7 +1452,7 @@ async fn cli_and_mcp_bulk_ops_parity() {
         .arg("--json")
         .output()
         .expect("cli bulk label remove");
-    assert!(cli_bulk_label_remove.status.success());
+    assert_output_ok!(cli_bulk_label_remove);
 
     let cli_bulk_dep_add = cli()
         .arg("--root")
@@ -1441,7 +1465,7 @@ async fn cli_and_mcp_bulk_ops_parity() {
         .arg("--json")
         .output()
         .expect("cli bulk dep add");
-    assert!(cli_bulk_dep_add.status.success());
+    assert_output_ok!(cli_bulk_dep_add);
 
     let cli_bulk_dep_remove = cli()
         .arg("--root")
@@ -1454,7 +1478,7 @@ async fn cli_and_mcp_bulk_ops_parity() {
         .arg("--json")
         .output()
         .expect("cli bulk dep remove");
-    assert!(cli_bulk_dep_remove.status.success());
+    assert_output_ok!(cli_bulk_dep_remove);
 
     let cli_bulk_note = cli()
         .arg("--root")
@@ -1467,7 +1491,7 @@ async fn cli_and_mcp_bulk_ops_parity() {
         .arg("--json")
         .output()
         .expect("cli bulk note");
-    assert!(cli_bulk_note.status.success());
+    assert_output_ok!(cli_bulk_note);
 
     let client = start_client(temp.path()).await;
 
