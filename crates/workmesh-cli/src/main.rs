@@ -595,6 +595,10 @@ impl NoteSection {
     }
 }
 
+fn is_done_status(status: &str) -> bool {
+    status.eq_ignore_ascii_case("done")
+}
+
 fn main() -> Result<()> {
     let cli = Cli::parse();
     if let Command::Quickstart {
@@ -926,7 +930,7 @@ fn main() -> Result<()> {
                 die(&format!("Task not found: {}", task_id));
             });
             update_task_field(path, "status", Some(status.clone().into()))?;
-            if touch {
+            if touch || is_done_status(&status) {
                 update_task_field(path, "updated_date", Some(now_timestamp().into()))?;
             }
             audit_event(
@@ -1793,7 +1797,7 @@ fn handle_bulk_set_status(
             die(&format!("Task not found: {}", task.id));
         });
         update_task_field(path, "status", Some(FieldValue::Scalar(status.clone())))?;
-        if touch {
+        if touch || is_done_status(&status) {
             update_task_field(path, "updated_date", Some(now_timestamp().into()))?;
         }
         audit_event(
