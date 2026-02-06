@@ -232,7 +232,8 @@ fn fake_plantuml_script() -> &'static str {
 
 #[cfg(windows)]
 fn fake_plantuml_script() -> &'static str {
-    "@echo off\r\nmore >nul\r\necho <svg></svg>\r\n"
+    // `<` and `>` are special in batch files; caret-escape them so we print literal SVG.
+    "@echo off\r\nmore >nul\r\necho ^<svg^>^</svg^>\r\n"
 }
 
 #[cfg(unix)]
