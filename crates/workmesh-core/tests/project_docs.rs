@@ -8,6 +8,7 @@ fn task_with_project(project: &str) -> Task {
     Task {
         id: "task-001".to_string(),
         uid: None,
+        kind: "task".to_string(),
         title: "Example".to_string(),
         status: "To Do".to_string(),
         priority: "P2".to_string(),
@@ -59,7 +60,10 @@ fn validate_errors_when_project_docs_missing() {
     std::fs::write(project_dir.join("README.md"), "# Alpha\n").expect("readme");
 
     let report = validate_tasks(&[task_with_project("alpha")], Some(&backlog_dir));
-    assert!(report.errors.iter().all(|err| !err.contains("project docs missing")));
+    assert!(report
+        .errors
+        .iter()
+        .all(|err| !err.contains("project docs missing")));
 }
 
 #[test]

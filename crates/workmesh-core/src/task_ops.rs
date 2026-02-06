@@ -3,9 +3,9 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use chrono::{Duration, Local, NaiveDateTime};
-use ulid::Ulid;
 use regex::Regex;
 use serde::Serialize;
+use ulid::Ulid;
 
 use crate::project::{project_docs_dir, repo_root_from_backlog};
 use crate::task::{split_front_matter, Task, TaskParseError};
@@ -16,6 +16,7 @@ struct GraphNode<'a> {
     uid: Option<&'a str>,
     node_type: &'a str,
     title: &'a str,
+    kind: &'a str,
     status: &'a str,
     priority: &'a str,
     phase: &'a str,
@@ -93,6 +94,7 @@ pub fn blockers_satisfied(task: &Task, done_ids: &HashSet<String>) -> bool {
 pub fn filter_tasks<'a>(
     tasks: &'a [Task],
     status: Option<&[String]>,
+    kind: Option<&[String]>,
     phase: Option<&[String]>,
     priority: Option<&[String]>,
     labels: Option<&[String]>,
@@ -111,6 +113,10 @@ pub fn filter_tasks<'a>(
     if let Some(status) = status {
         let status_set: HashSet<String> = status.iter().map(|s| s.to_lowercase()).collect();
         result.retain(|task| status_set.contains(&task.status.to_lowercase()));
+    }
+    if let Some(kind) = kind {
+        let kind_set: HashSet<String> = kind.iter().map(|s| s.to_lowercase()).collect();
+        result.retain(|task| kind_set.contains(&task.kind.to_lowercase()));
     }
     if let Some(phase) = phase {
         let phase_set: HashSet<String> = phase.iter().map(|p| p.to_lowercase()).collect();
@@ -159,6 +165,7 @@ pub fn sort_tasks<'a>(mut tasks: Vec<&'a Task>, key: &str) -> Vec<&'a Task> {
     match key {
         "id" => tasks.sort_by_key(|task| task.id_num()),
         "title" => tasks.sort_by_key(|task| task.title.to_lowercase()),
+        "kind" => tasks.sort_by_key(|task| task.kind.to_lowercase()),
         "status" => tasks.sort_by_key(|task| task.status.to_lowercase()),
         "phase" => tasks.sort_by_key(|task| task.phase.to_lowercase()),
         "priority" => tasks.sort_by_key(|task| task.priority.to_lowercase()),
@@ -205,7 +212,10 @@ pub fn update_front_matter_value(
         }
     }
     let end_idx = end_idx.ok_or(TaskParseError::MissingFrontMatterEnd)?;
-    let mut fm_lines: Vec<String> = lines[1..end_idx].iter().map(|line| (*line).to_string()).collect();
+    let mut fm_lines: Vec<String> = lines[1..end_idx]
+        .iter()
+        .map(|line| (*line).to_string())
+        .collect();
 
     let mut key_idx = None;
     for (idx, line) in fm_lines.iter().enumerate() {
@@ -246,17 +256,22 @@ pub fn update_front_matter_value(
     Ok(rendered)
 }
 
-pub fn update_task_field(path: &Path, key: &str, value: Option<FieldValue>) -> Result<(), TaskParseError> {
-    let text = fs::read_to_string(path)
-        .map_err(|err| TaskParseError::Invalid(err.to_string()))?;
+pub fn update_task_field(
+    path: &Path,
+    key: &str,
+    value: Option<FieldValue>,
+) -> Result<(), TaskParseError> {
+    let text = fs::read_to_string(path).map_err(|err| TaskParseError::Invalid(err.to_string()))?;
     let updated = update_front_matter_value(&text, key, value)?;
     fs::write(path, updated).map_err(|err| TaskParseError::Invalid(err.to_string()))?;
     Ok(())
 }
 
-pub fn update_lease_fields(path: &Path, lease: Option<&crate::task::Lease>) -> Result<(), TaskParseError> {
-    let text = fs::read_to_string(path)
-        .map_err(|err| TaskParseError::Invalid(err.to_string()))?;
+pub fn update_lease_fields(
+    path: &Path,
+    lease: Option<&crate::task::Lease>,
+) -> Result<(), TaskParseError> {
+    let text = fs::read_to_string(path).map_err(|err| TaskParseError::Invalid(err.to_string()))?;
     let mut updated = update_front_matter_value(
         &text,
         "lease_owner",
@@ -265,12 +280,16 @@ pub fn update_lease_fields(path: &Path, lease: Option<&crate::task::Lease>) -> R
     updated = update_front_matter_value(
         &updated,
         "lease_acquired_at",
-        lease.and_then(|value| value.acquired_at.clone()).map(FieldValue::Scalar),
+        lease
+            .and_then(|value| value.acquired_at.clone())
+            .map(FieldValue::Scalar),
     )?;
     updated = update_front_matter_value(
         &updated,
         "lease_expires_at",
-        lease.and_then(|value| value.expires_at.clone()).map(FieldValue::Scalar),
+        lease
+            .and_then(|value| value.expires_at.clone())
+            .map(FieldValue::Scalar),
     )?;
     fs::write(path, updated).map_err(|err| TaskParseError::Invalid(err.to_string()))?;
     Ok(())
@@ -286,8 +305,8 @@ pub fn update_task_field_or_section(
     value: Option<&str>,
 ) -> Result<(), TaskParseError> {
     if let Some(section) = section_name_for_field(key) {
-        let text = fs::read_to_string(path)
-            .map_err(|err| TaskParseError::Invalid(err.to_string()))?;
+        let text =
+            fs::read_to_string(path).map_err(|err| TaskParseError::Invalid(err.to_string()))?;
         let (front, body) = split_front_matter(&text)?;
         let content = value.unwrap_or("");
         let new_body = replace_section(&body, &section, content);
@@ -304,9 +323,7 @@ pub fn append_note(body: &str, note: &str, section: &str) -> String {
     let note_line = format!("- {}", note.trim());
 
     if section == "notes" {
-        let idx = lines
-            .iter()
-            .position(|line| line.trim() == "Notes:");
+        let idx = lines.iter().position(|line| line.trim() == "Notes:");
         match idx {
             Some(idx) => {
                 let insert_at = idx + 1;
@@ -356,7 +373,8 @@ pub fn replace_section(body: &str, section: &str, content: &str) -> String {
     if section.is_empty() {
         return body.to_string();
     }
-    if section.eq_ignore_ascii_case("implementation notes") || section.eq_ignore_ascii_case("impl") {
+    if section.eq_ignore_ascii_case("implementation notes") || section.eq_ignore_ascii_case("impl")
+    {
         return replace_impl_notes(body, content);
     }
 
@@ -400,8 +418,7 @@ pub fn replace_section(body: &str, section: &str, content: &str) -> String {
 }
 
 pub fn update_body(path: &Path, new_body: &str) -> Result<(), TaskParseError> {
-    let text = fs::read_to_string(path)
-        .map_err(|err| TaskParseError::Invalid(err.to_string()))?;
+    let text = fs::read_to_string(path).map_err(|err| TaskParseError::Invalid(err.to_string()))?;
     let (front, _body) = split_front_matter(&text)?;
     let updated = format!("---\n{}\n---\n{}", front, new_body);
     fs::write(path, updated).map_err(|err| TaskParseError::Invalid(err.to_string()))?;
@@ -571,7 +588,11 @@ pub fn validate_tasks(tasks: &[Task], backlog_dir: Option<&Path>) -> ValidationR
             missing.push("labels");
         }
         if !missing.is_empty() {
-            errors.push(format!("{} missing fields: {}", task.id, missing.join(", ")));
+            errors.push(format!(
+                "{} missing fields: {}",
+                task.id,
+                missing.join(", ")
+            ));
         }
         if let Some(path) = &task.file_path {
             if !path
@@ -596,10 +617,7 @@ pub fn validate_tasks(tasks: &[Task], backlog_dir: Option<&Path>) -> ValidationR
         if let (Some(project), Some(repo_root)) = (task.project.as_deref(), repo_root.as_ref()) {
             let docs_dir = project_docs_dir(repo_root, project);
             if !docs_dir.join("README.md").is_file() {
-                errors.push(format!(
-                    "{} project docs missing: {}",
-                    task.id, project
-                ));
+                errors.push(format!("{} project docs missing: {}", task.id, project));
             }
         }
         if should_warn_missing_dependencies(task) {
@@ -638,6 +656,7 @@ pub fn graph_export(tasks: &[Task]) -> serde_json::Value {
             uid: task.uid.as_deref(),
             node_type: "task",
             title: task.title.as_str(),
+            kind: task.kind.as_str(),
             status: task.status.as_str(),
             priority: task.priority.as_str(),
             phase: task.phase.as_str(),
@@ -715,7 +734,14 @@ pub fn task_to_json_value(task: &Task, include_body: bool) -> serde_json::Value 
             .map(serde_json::Value::String)
             .unwrap_or(serde_json::Value::Null),
     );
-    map.insert("title".to_string(), serde_json::Value::String(task.title.clone()));
+    map.insert(
+        "kind".to_string(),
+        serde_json::Value::String(task.kind.clone()),
+    );
+    map.insert(
+        "title".to_string(),
+        serde_json::Value::String(task.title.clone()),
+    );
     map.insert(
         "status".to_string(),
         serde_json::Value::String(task.status.clone()),
@@ -724,7 +750,10 @@ pub fn task_to_json_value(task: &Task, include_body: bool) -> serde_json::Value 
         "priority".to_string(),
         serde_json::Value::String(task.priority.clone()),
     );
-    map.insert("phase".to_string(), serde_json::Value::String(task.phase.clone()));
+    map.insert(
+        "phase".to_string(),
+        serde_json::Value::String(task.phase.clone()),
+    );
     map.insert(
         "dependencies".to_string(),
         serde_json::Value::Array(
@@ -763,13 +792,16 @@ pub fn task_to_json_value(task: &Task, include_body: bool) -> serde_json::Value 
     );
     map.insert(
         "lease".to_string(),
-        task.lease.as_ref().map(|lease| {
-            serde_json::json!({
-                "owner": lease.owner,
-                "acquired_at": lease.acquired_at,
-                "expires_at": lease.expires_at,
+        task.lease
+            .as_ref()
+            .map(|lease| {
+                serde_json::json!({
+                    "owner": lease.owner,
+                    "acquired_at": lease.acquired_at,
+                    "expires_at": lease.expires_at,
+                })
             })
-        }).unwrap_or(serde_json::Value::Null),
+            .unwrap_or(serde_json::Value::Null),
     );
     map.insert(
         "project".to_string(),
@@ -812,7 +844,10 @@ pub fn task_to_json_value(task: &Task, include_body: bool) -> serde_json::Value 
             .unwrap_or(serde_json::Value::Null),
     );
     if include_body {
-        map.insert("body".to_string(), serde_json::Value::String(task.body.clone()));
+        map.insert(
+            "body".to_string(),
+            serde_json::Value::String(task.body.clone()),
+        );
     }
     serde_json::Value::Object(map)
 }
@@ -855,12 +890,22 @@ fn task_template(
     front.push(format!("id: {}", task_id));
     front.push(format!("uid: {}", uid));
     front.push(format!("title: {}", title));
+    front.push("kind: task".to_string());
     front.push(format!("status: {}", status));
     front.push(format!("priority: {}", priority));
     front.push(format!("phase: {}", phase));
-    front.push(format!("dependencies: {}", FieldValue::List(dependencies.to_vec()).as_formatted()));
-    front.push(format!("labels: {}", FieldValue::List(labels.to_vec()).as_formatted()));
-    front.push(format!("assignee: {}", FieldValue::List(assignee.to_vec()).as_formatted()));
+    front.push(format!(
+        "dependencies: {}",
+        FieldValue::List(dependencies.to_vec()).as_formatted()
+    ));
+    front.push(format!(
+        "labels: {}",
+        FieldValue::List(labels.to_vec()).as_formatted()
+    ));
+    front.push(format!(
+        "assignee: {}",
+        FieldValue::List(assignee.to_vec()).as_formatted()
+    ));
     front.push("relationships:".to_string());
     front.push("  blocked_by: []".to_string());
     front.push("  parent: []".to_string());
@@ -921,7 +966,10 @@ fn is_section_header(lines: &[String], idx: usize) -> bool {
             "definition of done:",
             "notes:",
         ];
-        if known.iter().any(|value| value.eq_ignore_ascii_case(stripped)) {
+        if known
+            .iter()
+            .any(|value| value.eq_ignore_ascii_case(stripped))
+        {
             return true;
         }
         if let Some(next_idx) = next_non_empty(lines, idx + 1) {
@@ -1015,6 +1063,7 @@ mod tests {
         let task = Task {
             id: "task-001".to_string(),
             uid: None,
+            kind: "task".to_string(),
             title: "".to_string(),
             status: "To Do".to_string(),
             priority: "P1".to_string(),
@@ -1038,12 +1087,9 @@ mod tests {
     #[test]
     fn update_front_matter_value_replaces_field() {
         let text = "---\nstatus: To Do\npriority: P2\n---\nBody\n";
-        let updated = update_front_matter_value(
-            text,
-            "status",
-            Some(FieldValue::Scalar("Done".to_string())),
-        )
-        .expect("update");
+        let updated =
+            update_front_matter_value(text, "status", Some(FieldValue::Scalar("Done".to_string())))
+                .expect("update");
         assert!(updated.contains("status: Done"));
         assert!(!updated.contains("status: To Do"));
     }
@@ -1091,6 +1137,7 @@ mod tests {
             Task {
                 id: "task-001".to_string(),
                 uid: None,
+                kind: "task".to_string(),
                 title: "One".to_string(),
                 status: "To Do".to_string(),
                 priority: "P2".to_string(),
@@ -1111,6 +1158,7 @@ mod tests {
             Task {
                 id: "task-002".to_string(),
                 uid: None,
+                kind: "task".to_string(),
                 title: "Two".to_string(),
                 status: "In Progress".to_string(),
                 priority: "P2".to_string(),
@@ -1131,6 +1179,7 @@ mod tests {
             Task {
                 id: "task-003".to_string(),
                 uid: None,
+                kind: "task".to_string(),
                 title: "Three".to_string(),
                 status: "To Do".to_string(),
                 priority: "P2".to_string(),
@@ -1162,6 +1211,7 @@ mod tests {
         let task_done = Task {
             id: "task-001".to_string(),
             uid: None,
+            kind: "task".to_string(),
             title: "Done".to_string(),
             status: "Done".to_string(),
             priority: "P2".to_string(),
@@ -1182,6 +1232,7 @@ mod tests {
         let task_dep_ready = Task {
             id: "task-002".to_string(),
             uid: None,
+            kind: "task".to_string(),
             title: "Dep Ready".to_string(),
             status: "To Do".to_string(),
             priority: "P2".to_string(),
@@ -1202,6 +1253,7 @@ mod tests {
         let task_blocked_by_ready = Task {
             id: "task-003".to_string(),
             uid: None,
+            kind: "task".to_string(),
             title: "Blocked By Ready".to_string(),
             status: "To Do".to_string(),
             priority: "P2".to_string(),
@@ -1227,6 +1279,7 @@ mod tests {
         let task_blocked = Task {
             id: "task-004".to_string(),
             uid: None,
+            kind: "task".to_string(),
             title: "Blocked".to_string(),
             status: "To Do".to_string(),
             priority: "P2".to_string(),
@@ -1245,7 +1298,12 @@ mod tests {
             body: String::new(),
         };
 
-        let tasks = [task_blocked, task_done, task_dep_ready, task_blocked_by_ready];
+        let tasks = [
+            task_blocked,
+            task_done,
+            task_dep_ready,
+            task_blocked_by_ready,
+        ];
         let ready = ready_tasks(&tasks);
         let ids: Vec<&str> = ready.iter().map(|task| task.id.as_str()).collect();
         assert_eq!(ids, vec!["task-002", "task-003"]);
@@ -1261,6 +1319,7 @@ mod tests {
         let task = Task {
             id: "task-010".to_string(),
             uid: None,
+            kind: "task".to_string(),
             title: "Leased".to_string(),
             status: "To Do".to_string(),
             priority: "P2".to_string(),
@@ -1288,6 +1347,7 @@ mod tests {
         let task = Task {
             id: "task-001".to_string(),
             uid: None,
+            kind: "task".to_string(),
             title: "One".to_string(),
             status: "To Do".to_string(),
             priority: "P2".to_string(),
@@ -1311,12 +1371,25 @@ mod tests {
             body: String::new(),
         };
         let graph = graph_export(&[task]);
-        let edges = graph.get("edges").and_then(|value| value.as_array()).unwrap();
-        assert!(edges.iter().any(|edge| edge["edge_type"] == "blocked_by" && edge["to"] == "task-002"));
-        assert!(edges.iter().any(|edge| edge["edge_type"] == "blocked_by" && edge["to"] == "task-003"));
-        assert!(edges.iter().any(|edge| edge["edge_type"] == "parent" && edge["to"] == "task-004"));
-        assert!(edges.iter().any(|edge| edge["edge_type"] == "child" && edge["to"] == "task-005"));
-        assert!(edges.iter().any(|edge| edge["edge_type"] == "discovered_from" && edge["to"] == "task-006"));
+        let edges = graph
+            .get("edges")
+            .and_then(|value| value.as_array())
+            .unwrap();
+        assert!(edges
+            .iter()
+            .any(|edge| edge["edge_type"] == "blocked_by" && edge["to"] == "task-002"));
+        assert!(edges
+            .iter()
+            .any(|edge| edge["edge_type"] == "blocked_by" && edge["to"] == "task-003"));
+        assert!(edges
+            .iter()
+            .any(|edge| edge["edge_type"] == "parent" && edge["to"] == "task-004"));
+        assert!(edges
+            .iter()
+            .any(|edge| edge["edge_type"] == "child" && edge["to"] == "task-005"));
+        assert!(edges
+            .iter()
+            .any(|edge| edge["edge_type"] == "discovered_from" && edge["to"] == "task-006"));
     }
 
     #[test]
@@ -1324,6 +1397,7 @@ mod tests {
         let task_a = Task {
             id: "task-001".to_string(),
             uid: Some("01J2R0QZ6QX9V0000000000001".to_string()),
+            kind: "task".to_string(),
             title: "One".to_string(),
             status: "To Do".to_string(),
             priority: "P2".to_string(),
@@ -1344,6 +1418,7 @@ mod tests {
         let task_b = Task {
             id: "task-001".to_string(),
             uid: Some("01J2R0QZ6QX9V0000000000002".to_string()),
+            kind: "task".to_string(),
             title: "Two".to_string(),
             status: "To Do".to_string(),
             priority: "P2".to_string(),
@@ -1374,6 +1449,7 @@ mod tests {
         let task_a = Task {
             id: "task-001".to_string(),
             uid: Some("01J2R0QZ6QX9V0000000000001".to_string()),
+            kind: "task".to_string(),
             title: "One".to_string(),
             status: "To Do".to_string(),
             priority: "P2".to_string(),
@@ -1394,6 +1470,7 @@ mod tests {
         let task_b = Task {
             id: "task-002".to_string(),
             uid: Some("01J2R0QZ6QX9V0000000000001".to_string()),
+            kind: "task".to_string(),
             title: "Two".to_string(),
             status: "To Do".to_string(),
             priority: "P2".to_string(),

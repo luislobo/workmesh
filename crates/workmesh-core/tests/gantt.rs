@@ -5,6 +5,7 @@ fn task(id: &str, title: &str, status: &str, phase: &str, deps: &[&str]) -> Task
     Task {
         id: id.to_string(),
         uid: None,
+        kind: "task".to_string(),
         title: title.to_string(),
         status: status.to_string(),
         priority: "P2".to_string(),

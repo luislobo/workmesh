@@ -74,6 +74,7 @@ Each task is a Markdown file with front matter and sections:
 id: task-001
 uid: 01...
 title: Seed task
+kind: task
 status: To Do
 priority: P2
 phase: Phase1
@@ -84,6 +85,18 @@ assignee: []
 
 ## Notes
 - Start here
+```
+
+### Kind (Jira-friendly)
+WorkMesh supports a `kind` field to help Jira users map familiar issue types into plain-text tasks.
+
+WorkMesh does not enforce a fixed taxonomy; Jira issue types vary by instance. Use any string you
+want, but these are good defaults: `epic`, `story`, `task`, `bug`, `subtask`, `incident`, `spike`.
+
+Filtering (CLI):
+```bash
+workmesh --root . list --kind bug
+workmesh --root . list --kind epic --sort kind
 ```
 
 ## Session continuity

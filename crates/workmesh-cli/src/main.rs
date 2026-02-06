@@ -1,5 +1,5 @@
 use std::collections::HashSet;
-use std::io::{self, Read, IsTerminal};
+use std::io::{self, IsTerminal, Read};
 use std::path::{Path, PathBuf};
 
 use anyhow::Result;
@@ -7,24 +7,27 @@ use chrono::{Duration, Local, NaiveDate};
 use clap::{ArgAction, Parser, Subcommand, ValueEnum};
 
 use workmesh_core::archive::{archive_tasks, ArchiveOptions};
-use workmesh_core::backlog::{resolve_backlog, BacklogResolution};
 use workmesh_core::audit::{append_audit_event, AuditEvent};
+use workmesh_core::backlog::{resolve_backlog, BacklogResolution};
 use workmesh_core::config::update_do_not_migrate;
-use workmesh_core::gantt::{plantuml_gantt, render_plantuml_svg, write_text_file, PlantumlRenderError};
+use workmesh_core::gantt::{
+    plantuml_gantt, render_plantuml_svg, write_text_file, PlantumlRenderError,
+};
 use workmesh_core::index::{rebuild_index, refresh_index, verify_index};
 use workmesh_core::migration::{migrate_backlog, MigrationError};
+use workmesh_core::project::{ensure_project_docs, repo_root_from_backlog};
 use workmesh_core::quickstart::quickstart;
 use workmesh_core::session::{
-    append_session_journal, diff_since_checkpoint, render_diff, render_resume, resume_summary,
-    resolve_project_id, task_summary, write_checkpoint, write_working_set, CheckpointOptions,
+    append_session_journal, diff_since_checkpoint, render_diff, render_resume, resolve_project_id,
+    resume_summary, task_summary, write_checkpoint, write_working_set, CheckpointOptions,
 };
 use workmesh_core::task::{load_tasks, Lease, Task};
-use workmesh_core::project::{ensure_project_docs, repo_root_from_backlog};
 use workmesh_core::task_ops::{
     append_note, create_task_file, filter_tasks, graph_export, next_task, now_timestamp,
     ready_tasks, render_task_line, replace_section, set_list_field, sort_tasks, status_counts,
-    FieldValue, task_to_json_value, tasks_to_json, tasks_to_jsonl, timestamp_plus_minutes, update_body,
+    task_to_json_value, tasks_to_json, tasks_to_jsonl, timestamp_plus_minutes, update_body,
     update_lease_fields, update_task_field, update_task_field_or_section, validate_tasks,
+    FieldValue,
 };
 
 #[derive(Parser)]
@@ -46,6 +49,8 @@ enum Command {
     List {
         #[arg(long, action = ArgAction::Append)]
         status: Vec<String>,
+        #[arg(long, action = ArgAction::Append)]
+        kind: Vec<String>,
         #[arg(long, action = ArgAction::Append)]
         phase: Vec<String>,
         #[arg(long, action = ArgAction::Append)]
@@ -554,6 +559,7 @@ enum BulkCommand {
 enum SortKey {
     Id,
     Title,
+    Kind,
     Status,
     Phase,
     Priority,
@@ -564,6 +570,7 @@ impl SortKey {
         match self {
             SortKey::Id => "id",
             SortKey::Title => "title",
+            SortKey::Kind => "kind",
             SortKey::Status => "status",
             SortKey::Phase => "phase",
             SortKey::Priority => "priority",
@@ -596,12 +603,7 @@ fn main() -> Result<()> {
     } = &cli.command
     {
         let repo_root = repo_root_from_backlog(&cli.root);
-        let result = quickstart(
-            &repo_root,
-            project_id,
-            name.as_deref(),
-            *agents_snippet,
-        )?;
+        let result = quickstart(&repo_root, project_id, name.as_deref(), *agents_snippet)?;
         if *json {
             println!("{}", serde_json::to_string_pretty(&result)?);
         } else {
@@ -632,6 +634,7 @@ fn main() -> Result<()> {
     match cli.command {
         Command::List {
             status,
+            kind,
             phase,
             priority,
             label,
@@ -646,6 +649,7 @@ fn main() -> Result<()> {
             let filtered = filter_tasks(
                 &tasks,
                 to_list(status.as_slice()).as_deref(),
+                to_list(kind.as_slice()).as_deref(),
                 to_list(phase.as_slice()).as_deref(),
                 to_list(priority.as_slice()).as_deref(),
                 to_list(label.as_slice()).as_deref(),
@@ -694,7 +698,11 @@ fn main() -> Result<()> {
                 println!("{}", render_task_line(task));
             }
         }
-        Command::Show { task_id, full, json } => {
+        Command::Show {
+            task_id,
+            full,
+            json,
+        } => {
             let task = find_task(&tasks, &task_id).unwrap_or_else(|| {
                 die(&format!("Task not found: {}", task_id));
             });
@@ -719,7 +727,10 @@ fn main() -> Result<()> {
                 for (key, value) in stats {
                     map.insert(key, serde_json::Value::from(value as u64));
                 }
-                println!("{}", serde_json::to_string_pretty(&serde_json::Value::Object(map))?);
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&serde_json::Value::Object(map))?
+                );
             } else {
                 for (key, value) in stats {
                     println!("{}: {}", key, value);
@@ -742,7 +753,10 @@ fn main() -> Result<()> {
                 println!("{}", serde_json::to_string(&payload)?);
             }
         }
-        Command::IssuesExport { output, include_body } => {
+        Command::IssuesExport {
+            output,
+            include_body,
+        } => {
             let payload = tasks_to_jsonl(&tasks, include_body);
             if let Some(output) = output {
                 std::fs::write(&output, payload)?;
@@ -891,19 +905,18 @@ fn main() -> Result<()> {
                 println!("No checkpoint found");
                 return Ok(());
             };
-            let report = diff_since_checkpoint(
-                &repo_root,
-                &backlog_dir,
-                &tasks,
-                &summary.snapshot,
-            );
+            let report = diff_since_checkpoint(&repo_root, &backlog_dir, &tasks, &summary.snapshot);
             if json {
                 println!("{}", serde_json::to_string_pretty(&report)?);
             } else {
                 println!("{}", render_diff(&report));
             }
         }
-        Command::SetStatus { task_id, status, touch } => {
+        Command::SetStatus {
+            task_id,
+            status,
+            touch,
+        } => {
             let task = find_task(&tasks, &task_id).unwrap_or_else(|| {
                 die(&format!("Task not found: {}", task_id));
             });
@@ -1205,7 +1218,12 @@ fn main() -> Result<()> {
                 auto_checkpoint,
             )?;
         }
-        Command::SetField { task_id, field, value, touch } => {
+        Command::SetField {
+            task_id,
+            field,
+            value,
+            touch,
+        } => {
             let task = find_task(&tasks, &task_id).unwrap_or_else(|| {
                 die(&format!("Task not found: {}", task_id));
             });
@@ -1226,15 +1244,43 @@ fn main() -> Result<()> {
             maybe_auto_checkpoint(&backlog_dir, auto_checkpoint);
             println!("Updated {} {} -> {}", task.id, field, value);
         }
-        Command::LabelAdd { task_id, label, touch } => {
-            update_list_field(&backlog_dir, &tasks, &task_id, "labels", &label, true, touch)?;
+        Command::LabelAdd {
+            task_id,
+            label,
+            touch,
+        } => {
+            update_list_field(
+                &backlog_dir,
+                &tasks,
+                &task_id,
+                "labels",
+                &label,
+                true,
+                touch,
+            )?;
             maybe_auto_checkpoint(&backlog_dir, auto_checkpoint);
         }
-        Command::LabelRemove { task_id, label, touch } => {
-            update_list_field(&backlog_dir, &tasks, &task_id, "labels", &label, false, touch)?;
+        Command::LabelRemove {
+            task_id,
+            label,
+            touch,
+        } => {
+            update_list_field(
+                &backlog_dir,
+                &tasks,
+                &task_id,
+                "labels",
+                &label,
+                false,
+                touch,
+            )?;
             maybe_auto_checkpoint(&backlog_dir, auto_checkpoint);
         }
-        Command::DepAdd { task_id, dependency, touch } => {
+        Command::DepAdd {
+            task_id,
+            dependency,
+            touch,
+        } => {
             update_list_field(
                 &backlog_dir,
                 &tasks,
@@ -1246,7 +1292,11 @@ fn main() -> Result<()> {
             )?;
             maybe_auto_checkpoint(&backlog_dir, auto_checkpoint);
         }
-        Command::DepRemove { task_id, dependency, touch } => {
+        Command::DepRemove {
+            task_id,
+            dependency,
+            touch,
+        } => {
             update_list_field(
                 &backlog_dir,
                 &tasks,
@@ -1258,7 +1308,12 @@ fn main() -> Result<()> {
             )?;
             maybe_auto_checkpoint(&backlog_dir, auto_checkpoint);
         }
-        Command::Note { task_id, note, section, touch } => {
+        Command::Note {
+            task_id,
+            note,
+            section,
+            touch,
+        } => {
             let task = find_task(&tasks, &task_id).unwrap_or_else(|| {
                 die(&format!("Task not found: {}", task_id));
             });
@@ -1280,7 +1335,12 @@ fn main() -> Result<()> {
             maybe_auto_checkpoint(&backlog_dir, auto_checkpoint);
             println!("Added note to {}", task.id);
         }
-        Command::SetBody { task_id, text, file, touch } => {
+        Command::SetBody {
+            task_id,
+            text,
+            file,
+            touch,
+        } => {
             let task = find_task(&tasks, &task_id).unwrap_or_else(|| {
                 die(&format!("Task not found: {}", task_id));
             });
@@ -1302,7 +1362,13 @@ fn main() -> Result<()> {
             maybe_auto_checkpoint(&backlog_dir, auto_checkpoint);
             println!("Updated body for {}", task.id);
         }
-        Command::SetSection { task_id, section, text, file, touch } => {
+        Command::SetSection {
+            task_id,
+            section,
+            text,
+            file,
+            touch,
+        } => {
             let task = find_task(&tasks, &task_id).unwrap_or_else(|| {
                 die(&format!("Task not found: {}", task_id));
             });
@@ -1450,7 +1516,11 @@ fn main() -> Result<()> {
             let text = plantuml_gantt(&tasks, start.as_deref(), None, zoom, None, true);
             print!("{}", text);
         }
-        Command::GanttFile { start, zoom, output } => {
+        Command::GanttFile {
+            start,
+            zoom,
+            output,
+        } => {
             let text = plantuml_gantt(&tasks, start.as_deref(), None, zoom, None, true);
             let path = write_text_file(&output, &text)?;
             println!("{}", path.display());
@@ -1467,16 +1537,13 @@ fn main() -> Result<()> {
                 Some(cmd) => Some(shell_words::split(&cmd).map_err(anyhow::Error::msg)?),
                 None => None,
             };
-            let svg = render_plantuml_svg(
-                &text,
-                cmd,
-                plantuml_jar.as_deref(),
-                None,
-            )
-            .map_err(|err| match err {
-                PlantumlRenderError::RenderFailed(msg) => anyhow::Error::msg(msg),
-                other => anyhow::Error::msg(other.to_string()),
-            })?;
+            let svg =
+                render_plantuml_svg(&text, cmd, plantuml_jar.as_deref(), None).map_err(|err| {
+                    match err {
+                        PlantumlRenderError::RenderFailed(msg) => anyhow::Error::msg(msg),
+                        other => anyhow::Error::msg(other.to_string()),
+                    }
+                })?;
             if let Some(output) = output {
                 let path = write_text_file(&output, &svg)?;
                 println!("{}", path.display());
@@ -1490,7 +1557,11 @@ fn main() -> Result<()> {
         Command::Migrate { .. } => {
             unreachable!("migrate handled before backlog resolution");
         }
-        Command::Archive { before, status, json } => {
+        Command::Archive {
+            before,
+            status,
+            json,
+        } => {
             let before_date = parse_before_date(&before)?;
             let result = archive_tasks(
                 &backlog_dir,
@@ -1604,7 +1675,10 @@ fn emit_bulk_result(updated: &[String], missing: &[String], json: bool) {
         "missing": missing,
     });
     if json {
-        println!("{}", serde_json::to_string_pretty(&payload).unwrap_or_default());
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&payload).unwrap_or_default()
+        );
     } else {
         println!("Updated {} tasks", updated.len());
         if !missing.is_empty() {
@@ -1669,11 +1743,7 @@ fn confirm_migration(path: &Path) -> Result<bool> {
     Ok(matches!(value.as_str(), "y" | "yes"))
 }
 
-fn handle_migrate_command(
-    resolution: &BacklogResolution,
-    target: &str,
-    yes: bool,
-) -> Result<()> {
+fn handle_migrate_command(resolution: &BacklogResolution, target: &str, yes: bool) -> Result<()> {
     if !yes && io::stdin().is_terminal() {
         if !confirm_migration(&resolution.backlog_dir)? {
             let _ = update_do_not_migrate(&resolution.repo_root, true);
@@ -1684,7 +1754,11 @@ fn handle_migrate_command(
     match migrate_backlog(resolution, target) {
         Ok(result) => {
             let _ = update_do_not_migrate(&resolution.repo_root, false);
-            println!("Migrated {} -> {}", result.from.display(), result.to.display());
+            println!(
+                "Migrated {} -> {}",
+                result.from.display(),
+                result.to.display()
+            );
         }
         Err(MigrationError::AlreadyMigrated(path)) => {
             println!("Already migrated at {}", path.display());
