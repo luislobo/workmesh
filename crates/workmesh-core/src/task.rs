@@ -10,6 +10,7 @@ use thiserror::Error;
 pub struct Task {
     pub id: String,
     pub uid: Option<String>,
+    pub kind: String,
     pub title: String,
     pub status: String,
     pub priority: String,
@@ -104,8 +105,7 @@ pub fn parse_list_value(value: Option<&Value>) -> Vec<String> {
 }
 
 pub fn parse_task_file(path: &Path) -> Result<Task, TaskParseError> {
-    let text = fs::read_to_string(path)
-        .map_err(|err| TaskParseError::Invalid(err.to_string()))?;
+    let text = fs::read_to_string(path).map_err(|err| TaskParseError::Invalid(err.to_string()))?;
     let (front, body) = split_front_matter(&text)?;
 
     let data = parse_front_matter(&front);
@@ -121,6 +121,13 @@ pub fn parse_task_file(path: &Path) -> Result<Task, TaskParseError> {
         .and_then(value_to_string)
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty());
+
+    let kind = data
+        .get("kind")
+        .and_then(value_to_string)
+        .map(|s| s.trim().to_lowercase())
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "task".to_string());
 
     let title = data
         .get("title")
@@ -176,6 +183,7 @@ pub fn parse_task_file(path: &Path) -> Result<Task, TaskParseError> {
     let known_keys = [
         "id",
         "uid",
+        "kind",
         "title",
         "status",
         "priority",
@@ -207,6 +215,7 @@ pub fn parse_task_file(path: &Path) -> Result<Task, TaskParseError> {
     Ok(Task {
         id: task_id,
         uid,
+        kind,
         title,
         status,
         priority,
@@ -377,7 +386,9 @@ fn value_to_string(value: &Value) -> Option<String> {
         Value::Number(num) => Some(num.to_string()),
         Value::Bool(val) => Some(val.to_string()),
         Value::Null => None,
-        _ => serde_yaml::to_string(value).ok().map(|s| s.trim().to_string()),
+        _ => serde_yaml::to_string(value)
+            .ok()
+            .map(|s| s.trim().to_string()),
     }
 }
 
@@ -396,7 +407,8 @@ fn parse_relationships(data: &HashMap<String, Value>) -> Relationships {
             .get(&Value::String("discovered_from".to_string()))
             .and_then(|value| value_to_list(value));
 
-        if blocked_by.is_some() || parent.is_some() || child.is_some() || discovered_from.is_some() {
+        if blocked_by.is_some() || parent.is_some() || child.is_some() || discovered_from.is_some()
+        {
             return Relationships {
                 blocked_by: blocked_by.unwrap_or_default(),
                 parent: parent.unwrap_or_default(),
@@ -490,8 +502,7 @@ mod tests {
     fn parse_task_file_reads_yaml_front_matter() {
         let temp = TempDir::new().expect("tempdir");
         let file_path = temp.path().join("task-001 - a.md");
-        let content = "---\n"
-            .to_string()
+        let content = "---\n".to_string()
             + "id: task-001\n"
             + "title: Example\n"
             + "status: To Do\n"
@@ -505,18 +516,17 @@ mod tests {
             + "- Example\n";
         fs::write(&file_path, content).expect("write");
 
-    let task = parse_task_file(&file_path).expect("parse");
-    assert_eq!(task.id, "task-001");
-    assert_eq!(task.dependencies, vec!["task-000"]);
-    assert_eq!(task.labels, vec!["ops"]);
-}
+        let task = parse_task_file(&file_path).expect("parse");
+        assert_eq!(task.id, "task-001");
+        assert_eq!(task.dependencies, vec!["task-000"]);
+        assert_eq!(task.labels, vec!["ops"]);
+    }
 
     #[test]
     fn parse_task_file_reads_uid() {
         let temp = TempDir::new().expect("tempdir");
         let file_path = temp.path().join("task-006 - uid.md");
-        let content = "---\n"
-            .to_string()
+        let content = "---\n".to_string()
             + "id: task-006\n"
             + "uid: 01J2R0QZ6QX9V0000000000000\n"
             + "title: Example\n"
@@ -534,8 +544,7 @@ mod tests {
     fn parse_task_file_reads_relationships_mapping() {
         let temp = TempDir::new().expect("tempdir");
         let file_path = temp.path().join("task-002 - rel.md");
-        let content = "---\n"
-            .to_string()
+        let content = "---\n".to_string()
             + "id: task-002\n"
             + "title: Example\n"
             + "status: To Do\n"
@@ -560,8 +569,7 @@ mod tests {
     fn parse_task_file_reads_flat_relationships() {
         let temp = TempDir::new().expect("tempdir");
         let file_path = temp.path().join("task-003 - rel-flat.md");
-        let content = "---\n"
-            .to_string()
+        let content = "---\n".to_string()
             + "id: task-003\n"
             + "title: Example\n"
             + "status: To Do\n"
@@ -585,8 +593,7 @@ mod tests {
     fn parse_task_file_reads_lease_mapping() {
         let temp = TempDir::new().expect("tempdir");
         let file_path = temp.path().join("task-004 - lease.md");
-        let content = "---\n"
-            .to_string()
+        let content = "---\n".to_string()
             + "id: task-004\n"
             + "title: Example\n"
             + "status: To Do\n"
@@ -610,8 +617,7 @@ mod tests {
     fn parse_task_file_reads_flat_lease() {
         let temp = TempDir::new().expect("tempdir");
         let file_path = temp.path().join("task-005 - lease-flat.md");
-        let content = "---\n"
-            .to_string()
+        let content = "---\n".to_string()
             + "id: task-005\n"
             + "title: Example\n"
             + "status: To Do\n"

@@ -14,23 +14,24 @@ use serde::{Deserialize, Serialize};
 
 use workmesh_core::archive::{archive_tasks, ArchiveOptions};
 use workmesh_core::audit::{append_audit_event, AuditEvent};
-use workmesh_core::backlog::{locate_backlog_dir, resolve_backlog, resolve_backlog_dir, BacklogError};
-use workmesh_core::project::{ensure_project_docs, repo_root_from_backlog};
-use workmesh_core::quickstart::quickstart;
+use workmesh_core::backlog::{
+    locate_backlog_dir, resolve_backlog, resolve_backlog_dir, BacklogError,
+};
 use workmesh_core::gantt::{plantuml_gantt, render_plantuml_svg, write_text_file};
 use workmesh_core::index::{rebuild_index, refresh_index, verify_index};
 use workmesh_core::migration::migrate_backlog;
+use workmesh_core::project::{ensure_project_docs, repo_root_from_backlog};
+use workmesh_core::quickstart::quickstart;
 use workmesh_core::session::{
     append_session_journal, diff_since_checkpoint, render_diff, render_resume, resolve_project_id,
     resume_summary, task_summary, write_checkpoint, write_working_set, CheckpointOptions,
 };
 use workmesh_core::task::{load_tasks, Lease, Task};
 use workmesh_core::task_ops::{
-    append_note, create_task_file, filter_tasks, graph_export, next_task, ready_tasks,
-    now_timestamp, timestamp_plus_minutes,
-    render_task_line, replace_section, set_list_field, sort_tasks, status_counts,
-    FieldValue, task_to_json_value, tasks_to_jsonl, update_body, update_lease_fields, update_task_field,
-    update_task_field_or_section, validate_tasks,
+    append_note, create_task_file, filter_tasks, graph_export, next_task, now_timestamp,
+    ready_tasks, render_task_line, replace_section, set_list_field, sort_tasks, status_counts,
+    task_to_json_value, tasks_to_jsonl, timestamp_plus_minutes, update_body, update_lease_fields,
+    update_task_field, update_task_field_or_section, validate_tasks, FieldValue,
 };
 
 const ROOT_REQUIRED_ERROR: &str = "root is required for MCP calls unless the server is started within a repo containing tasks/ or backlog/tasks";
@@ -95,10 +96,7 @@ fn parse_before_date(value: &str) -> Result<NaiveDate, CallToolError> {
     )))
 }
 
-fn resolve_root(
-    context: &McpContext,
-    root: Option<&str>,
-) -> Result<PathBuf, serde_json::Value> {
+fn resolve_root(context: &McpContext, root: Option<&str>) -> Result<PathBuf, serde_json::Value> {
     let root_value = root.and_then(|value| {
         let trimmed = value.trim();
         if trimmed.is_empty() {
@@ -123,7 +121,9 @@ fn resolve_root(
         Ok(path) => Ok(path),
         Err(BacklogError::NotFound(_)) => {
             if let Some(root_path) = used_root {
-                Err(serde_json::json!({"error": format!("No tasks found under {}", root_path.display())}))
+                Err(
+                    serde_json::json!({"error": format!("No tasks found under {}", root_path.display())}),
+                )
             } else {
                 Err(serde_json::json!({"error": ROOT_REQUIRED_ERROR}))
             }
@@ -149,7 +149,10 @@ fn resolve_repo_root(context: &McpContext, root: Option<&str>) -> PathBuf {
     std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
 }
 
-fn read_skill_content(repo_root: &Path, name: &str) -> Result<(PathBuf, String), serde_json::Value> {
+fn read_skill_content(
+    repo_root: &Path,
+    name: &str,
+) -> Result<(PathBuf, String), serde_json::Value> {
     let path = repo_root
         .join(".codex")
         .join("skills")
@@ -173,8 +176,7 @@ fn ok_text(content: String) -> Result<CallToolResult, CallToolError> {
 }
 
 fn ok_json(value: serde_json::Value) -> Result<CallToolResult, CallToolError> {
-    let text = serde_json::to_string_pretty(&value)
-        .unwrap_or_else(|_| "{}".to_string());
+    let text = serde_json::to_string_pretty(&value).unwrap_or_else(|_| "{}".to_string());
     ok_text(text)
 }
 
@@ -265,6 +267,7 @@ fn tool_catalog() -> Vec<serde_json::Value> {
 pub struct ListTasksTool {
     pub root: Option<String>,
     pub status: Option<ListInput>,
+    pub kind: Option<ListInput>,
     pub phase: Option<ListInput>,
     pub priority: Option<ListInput>,
     pub labels: Option<ListInput>,
@@ -300,7 +303,10 @@ pub struct NextTaskTool {
     pub format: String,
 }
 
-#[mcp_tool(name = "ready_tasks", description = "List ready tasks (deps satisfied, status To Do).")]
+#[mcp_tool(
+    name = "ready_tasks",
+    description = "List ready tasks (deps satisfied, status To Do)."
+)]
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct ReadyTasksTool {
     pub root: Option<String>,
@@ -376,7 +382,10 @@ pub struct AddDependencyTool {
     pub touch: bool,
 }
 
-#[mcp_tool(name = "remove_dependency", description = "Remove a dependency from a task.")]
+#[mcp_tool(
+    name = "remove_dependency",
+    description = "Remove a dependency from a task."
+)]
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct RemoveDependencyTool {
     pub task_id: String,
@@ -396,7 +405,10 @@ pub struct BulkSetStatusTool {
     pub touch: bool,
 }
 
-#[mcp_tool(name = "bulk_set_field", description = "Bulk update a front matter field.")]
+#[mcp_tool(
+    name = "bulk_set_field",
+    description = "Bulk update a front matter field."
+)]
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct BulkSetFieldTool {
     pub tasks: Option<ListInput>,
@@ -417,7 +429,10 @@ pub struct BulkAddLabelTool {
     pub touch: bool,
 }
 
-#[mcp_tool(name = "bulk_remove_label", description = "Bulk remove a label from tasks.")]
+#[mcp_tool(
+    name = "bulk_remove_label",
+    description = "Bulk remove a label from tasks."
+)]
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct BulkRemoveLabelTool {
     pub tasks: Option<ListInput>,
@@ -427,7 +442,10 @@ pub struct BulkRemoveLabelTool {
     pub touch: bool,
 }
 
-#[mcp_tool(name = "bulk_add_dependency", description = "Bulk add a dependency to tasks.")]
+#[mcp_tool(
+    name = "bulk_add_dependency",
+    description = "Bulk add a dependency to tasks."
+)]
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct BulkAddDependencyTool {
     pub tasks: Option<ListInput>,
@@ -437,7 +455,10 @@ pub struct BulkAddDependencyTool {
     pub touch: bool,
 }
 
-#[mcp_tool(name = "bulk_remove_dependency", description = "Bulk remove a dependency from tasks.")]
+#[mcp_tool(
+    name = "bulk_remove_dependency",
+    description = "Bulk remove a dependency from tasks."
+)]
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct BulkRemoveDependencyTool {
     pub tasks: Option<ListInput>,
@@ -459,7 +480,10 @@ pub struct BulkAddNoteTool {
     pub touch: bool,
 }
 
-#[mcp_tool(name = "archive_tasks", description = "Archive done tasks into date-based folders.")]
+#[mcp_tool(
+    name = "archive_tasks",
+    description = "Archive done tasks into date-based folders."
+)]
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct ArchiveTool {
     pub root: Option<String>,
@@ -469,7 +493,10 @@ pub struct ArchiveTool {
     pub status: String,
 }
 
-#[mcp_tool(name = "migrate_backlog", description = "Migrate legacy backlog to workmesh/")]
+#[mcp_tool(
+    name = "migrate_backlog",
+    description = "Migrate legacy backlog to workmesh/"
+)]
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct MigrateTool {
     pub root: Option<String>,
@@ -496,7 +523,10 @@ pub struct ReleaseTaskTool {
     pub touch: bool,
 }
 
-#[mcp_tool(name = "add_note", description = "Append a note to Notes or Implementation Notes.")]
+#[mcp_tool(
+    name = "add_note",
+    description = "Append a note to Notes or Implementation Notes."
+)]
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct AddNoteTool {
     pub task_id: String,
@@ -508,7 +538,10 @@ pub struct AddNoteTool {
     pub touch: bool,
 }
 
-#[mcp_tool(name = "set_body", description = "Replace full task body (all content after front matter).")]
+#[mcp_tool(
+    name = "set_body",
+    description = "Replace full task body (all content after front matter)."
+)]
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct SetBodyTool {
     pub task_id: String,
@@ -518,7 +551,10 @@ pub struct SetBodyTool {
     pub touch: bool,
 }
 
-#[mcp_tool(name = "set_section", description = "Replace a named section in the task body.")]
+#[mcp_tool(
+    name = "set_section",
+    description = "Replace a named section in the task body."
+)]
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct SetSectionTool {
     pub task_id: String,
@@ -546,7 +582,10 @@ pub struct AddTaskTool {
     pub assignee: Option<ListInput>,
 }
 
-#[mcp_tool(name = "add_discovered", description = "Create a task discovered from another task.")]
+#[mcp_tool(
+    name = "add_discovered",
+    description = "Create a task discovered from another task."
+)]
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct AddDiscoveredTool {
     pub from: String,
@@ -572,7 +611,10 @@ pub struct ProjectInitTool {
     pub name: Option<String>,
 }
 
-#[mcp_tool(name = "quickstart", description = "Scaffold docs + backlog + seed task.")]
+#[mcp_tool(
+    name = "quickstart",
+    description = "Scaffold docs + backlog + seed task."
+)]
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct QuickstartTool {
     pub project_id: String,
@@ -582,7 +624,10 @@ pub struct QuickstartTool {
     pub agents_snippet: bool,
 }
 
-#[mcp_tool(name = "validate", description = "Validate task metadata and dependencies.")]
+#[mcp_tool(
+    name = "validate",
+    description = "Validate task metadata and dependencies."
+)]
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct ValidateTool {
     pub root: Option<String>,
@@ -622,7 +667,10 @@ pub struct IndexVerifyTool {
     pub root: Option<String>,
 }
 
-#[mcp_tool(name = "checkpoint", description = "Write a session checkpoint (JSON + Markdown).")]
+#[mcp_tool(
+    name = "checkpoint",
+    description = "Write a session checkpoint (JSON + Markdown)."
+)]
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct CheckpointTool {
     pub root: Option<String>,
@@ -654,7 +702,10 @@ pub struct WorkingSetTool {
     pub format: String,
 }
 
-#[mcp_tool(name = "session_journal", description = "Append a session journal entry.")]
+#[mcp_tool(
+    name = "session_journal",
+    description = "Append a session journal entry."
+)]
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct SessionJournalTool {
     pub root: Option<String>,
@@ -666,7 +717,10 @@ pub struct SessionJournalTool {
     pub format: String,
 }
 
-#[mcp_tool(name = "checkpoint_diff", description = "Show changes since a checkpoint.")]
+#[mcp_tool(
+    name = "checkpoint_diff",
+    description = "Show changes since a checkpoint."
+)]
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct CheckpointDiffTool {
     pub root: Option<String>,
@@ -676,7 +730,10 @@ pub struct CheckpointDiffTool {
     pub format: String,
 }
 
-#[mcp_tool(name = "best_practices", description = "Return best practices guidance.")]
+#[mcp_tool(
+    name = "best_practices",
+    description = "Return best practices guidance."
+)]
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct BestPracticesTool {
     pub root: Option<String>,
@@ -684,7 +741,10 @@ pub struct BestPracticesTool {
     pub format: String,
 }
 
-#[mcp_tool(name = "gantt_text", description = "Return PlantUML gantt text for current tasks.")]
+#[mcp_tool(
+    name = "gantt_text",
+    description = "Return PlantUML gantt text for current tasks."
+)]
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct GanttTextTool {
     pub root: Option<String>,
@@ -693,7 +753,10 @@ pub struct GanttTextTool {
     pub zoom: i32,
 }
 
-#[mcp_tool(name = "gantt_file", description = "Write PlantUML gantt text to a file and return the path.")]
+#[mcp_tool(
+    name = "gantt_file",
+    description = "Write PlantUML gantt text to a file and return the path."
+)]
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct GanttFileTool {
     pub output: String,
@@ -703,7 +766,10 @@ pub struct GanttFileTool {
     pub zoom: i32,
 }
 
-#[mcp_tool(name = "gantt_svg", description = "Render gantt SVG via PlantUML; return SVG or a file path.")]
+#[mcp_tool(
+    name = "gantt_svg",
+    description = "Render gantt SVG via PlantUML; return SVG or a file path."
+)]
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct GanttSvgTool {
     pub root: Option<String>,
@@ -715,7 +781,10 @@ pub struct GanttSvgTool {
     pub plantuml_jar: Option<String>,
 }
 
-#[mcp_tool(name = "skill_content", description = "Return SKILL.md content for a repo skill.")]
+#[mcp_tool(
+    name = "skill_content",
+    description = "Return SKILL.md content for a repo skill."
+)]
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct SkillContentTool {
     pub root: Option<String>,
@@ -724,7 +793,10 @@ pub struct SkillContentTool {
     pub format: String,
 }
 
-#[mcp_tool(name = "help", description = "Show available tools and best practices.")]
+#[mcp_tool(
+    name = "help",
+    description = "Show available tools and best practices."
+)]
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct HelpTool {
     pub root: Option<String>,
@@ -923,15 +995,37 @@ impl ListTasksTool {
         };
         let tasks = load_tasks(&backlog_dir);
         let status = parse_list_input(self.status.clone());
+        let kind = parse_list_input(self.kind.clone());
         let phase = parse_list_input(self.phase.clone());
         let priority = parse_list_input(self.priority.clone());
         let labels = parse_list_input(self.labels.clone());
         let filtered = filter_tasks(
             &tasks,
-            if status.is_empty() { None } else { Some(status.as_slice()) },
-            if phase.is_empty() { None } else { Some(phase.as_slice()) },
-            if priority.is_empty() { None } else { Some(priority.as_slice()) },
-            if labels.is_empty() { None } else { Some(labels.as_slice()) },
+            if status.is_empty() {
+                None
+            } else {
+                Some(status.as_slice())
+            },
+            if kind.is_empty() {
+                None
+            } else {
+                Some(kind.as_slice())
+            },
+            if phase.is_empty() {
+                None
+            } else {
+                Some(phase.as_slice())
+            },
+            if priority.is_empty() {
+                None
+            } else {
+                Some(priority.as_slice())
+            },
+            if labels.is_empty() {
+                None
+            } else {
+                Some(labels.as_slice())
+            },
             self.depends_on.as_deref(),
             self.deps_satisfied,
             self.blocked,
@@ -979,7 +1073,9 @@ impl ShowTaskTool {
         let tasks = load_tasks(&backlog_dir);
         let task = find_task(&tasks, &self.task_id);
         let Some(task) = task else {
-            return ok_json(serde_json::json!({"error": format!("Task not found: {}", self.task_id)}));
+            return ok_json(
+                serde_json::json!({"error": format!("Task not found: {}", self.task_id)}),
+            );
         };
         if self.format == "text" {
             if let Some(path) = &task.file_path {
@@ -1085,9 +1181,14 @@ impl SetStatusTool {
         let tasks = load_tasks(&backlog_dir);
         let task = find_task(&tasks, &self.task_id);
         let Some(task) = task else {
-            return ok_json(serde_json::json!({"error": format!("Task not found: {}", self.task_id)}));
+            return ok_json(
+                serde_json::json!({"error": format!("Task not found: {}", self.task_id)}),
+            );
         };
-        let path = task.file_path.as_ref().ok_or_else(|| CallToolError::from_message("Missing task path"))?;
+        let path = task
+            .file_path
+            .as_ref()
+            .ok_or_else(|| CallToolError::from_message("Missing task path"))?;
         update_task_field(path, "status", Some(self.status.clone().into()))
             .map_err(CallToolError::new)?;
         if self.touch {
@@ -1115,9 +1216,14 @@ impl SetFieldTool {
         let tasks = load_tasks(&backlog_dir);
         let task = find_task(&tasks, &self.task_id);
         let Some(task) = task else {
-            return ok_json(serde_json::json!({"error": format!("Task not found: {}", self.task_id)}));
+            return ok_json(
+                serde_json::json!({"error": format!("Task not found: {}", self.task_id)}),
+            );
         };
-        let path = task.file_path.as_ref().ok_or_else(|| CallToolError::from_message("Missing task path"))?;
+        let path = task
+            .file_path
+            .as_ref()
+            .ok_or_else(|| CallToolError::from_message("Missing task path"))?;
         update_task_field_or_section(path, &self.field, Some(&self.value))
             .map_err(CallToolError::new)?;
         if self.touch {
@@ -1132,7 +1238,9 @@ impl SetFieldTool {
         )?;
         refresh_index_best_effort(&backlog_dir);
         maybe_auto_checkpoint(&backlog_dir);
-        ok_json(serde_json::json!({"ok": true, "id": task.id, "field": self.field.clone(), "value": self.value.clone()}))
+        ok_json(
+            serde_json::json!({"ok": true, "id": task.id, "field": self.field.clone(), "value": self.value.clone()}),
+        )
     }
 }
 
@@ -1520,7 +1628,9 @@ impl ClaimTaskTool {
         let tasks = load_tasks(&backlog_dir);
         let task = find_task(&tasks, &self.task_id);
         let Some(task) = task else {
-            return ok_json(serde_json::json!({"error": format!("Task not found: {}", self.task_id)}));
+            return ok_json(
+                serde_json::json!({"error": format!("Task not found: {}", self.task_id)}),
+            );
         };
         let path = task
             .file_path
@@ -1566,7 +1676,9 @@ impl ReleaseTaskTool {
         let tasks = load_tasks(&backlog_dir);
         let task = find_task(&tasks, &self.task_id);
         let Some(task) = task else {
-            return ok_json(serde_json::json!({"error": format!("Task not found: {}", self.task_id)}));
+            return ok_json(
+                serde_json::json!({"error": format!("Task not found: {}", self.task_id)}),
+            );
         };
         let path = task
             .file_path
@@ -1598,10 +1710,19 @@ impl AddNoteTool {
         let tasks = load_tasks(&backlog_dir);
         let task = find_task(&tasks, &self.task_id);
         let Some(task) = task else {
-            return ok_json(serde_json::json!({"error": format!("Task not found: {}", self.task_id)}));
+            return ok_json(
+                serde_json::json!({"error": format!("Task not found: {}", self.task_id)}),
+            );
         };
-        let path = task.file_path.as_ref().ok_or_else(|| CallToolError::from_message("Missing task path"))?;
-        let section_key = if self.section == "notes" { "notes" } else { "impl" };
+        let path = task
+            .file_path
+            .as_ref()
+            .ok_or_else(|| CallToolError::from_message("Missing task path"))?;
+        let section_key = if self.section == "notes" {
+            "notes"
+        } else {
+            "impl"
+        };
         let new_body = append_note(&task.body, &self.note, section_key);
         update_body(path, &new_body).map_err(CallToolError::new)?;
         if self.touch {
@@ -1629,9 +1750,14 @@ impl SetBodyTool {
         let tasks = load_tasks(&backlog_dir);
         let task = find_task(&tasks, &self.task_id);
         let Some(task) = task else {
-            return ok_json(serde_json::json!({"error": format!("Task not found: {}", self.task_id)}));
+            return ok_json(
+                serde_json::json!({"error": format!("Task not found: {}", self.task_id)}),
+            );
         };
-        let path = task.file_path.as_ref().ok_or_else(|| CallToolError::from_message("Missing task path"))?;
+        let path = task
+            .file_path
+            .as_ref()
+            .ok_or_else(|| CallToolError::from_message("Missing task path"))?;
         update_body(path, &self.body).map_err(CallToolError::new)?;
         if self.touch {
             update_task_field(path, "updated_date", Some(now_timestamp().into()))
@@ -1658,9 +1784,14 @@ impl SetSectionTool {
         let tasks = load_tasks(&backlog_dir);
         let task = find_task(&tasks, &self.task_id);
         let Some(task) = task else {
-            return ok_json(serde_json::json!({"error": format!("Task not found: {}", self.task_id)}));
+            return ok_json(
+                serde_json::json!({"error": format!("Task not found: {}", self.task_id)}),
+            );
         };
-        let path = task.file_path.as_ref().ok_or_else(|| CallToolError::from_message("Missing task path"))?;
+        let path = task
+            .file_path
+            .as_ref()
+            .ok_or_else(|| CallToolError::from_message("Missing task path"))?;
         let new_body = replace_section(&task.body, &self.section, &self.content);
         update_body(path, &new_body).map_err(CallToolError::new)?;
         if self.touch {
@@ -1904,7 +2035,8 @@ impl CheckpointTool {
             checkpoint_id: self.id.clone(),
             audit_limit: self.audit_limit.unwrap_or(20) as usize,
         };
-        let result = write_checkpoint(&backlog_dir, &tasks, &options).map_err(CallToolError::new)?;
+        let result =
+            write_checkpoint(&backlog_dir, &tasks, &options).map_err(CallToolError::new)?;
         if self.format == "text" {
             return ok_text(format!(
                 "Checkpoint: {}\nJSON: {}\nMarkdown: {}",
@@ -2033,14 +2165,7 @@ impl GanttTextTool {
             Err(err) => return ok_json(err),
         };
         let tasks = load_tasks(&backlog_dir);
-        let text = plantuml_gantt(
-            &tasks,
-            self.start.as_deref(),
-            None,
-            self.zoom,
-            None,
-            true,
-        );
+        let text = plantuml_gantt(&tasks, self.start.as_deref(), None, self.zoom, None, true);
         ok_text(text)
     }
 }
@@ -2052,16 +2177,8 @@ impl GanttFileTool {
             Err(err) => return ok_json(err),
         };
         let tasks = load_tasks(&backlog_dir);
-        let text = plantuml_gantt(
-            &tasks,
-            self.start.as_deref(),
-            None,
-            self.zoom,
-            None,
-            true,
-        );
-        let path = write_text_file(Path::new(&self.output), &text)
-            .map_err(CallToolError::new)?;
+        let text = plantuml_gantt(&tasks, self.start.as_deref(), None, self.zoom, None, true);
+        let path = write_text_file(Path::new(&self.output), &text).map_err(CallToolError::new)?;
         ok_json(serde_json::json!({"ok": true, "path": path}))
     }
 }
@@ -2073,14 +2190,7 @@ impl GanttSvgTool {
             Err(err) => return ok_json(err),
         };
         let tasks = load_tasks(&backlog_dir);
-        let text = plantuml_gantt(
-            &tasks,
-            self.start.as_deref(),
-            None,
-            self.zoom,
-            None,
-            true,
-        );
+        let text = plantuml_gantt(&tasks, self.start.as_deref(), None, self.zoom, None, true);
         let cmd = match &self.plantuml_cmd {
             Some(cmd) => Some(shell_words::split(cmd).map_err(CallToolError::new)?),
             None => None,
@@ -2203,7 +2313,10 @@ fn update_list_field(
     let Some(task) = task else {
         return ok_json(serde_json::json!({"error": format!("Task not found: {}", task_id)}));
     };
-    let path = task.file_path.as_ref().ok_or_else(|| CallToolError::from_message("Missing task path"))?;
+    let path = task
+        .file_path
+        .as_ref()
+        .ok_or_else(|| CallToolError::from_message("Missing task path"))?;
     let mut current = match field {
         "labels" => task.labels.clone(),
         "dependencies" => task.dependencies.clone(),
