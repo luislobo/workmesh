@@ -1083,6 +1083,17 @@ async fn cli_and_mcp_write_and_session_parity() {
     )
     .await;
     assert!(help.contains("workmesh MCP help"));
+    assert!(help.contains("Task kind"));
+
+    let tool_info = call_tool_text(
+        &client,
+        "tool_info",
+        serde_json::json!({"root": temp.path().display().to_string(), "name": "list_tasks", "format": "text"}),
+    )
+    .await;
+    assert!(tool_info.contains("Tool: list_tasks"));
+    assert!(tool_info.contains("kind"));
+    assert!(tool_info.contains("not enforced"));
 
     let pm_skill = call_tool_text(
         &client,

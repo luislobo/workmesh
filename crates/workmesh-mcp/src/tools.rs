@@ -210,6 +210,12 @@ fn best_practice_hints() -> Vec<&'static str> {
     ]
 }
 
+fn recommended_kinds() -> Vec<&'static str> {
+    vec![
+        "epic", "story", "task", "bug", "subtask", "incident", "spike",
+    ]
+}
+
 fn tool_catalog() -> Vec<serde_json::Value> {
     vec![
         serde_json::json!({"name": "list_tasks", "summary": "List tasks with filters and sorting."}),
@@ -257,6 +263,7 @@ fn tool_catalog() -> Vec<serde_json::Value> {
         serde_json::json!({"name": "gantt_svg", "summary": "Render gantt SVG via PlantUML."}),
         serde_json::json!({"name": "best_practices", "summary": "Return best practices guidance."}),
         serde_json::json!({"name": "help", "summary": "Show available tools and best practices."}),
+        serde_json::json!({"name": "tool_info", "summary": "Show detailed usage for a specific tool."}),
         serde_json::json!({"name": "skill_content", "summary": "Return SKILL.md content for a repo skill."}),
         serde_json::json!({"name": "project_management_skill", "summary": "Return project management guide."}),
     ]
@@ -805,6 +812,18 @@ pub struct HelpTool {
 }
 
 #[mcp_tool(
+    name = "tool_info",
+    description = "Show detailed usage for a specific tool."
+)]
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct ToolInfoTool {
+    pub name: String,
+    pub root: Option<String>,
+    #[serde(default = "default_text_format")]
+    pub format: String,
+}
+
+#[mcp_tool(
     name = "project_management_skill",
     description = "Return a project management guide for WorkMesh."
 )]
@@ -906,6 +925,7 @@ tool_box!(
         BestPracticesTool,
         SkillContentTool,
         HelpTool,
+        ToolInfoTool,
         ProjectManagementSkillTool
     ]
 );
@@ -982,6 +1002,7 @@ impl ServerHandler for WorkmeshServerHandler {
             WorkmeshTools::BestPracticesTool(tool) => tool.call(&self.context),
             WorkmeshTools::SkillContentTool(tool) => tool.call(&self.context),
             WorkmeshTools::HelpTool(tool) => tool.call(&self.context),
+            WorkmeshTools::ToolInfoTool(tool) => tool.call(&self.context),
             WorkmeshTools::ProjectManagementSkillTool(tool) => tool.call(&self.context),
         }
     }
@@ -2249,6 +2270,7 @@ impl HelpTool {
                     "Dependencies are first-class. Use them to model blockers.",
                     "Use validate to catch missing or broken dependencies.",
                     "List-style arguments accept CSV strings or JSON arrays.",
+                    format!("Task kind is free-form (not enforced). Suggested kinds: {}", recommended_kinds().join(", ")),
                 ]
             });
             return ok_json(payload);
@@ -2268,8 +2290,142 @@ impl HelpTool {
             .collect::<Vec<_>>()
             .join("\n");
         let body = format!(
-            "workmesh MCP help\n\nPurpose:\n  Manage Markdown-backed backlogs with first-class dependencies.\n\nRoot resolution:\n  - MCP tools can infer root from CWD.\n\nAvailable tools:\n{}\n\nBest practices:\n{}\n",
-            catalog, hint_lines
+            "workmesh MCP help\n\nPurpose:\n  Manage Markdown-backed backlogs with first-class dependencies.\n\nRoot resolution:\n  - MCP tools can infer root from CWD.\n\nTask kind:\n  - Free-form (not enforced). Suggested: {}\n\nAvailable tools:\n{}\n\nBest practices:\n{}\n",
+            recommended_kinds().join(", "),
+            catalog,
+            hint_lines
+        );
+        ok_text(body)
+    }
+}
+
+fn tool_info(name: &str) -> Option<serde_json::Value> {
+    let normalized = name.trim();
+    if normalized.is_empty() {
+        return None;
+    }
+    let normalized = normalized.to_lowercase();
+
+    let common_list_input = "List-style arguments accept CSV strings (\"a,b,c\") or JSON arrays (\"[\\\"a\\\",\\\"b\\\"]\").";
+    match normalized.as_str() {
+        "list_tasks" => Some(serde_json::json!({
+            "name": "list_tasks",
+            "summary": "List tasks with optional filters.",
+            "args": {
+                "root": "Optional. If omitted, inferred from server CWD.",
+                "status": "Optional list. Filter by status.",
+                "kind": format!("Optional list. Filter by task kind. Free-form (not enforced). Suggested: {}", recommended_kinds().join(", ")),
+                "phase": "Optional list. Filter by phase.",
+                "priority": "Optional list. Filter by priority.",
+                "labels": "Optional list. Filter by labels (any-match).",
+                "depends_on": "Optional string. Only tasks that depend on this id.",
+                "deps_satisfied": "Optional bool. True -> only tasks with deps satisfied.",
+                "blocked": "Optional bool. True -> only tasks with deps NOT satisfied.",
+                "search": "Optional string. Substring match on title/body.",
+                "sort": "Optional string. id|title|kind|status|phase|priority. Default: id.",
+                "limit": "Optional number. Truncate results.",
+                "format": "text|json. Default: json.",
+                "include_hints": "Optional bool. When true, include best practice hints."
+            },
+            "examples": [
+                {"tool": "list_tasks", "arguments": {"status": ["To Do"], "kind": ["bug"], "sort": "id", "format": "json"}},
+                {"tool": "list_tasks", "arguments": {"search": "index", "format": "text"}}
+            ],
+            "notes": [common_list_input]
+        })),
+        "add_task" => Some(serde_json::json!({
+            "name": "add_task",
+            "summary": "Create a new task file.",
+            "args": {
+                "title": "Required. Task title.",
+                "task_id": "Optional. If omitted, next task id is generated.",
+                "status": "Optional. Default: To Do.",
+                "priority": "Optional. Default: P2.",
+                "phase": "Optional. Default: Phase1.",
+                "labels": "Optional list.",
+                "dependencies": "Optional list.",
+                "assignee": "Optional list.",
+                "root": "Optional. If omitted, inferred from server CWD."
+            },
+            "notes": [
+                "New tasks default to kind=task in front matter. You can set kind later with set_field.",
+                common_list_input
+            ]
+        })),
+        _ => None,
+    }
+}
+
+impl ToolInfoTool {
+    fn call(&self, _context: &McpContext) -> Result<CallToolResult, CallToolError> {
+        let name = self.name.trim();
+        let Some(info) = tool_info(name) else {
+            let available = tool_catalog()
+                .into_iter()
+                .filter_map(|tool| {
+                    tool.get("name")
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string())
+                })
+                .collect::<Vec<_>>();
+            return ok_json(serde_json::json!({
+                "error": format!("Unknown tool: {}", name),
+                "available": available,
+            }));
+        };
+
+        if self.format == "json" {
+            return ok_json(info);
+        }
+        let examples = info
+            .get("examples")
+            .and_then(|value| value.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .map(|ex| serde_json::to_string_pretty(ex).unwrap_or_default())
+                    .collect::<Vec<_>>()
+                    .join("\n\n")
+            })
+            .unwrap_or_default();
+        let notes = info
+            .get("notes")
+            .and_then(|value| value.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|v| v.as_str())
+                    .map(|line| format!("- {}", line))
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            })
+            .unwrap_or_default();
+
+        let args = info
+            .get("args")
+            .and_then(|value| value.as_object())
+            .map(|obj| {
+                let mut keys: Vec<_> = obj.keys().cloned().collect();
+                keys.sort();
+                keys.into_iter()
+                    .map(|k| {
+                        format!(
+                            "- {}: {}",
+                            k,
+                            obj.get(&k).and_then(|v| v.as_str()).unwrap_or("")
+                        )
+                    })
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            })
+            .unwrap_or_default();
+
+        let summary = info.get("summary").and_then(|v| v.as_str()).unwrap_or("");
+        let body = format!(
+            "Tool: {name}\n\nSummary:\n  {summary}\n\nArgs:\n{args}\n\nExamples:\n{examples}\n\nNotes:\n{notes}\n",
+            name = name,
+            summary = summary,
+            args = args,
+            examples = examples,
+            notes = notes
         );
         ok_text(body)
     }
