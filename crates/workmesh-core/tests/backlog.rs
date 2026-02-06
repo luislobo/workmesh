@@ -46,7 +46,11 @@ fn locate_backlog_dir_finds_backlog_from_child() {
 
     let child = backlog_dir.join("tasks");
     let resolved = locate_backlog_dir(&child).expect("resolve");
-    assert_eq!(resolved, backlog_dir);
+    // Windows can surface different path representations (verbatim prefix, 8.3 short names).
+    // Compare canonical paths to avoid false negatives.
+    let expected = std::fs::canonicalize(&backlog_dir).unwrap_or(backlog_dir);
+    let actual = std::fs::canonicalize(&resolved).unwrap_or(resolved);
+    assert_eq!(actual, expected);
 }
 
 #[test]
