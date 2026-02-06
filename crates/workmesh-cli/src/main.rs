@@ -1540,7 +1540,16 @@ fn main() -> Result<()> {
         } => {
             let text = plantuml_gantt(&tasks, start.as_deref(), None, zoom, None, true);
             let cmd = match plantuml_cmd {
-                Some(cmd) => Some(shell_words::split(&cmd).map_err(anyhow::Error::msg)?),
+                Some(cmd) => {
+                    // `shell_words` treats backslashes as escapes, which breaks Windows paths like
+                    // `C:\Users\...\plantuml.cmd`. On Windows we treat this as an executable path
+                    // only (no extra args).
+                    if cfg!(windows) {
+                        Some(vec![cmd])
+                    } else {
+                        Some(shell_words::split(&cmd).map_err(anyhow::Error::msg)?)
+                    }
+                }
                 None => None,
             };
             let svg =
