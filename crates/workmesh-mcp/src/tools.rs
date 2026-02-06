@@ -874,6 +874,10 @@ fn default_archive_before() -> String {
     "30d".to_string()
 }
 
+fn is_done_status(status: &str) -> bool {
+    status.eq_ignore_ascii_case("done")
+}
+
 // Generates enum WorkmeshTools with variants for each tool
 tool_box!(
     WorkmeshTools,
@@ -1212,7 +1216,7 @@ impl SetStatusTool {
             .ok_or_else(|| CallToolError::from_message("Missing task path"))?;
         update_task_field(path, "status", Some(self.status.clone().into()))
             .map_err(CallToolError::new)?;
-        if self.touch {
+        if self.touch || is_done_status(&self.status) {
             update_task_field(path, "updated_date", Some(now_timestamp().into()))
                 .map_err(CallToolError::new)?;
         }
@@ -1341,7 +1345,7 @@ impl BulkSetStatusTool {
                 .ok_or_else(|| CallToolError::from_message("Missing task path"))?;
             update_task_field(path, "status", Some(self.status.clone().into()))
                 .map_err(CallToolError::new)?;
-            if self.touch {
+            if self.touch || is_done_status(&self.status) {
                 update_task_field(path, "updated_date", Some(now_timestamp().into()))
                     .map_err(CallToolError::new)?;
             }
