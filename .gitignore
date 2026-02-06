@@ -4,6 +4,10 @@
 .DS_Store
 /backlog/.audit.log
 /backlog/.index/
+/workmesh/.audit.log
+/workmesh/.index/
+/.workmesh/.audit.log
+/.workmesh/.index/
 # Go
 /bin/
 /pkg/

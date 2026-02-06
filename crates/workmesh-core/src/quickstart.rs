@@ -32,7 +32,7 @@ pub fn quickstart(
     name: Option<&str>,
     agents_snippet: bool,
 ) -> Result<QuickstartResult, QuickstartError> {
-    let backlog_dir = repo_root.join("backlog");
+    let backlog_dir = repo_root.join("workmesh");
     let tasks_dir = backlog_dir.join("tasks");
     fs::create_dir_all(&tasks_dir)?;
 
@@ -99,5 +99,5 @@ fn snippet_marker() -> &'static str {
 }
 
 fn agents_snippet() -> &'static str {
-    "# WorkMesh Quickstart\n\n- Tasks live in `backlog/tasks/`.\n- Run `workmesh --root . next` to find the next task.\n- Run `workmesh --root . ready --json` for ready work.\n"
+    "# WorkMesh Quickstart\n\n- Tasks live in `workmesh/tasks/`.\n- Run `workmesh --root . next` to find the next task.\n- Run `workmesh --root . ready --json` for ready work.\n"
 }

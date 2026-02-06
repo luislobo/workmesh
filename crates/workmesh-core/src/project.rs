@@ -19,7 +19,7 @@ pub fn repo_root_from_backlog(backlog_dir: &Path) -> PathBuf {
         .and_then(|segment| segment.to_str())
         .unwrap_or("")
         .to_lowercase();
-    if name == "backlog" || name == "project" {
+    if name == "backlog" || name == "project" || name == "workmesh" || name == ".workmesh" {
         return backlog_dir.parent().unwrap_or(backlog_dir).to_path_buf();
     }
     backlog_dir.to_path_buf()

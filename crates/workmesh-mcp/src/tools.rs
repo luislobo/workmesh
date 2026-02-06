@@ -2,6 +2,7 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 use async_trait::async_trait;
+use chrono::{Duration, Local, NaiveDate};
 use rust_mcp_sdk::macros::{mcp_tool, JsonSchema};
 use rust_mcp_sdk::schema::{
     schema_utils::CallToolError, CallToolRequestParams, CallToolResult, ListToolsResult,
@@ -11,12 +12,14 @@ use rust_mcp_sdk::tool_box;
 use rust_mcp_sdk::{mcp_server::ServerHandler, McpServer};
 use serde::{Deserialize, Serialize};
 
+use workmesh_core::archive::{archive_tasks, ArchiveOptions};
 use workmesh_core::audit::{append_audit_event, AuditEvent};
-use workmesh_core::backlog::{locate_backlog_dir, resolve_backlog_dir, BacklogError};
+use workmesh_core::backlog::{locate_backlog_dir, resolve_backlog, resolve_backlog_dir, BacklogError};
 use workmesh_core::project::{ensure_project_docs, repo_root_from_backlog};
 use workmesh_core::quickstart::quickstart;
 use workmesh_core::gantt::{plantuml_gantt, render_plantuml_svg, write_text_file};
 use workmesh_core::index::{rebuild_index, refresh_index, verify_index};
+use workmesh_core::migration::migrate_backlog;
 use workmesh_core::session::{
     append_session_journal, diff_since_checkpoint, render_diff, render_resume, resolve_project_id,
     resume_summary, task_summary, write_checkpoint, write_working_set, CheckpointOptions,
@@ -74,6 +77,22 @@ fn parse_list_string(value: &str) -> Vec<String> {
         .map(|item| item.trim().to_string())
         .filter(|item| !item.is_empty())
         .collect()
+}
+
+fn parse_before_date(value: &str) -> Result<NaiveDate, CallToolError> {
+    let trimmed = value.trim();
+    if let Ok(date) = NaiveDate::parse_from_str(trimmed, "%Y-%m-%d") {
+        return Ok(date);
+    }
+    if let Some(days) = trimmed.strip_suffix('d') {
+        if let Ok(days) = days.parse::<i64>() {
+            return Ok(Local::now().date_naive() - Duration::days(days));
+        }
+    }
+    Err(CallToolError::from_message(format!(
+        "Invalid date format: {}",
+        value
+    )))
 }
 
 fn resolve_root(
@@ -209,6 +228,8 @@ fn tool_catalog() -> Vec<serde_json::Value> {
         serde_json::json!({"name": "bulk_add_dependency", "summary": "Bulk add a dependency to tasks."}),
         serde_json::json!({"name": "bulk_remove_dependency", "summary": "Bulk remove a dependency from tasks."}),
         serde_json::json!({"name": "bulk_add_note", "summary": "Bulk append a note to tasks."}),
+        serde_json::json!({"name": "archive_tasks", "summary": "Archive done tasks into date-based folders."}),
+        serde_json::json!({"name": "migrate_backlog", "summary": "Migrate legacy backlog to workmesh/."}),
         serde_json::json!({"name": "claim_task", "summary": "Claim a task lease."}),
         serde_json::json!({"name": "release_task", "summary": "Release a task lease."}),
         serde_json::json!({"name": "add_note", "summary": "Append a note to Notes or Implementation Notes."}),
@@ -436,6 +457,23 @@ pub struct BulkAddNoteTool {
     pub section: String,
     #[serde(default)]
     pub touch: bool,
+}
+
+#[mcp_tool(name = "archive_tasks", description = "Archive done tasks into date-based folders.")]
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct ArchiveTool {
+    pub root: Option<String>,
+    #[serde(default = "default_archive_before")]
+    pub before: String,
+    #[serde(default = "default_status")]
+    pub status: String,
+}
+
+#[mcp_tool(name = "migrate_backlog", description = "Migrate legacy backlog to workmesh/")]
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct MigrateTool {
+    pub root: Option<String>,
+    pub to: Option<String>,
 }
 
 #[mcp_tool(name = "claim_task", description = "Claim a task lease.")]
@@ -741,6 +779,10 @@ fn default_zoom() -> i32 {
     3
 }
 
+fn default_archive_before() -> String {
+    "30d".to_string()
+}
+
 // Generates enum WorkmeshTools with variants for each tool
 tool_box!(
     WorkmeshTools,
@@ -764,6 +806,8 @@ tool_box!(
         BulkAddDependencyTool,
         BulkRemoveDependencyTool,
         BulkAddNoteTool,
+        ArchiveTool,
+        MigrateTool,
         ClaimTaskTool,
         ReleaseTaskTool,
         AddNoteTool,
@@ -838,6 +882,8 @@ impl ServerHandler for WorkmeshServerHandler {
             WorkmeshTools::BulkAddDependencyTool(tool) => tool.call(&self.context),
             WorkmeshTools::BulkRemoveDependencyTool(tool) => tool.call(&self.context),
             WorkmeshTools::BulkAddNoteTool(tool) => tool.call(&self.context),
+            WorkmeshTools::ArchiveTool(tool) => tool.call(&self.context),
+            WorkmeshTools::MigrateTool(tool) => tool.call(&self.context),
             WorkmeshTools::ClaimTaskTool(tool) => tool.call(&self.context),
             WorkmeshTools::ReleaseTaskTool(tool) => tool.call(&self.context),
             WorkmeshTools::AddNoteTool(tool) => tool.call(&self.context),
@@ -1417,6 +1463,51 @@ impl BulkAddNoteTool {
         refresh_index_best_effort(&backlog_dir);
         maybe_auto_checkpoint(&backlog_dir);
         ok_json(bulk_result(updated, missing))
+    }
+}
+
+impl ArchiveTool {
+    fn call(&self, context: &McpContext) -> Result<CallToolResult, CallToolError> {
+        let backlog_dir = match resolve_root(context, self.root.as_deref()) {
+            Ok(dir) => dir,
+            Err(err) => return ok_json(err),
+        };
+        let tasks = load_tasks(&backlog_dir);
+        let before = parse_before_date(&self.before)?;
+        let result = archive_tasks(
+            &backlog_dir,
+            &tasks,
+            &ArchiveOptions {
+                before,
+                status: self.status.clone(),
+            },
+        )
+        .map_err(CallToolError::new)?;
+        refresh_index_best_effort(&backlog_dir);
+        maybe_auto_checkpoint(&backlog_dir);
+        ok_json(serde_json::json!({
+            "archived": result.archived,
+            "skipped": result.skipped,
+            "archive_dir": result.archive_dir
+        }))
+    }
+}
+
+impl MigrateTool {
+    fn call(&self, context: &McpContext) -> Result<CallToolResult, CallToolError> {
+        let repo_root = resolve_repo_root(context, self.root.as_deref());
+        let resolution = resolve_backlog(&repo_root).map_err(CallToolError::new)?;
+        let target = self
+            .to
+            .as_deref()
+            .map(|value| value.trim())
+            .filter(|value| !value.is_empty())
+            .unwrap_or("workmesh");
+        let result = migrate_backlog(&resolution, target).map_err(CallToolError::new)?;
+        ok_json(serde_json::json!({
+            "from": result.from,
+            "to": result.to
+        }))
     }
 }
 
@@ -2044,7 +2135,7 @@ impl HelpTool {
                 "best_practices": best_practice_hints(),
                 "tools": tool_catalog(),
                 "notes": [
-                    "root is optional if the server is started inside a repo with tasks/ or backlog/tasks",
+                    "root is optional if the server is started inside a repo with workmesh/tasks, .workmesh/tasks, tasks/, or legacy backlog/tasks",
                     "Dependencies are first-class. Use them to model blockers.",
                     "Use validate to catch missing or broken dependencies.",
                     "List-style arguments accept CSV strings or JSON arrays.",

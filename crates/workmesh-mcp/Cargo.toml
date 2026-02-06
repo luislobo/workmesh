@@ -13,6 +13,7 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json.workspace = true
 shell-words = "1.1"
 tokio = { version = "1.39", features = ["macros", "rt-multi-thread"] }
+chrono.workspace = true
 workmesh-core = { path = "../workmesh-core" }
 
 [dev-dependencies]
