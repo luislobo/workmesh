@@ -1092,8 +1092,39 @@ async fn cli_and_mcp_write_and_session_parity() {
     )
     .await;
     assert!(tool_info.contains("Tool: list_tasks"));
-    assert!(tool_info.contains("kind"));
-    assert!(tool_info.contains("not enforced"));
+    assert!(tool_info.contains("\"name\": \"list_tasks\""));
+    assert!(tool_info.contains("inputSchema"));
+
+    // tool_info must cover every tool we advertise.
+    let help_json = call_tool_text(
+        &client,
+        "help",
+        serde_json::json!({"root": temp.path().display().to_string(), "format": "json"}),
+    )
+    .await;
+    let help_value: serde_json::Value = serde_json::from_str(&help_json).expect("help json");
+    let tools = help_value
+        .get("tools")
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default();
+    for tool in tools {
+        let Some(tool_name) = tool.get("name").and_then(|v| v.as_str()) else {
+            continue;
+        };
+        let info = call_tool_text(
+            &client,
+            "tool_info",
+            serde_json::json!({"root": temp.path().display().to_string(), "name": tool_name, "format": "json"}),
+        )
+        .await;
+        let value: serde_json::Value = serde_json::from_str(&info).expect("tool_info json");
+        assert_eq!(
+            value.get("ok").and_then(|v| v.as_bool()),
+            Some(true),
+            "tool_info failed for {tool_name}"
+        );
+    }
 
     let pm_skill = call_tool_text(
         &client,

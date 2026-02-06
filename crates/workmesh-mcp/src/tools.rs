@@ -2299,68 +2299,152 @@ impl HelpTool {
     }
 }
 
-fn tool_info(name: &str) -> Option<serde_json::Value> {
-    let normalized = name.trim();
-    if normalized.is_empty() {
+fn sdk_tool_definitions() -> Vec<serde_json::Value> {
+    WorkmeshTools::tools()
+        .into_iter()
+        .filter_map(|tool| serde_json::to_value(tool).ok())
+        .collect()
+}
+
+fn sdk_tool_definition(name: &str) -> Option<serde_json::Value> {
+    let needle = name.trim();
+    if needle.is_empty() {
         return None;
     }
-    let normalized = normalized.to_lowercase();
+    sdk_tool_definitions().into_iter().find(|value| {
+        value
+            .get("name")
+            .and_then(|v| v.as_str())
+            .map(|n| n == needle)
+            .unwrap_or(false)
+    })
+}
 
-    let common_list_input = "List-style arguments accept CSV strings (\"a,b,c\") or JSON arrays (\"[\\\"a\\\",\\\"b\\\"]\").";
-    match normalized.as_str() {
-        "list_tasks" => Some(serde_json::json!({
-            "name": "list_tasks",
-            "summary": "List tasks with optional filters.",
-            "args": {
-                "root": "Optional. If omitted, inferred from server CWD.",
-                "status": "Optional list. Filter by status.",
-                "kind": format!("Optional list. Filter by task kind. Free-form (not enforced). Suggested: {}", recommended_kinds().join(", ")),
-                "phase": "Optional list. Filter by phase.",
-                "priority": "Optional list. Filter by priority.",
-                "labels": "Optional list. Filter by labels (any-match).",
-                "depends_on": "Optional string. Only tasks that depend on this id.",
-                "deps_satisfied": "Optional bool. True -> only tasks with deps satisfied.",
-                "blocked": "Optional bool. True -> only tasks with deps NOT satisfied.",
-                "search": "Optional string. Substring match on title/body.",
-                "sort": "Optional string. id|title|kind|status|phase|priority. Default: id.",
-                "limit": "Optional number. Truncate results.",
-                "format": "text|json. Default: json.",
-                "include_hints": "Optional bool. When true, include best practice hints."
-            },
-            "examples": [
-                {"tool": "list_tasks", "arguments": {"status": ["To Do"], "kind": ["bug"], "sort": "id", "format": "json"}},
-                {"tool": "list_tasks", "arguments": {"search": "index", "format": "text"}}
-            ],
-            "notes": [common_list_input]
-        })),
-        "add_task" => Some(serde_json::json!({
-            "name": "add_task",
-            "summary": "Create a new task file.",
-            "args": {
-                "title": "Required. Task title.",
-                "task_id": "Optional. If omitted, next task id is generated.",
-                "status": "Optional. Default: To Do.",
-                "priority": "Optional. Default: P2.",
-                "phase": "Optional. Default: Phase1.",
-                "labels": "Optional list.",
-                "dependencies": "Optional list.",
-                "assignee": "Optional list.",
-                "root": "Optional. If omitted, inferred from server CWD."
-            },
-            "notes": [
-                "New tasks default to kind=task in front matter. You can set kind later with set_field.",
-                common_list_input
-            ]
-        })),
-        _ => None,
+fn tool_examples(name: &str) -> Vec<serde_json::Value> {
+    let name = name.trim();
+    match name {
+        "list_tasks" => vec![serde_json::json!({
+            "tool": "list_tasks",
+            "arguments": {
+                "status": ["To Do"],
+                "kind": ["bug"],
+                "sort": "id",
+                "format": "json"
+            }
+        })],
+        "show_task" => vec![serde_json::json!({
+            "tool": "show_task",
+            "arguments": { "task_id": "task-001", "format": "json", "include_body": true }
+        })],
+        "next_task" => vec![serde_json::json!({
+            "tool": "next_task",
+            "arguments": { "format": "json" }
+        })],
+        "ready_tasks" => vec![serde_json::json!({
+            "tool": "ready_tasks",
+            "arguments": { "format": "json", "limit": 10 }
+        })],
+        "set_status" => vec![serde_json::json!({
+            "tool": "set_status",
+            "arguments": { "task_id": "task-001", "status": "In Progress", "touch": true }
+        })],
+        "set_field" => vec![serde_json::json!({
+            "tool": "set_field",
+            "arguments": { "task_id": "task-001", "field": "kind", "value": "bug", "touch": true }
+        })],
+        "add_task" => vec![serde_json::json!({
+            "tool": "add_task",
+            "arguments": { "title": "Investigate flaky test", "priority": "P2", "phase": "Phase1" }
+        })],
+        "add_discovered" => vec![serde_json::json!({
+            "tool": "add_discovered",
+            "arguments": { "from": "task-001", "title": "New edge case discovered", "priority": "P2", "phase": "Phase1" }
+        })],
+        "graph_export" => vec![serde_json::json!({
+            "tool": "graph_export",
+            "arguments": { "pretty": true }
+        })],
+        "issues_export" => vec![serde_json::json!({
+            "tool": "issues_export",
+            "arguments": { "include_body": false }
+        })],
+        "index_rebuild" => vec![serde_json::json!({
+            "tool": "index_rebuild",
+            "arguments": {}
+        })],
+        "checkpoint" => vec![serde_json::json!({
+            "tool": "checkpoint",
+            "arguments": { "project": "workmesh", "json": true }
+        })],
+        "resume" => vec![serde_json::json!({
+            "tool": "resume",
+            "arguments": { "project": "workmesh", "json": true }
+        })],
+        "help" => vec![serde_json::json!({
+            "tool": "help",
+            "arguments": { "format": "json" }
+        })],
+        "tool_info" => vec![serde_json::json!({
+            "tool": "tool_info",
+            "arguments": { "name": "list_tasks", "format": "text" }
+        })],
+        _ => vec![serde_json::json!({
+            "tool": name,
+            "arguments": {}
+        })],
     }
+}
+
+fn tool_info_payload(name: &str) -> Option<serde_json::Value> {
+    let name = name.trim();
+    let tool_def = sdk_tool_definition(name)?;
+    let summary = tool_catalog()
+        .into_iter()
+        .find(|tool| {
+            tool.get("name")
+                .and_then(|v| v.as_str())
+                .map(|n| n == name)
+                .unwrap_or(false)
+        })
+        .and_then(|tool| {
+            tool.get("summary")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string())
+        })
+        .unwrap_or_default();
+
+    let mut notes = vec![
+        "root is optional if the server is started inside a repo with workmesh/tasks, .workmesh/tasks, tasks/, or legacy backlog/tasks".to_string(),
+        "List-style arguments accept CSV strings (\"a,b,c\") or JSON arrays (\"[\\\"a\\\",\\\"b\\\"]\").".to_string(),
+    ];
+    if name == "list_tasks" {
+        notes.push(format!(
+            "Task kind is free-form (not enforced). Suggested kinds: {}.",
+            recommended_kinds().join(", ")
+        ));
+    }
+    if name == "add_task" || name == "add_discovered" {
+        notes.push(
+            "New tasks default to kind=task in front matter. You can set kind later with set_field."
+                .to_string(),
+        );
+    }
+
+    Some(serde_json::json!({
+        "ok": true,
+        "name": name,
+        "summary": summary,
+        "tool": tool_def,
+        "notes": notes,
+        "examples": tool_examples(name),
+    }))
 }
 
 impl ToolInfoTool {
     fn call(&self, _context: &McpContext) -> Result<CallToolResult, CallToolError> {
         let name = self.name.trim();
-        let Some(info) = tool_info(name) else {
-            let available = tool_catalog()
+        let Some(info) = tool_info_payload(name) else {
+            let available = sdk_tool_definitions()
                 .into_iter()
                 .filter_map(|tool| {
                     tool.get("name")
@@ -2368,10 +2452,9 @@ impl ToolInfoTool {
                         .map(|s| s.to_string())
                 })
                 .collect::<Vec<_>>();
-            return ok_json(serde_json::json!({
-                "error": format!("Unknown tool: {}", name),
-                "available": available,
-            }));
+            return ok_json(
+                serde_json::json!({ "error": format!("Unknown tool: {}", name), "available": available }),
+            );
         };
 
         if self.format == "json" {
@@ -2399,31 +2482,13 @@ impl ToolInfoTool {
             })
             .unwrap_or_default();
 
-        let args = info
-            .get("args")
-            .and_then(|value| value.as_object())
-            .map(|obj| {
-                let mut keys: Vec<_> = obj.keys().cloned().collect();
-                keys.sort();
-                keys.into_iter()
-                    .map(|k| {
-                        format!(
-                            "- {}: {}",
-                            k,
-                            obj.get(&k).and_then(|v| v.as_str()).unwrap_or("")
-                        )
-                    })
-                    .collect::<Vec<_>>()
-                    .join("\n")
-            })
-            .unwrap_or_default();
-
         let summary = info.get("summary").and_then(|v| v.as_str()).unwrap_or("");
+        let tool_def = info.get("tool").cloned().unwrap_or_default();
         let body = format!(
-            "Tool: {name}\n\nSummary:\n  {summary}\n\nArgs:\n{args}\n\nExamples:\n{examples}\n\nNotes:\n{notes}\n",
+            "Tool: {name}\n\nSummary:\n  {summary}\n\nTool definition:\n{tool_def}\n\nExamples:\n{examples}\n\nNotes:\n{notes}\n",
             name = name,
             summary = summary,
-            args = args,
+            tool_def = serde_json::to_string_pretty(&tool_def).unwrap_or_default(),
             examples = examples,
             notes = notes
         );
