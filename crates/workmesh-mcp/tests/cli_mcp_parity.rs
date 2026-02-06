@@ -1,6 +1,7 @@
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::process::Stdio;
 use std::sync::Arc;
 use std::sync::Once;
 
@@ -45,7 +46,10 @@ fn client_details() -> InitializeRequestParams {
 
 fn cli() -> Command {
     if let Ok(path) = std::env::var("CARGO_BIN_EXE_workmesh") {
-        return Command::new(path);
+        let mut cmd = Command::new(path);
+        // Avoid interactive prompts (e.g. legacy backlog migration confirmation) in CI.
+        cmd.stdin(Stdio::null());
+        return cmd;
     }
     static BUILD: Once = Once::new();
     let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR not set");
@@ -64,7 +68,10 @@ fn cli() -> Command {
             .expect("build workmesh cli");
         assert!(status.success());
     });
-    Command::new(candidate)
+    let mut cmd = Command::new(candidate);
+    // Avoid interactive prompts (e.g. legacy backlog migration confirmation) in CI.
+    cmd.stdin(Stdio::null());
+    cmd
 }
 
 fn mcp_bin() -> PathBuf {
