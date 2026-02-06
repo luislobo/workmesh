@@ -22,8 +22,9 @@ fn quickstart_scaffolds_repo() {
         .expect("run quickstart");
     assert!(output.status.success());
 
-    let backlog_dir = temp.path().join("backlog");
-    assert!(backlog_dir.join("tasks").is_dir());
+    // WorkMesh stores tasks in `workmesh/tasks/` (docs live under `docs/projects/<id>/`).
+    let tasks_dir = temp.path().join("workmesh").join("tasks");
+    assert!(tasks_dir.is_dir());
 
     let docs_root = temp.path().join("docs").join("projects").join("alpha");
     assert!(docs_root.join("README.md").is_file());
