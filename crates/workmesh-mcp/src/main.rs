@@ -1,4 +1,5 @@
 mod tools;
+mod version;
 
 use std::path::PathBuf;
 
@@ -16,7 +17,7 @@ use rust_mcp_sdk::{
 use crate::tools::{McpContext, WorkmeshServerHandler};
 
 #[derive(Parser)]
-#[command(name = "workmesh-mcp", version)]
+#[command(name = "workmesh-mcp", version = version::FULL)]
 struct Args {
     /// Default backlog root for MCP tool calls.
     #[arg(long)]
@@ -30,7 +31,7 @@ async fn main() -> SdkResult<()> {
     let server_details = InitializeResult {
         server_info: Implementation {
             name: "workmesh".into(),
-            version: env!("CARGO_PKG_VERSION").into(),
+            version: version::FULL.into(),
             title: Some("WorkMesh MCP Server".into()),
             description: Some("MCP server for Markdown-backed backlogs".into()),
             icons: vec![mcp_icon!(
