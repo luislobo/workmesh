@@ -15,6 +15,28 @@ This repository contains the Rust implementation (CLI + core + MCP server).
 ## Install
 Prerequisites: Rust toolchain (stable).
 
+From GitHub Releases (recommended):
+1. Download the right archive for your OS/CPU from the latest release.
+2. Extract it.
+3. Put `workmesh` and `workmesh-mcp` somewhere on your `PATH`.
+
+macOS / Linux (tar.gz):
+```bash
+# Example (replace URL with the asset URL for your platform):
+# workmesh-v0.2.3-x86_64-unknown-linux-gnu.tar.gz
+tar -xzf workmesh-vX.Y.Z-<target>.tar.gz
+sudo install -m 0755 workmesh-vX.Y.Z-<target>/workmesh /usr/local/bin/workmesh
+sudo install -m 0755 workmesh-vX.Y.Z-<target>/workmesh-mcp /usr/local/bin/workmesh-mcp
+```
+
+Windows (zip):
+1. Download `workmesh-vX.Y.Z-x86_64-pc-windows-msvc.zip`
+2. Extract
+3. Put `workmesh.exe` and `workmesh-mcp.exe` somewhere on your `PATH`
+
+Agent configuration (MCP):
+- Point your agent to the `workmesh-mcp` binary path (either the extracted release binary or your locally built one).
+
 From source:
 ```bash
 git clone git@github.com:luislobo/workmesh.git
