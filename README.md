@@ -15,7 +15,11 @@ AI-friendly format: see `README.json` (keep it in sync with this file).
 - Enable agent-safe coordination (leases/claims, stable ordering).
 
 ## DX workflow (diagram)
-This is the intended day-to-day workflow, including multi-agent safety and restartability:
+This diagram shows the "moments" where WorkMesh commands happen, and who/what they touch:
+- Phase 1: bootstrap a repo (run once)
+- Phase 2: daily loop (many times)
+- Phase 3: continuity (restart/resume, compaction, reboots)
+- Phase 4: hygiene (history, exports, archive)
 
 ![WorkMesh DX workflow](docs/diagrams/dx-workflow.png)
 

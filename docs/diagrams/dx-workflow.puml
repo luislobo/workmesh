@@ -1,63 +1,83 @@
 @startuml
-title WorkMesh DX Workflow (CLI + MCP)
+title WorkMesh DX Workflow (Phases + Actors)
 
 skinparam shadowing false
 skinparam backgroundColor white
-skinparam activity {
-  BackgroundColor #F7F7F7
-  BorderColor #222222
-  FontColor #111111
-  ArrowColor #222222
-}
+
 skinparam note {
   BackgroundColor #FFF9DB
   BorderColor #D09B2C
   FontColor #111111
 }
 
-start
+skinparam sequence {
+  ArrowColor #222222
+  LifeLineBorderColor #222222
+  LifeLineBackgroundColor #FFFFFF
+  ParticipantBorderColor #222222
+  ParticipantBackgroundColor #F7F7F7
+  ParticipantFontColor #111111
+  BoxBorderColor #222222
+  BoxBackgroundColor #F7F7F7
+  BoxFontColor #111111
+}
 
-partition "Bootstrap (new repo)" {
-  :workmesh quickstart;
-  note right
-    Creates:
-    - docs/projects/<project-id>/
-    - workmesh/tasks/task-001...
-    Option: --agents-snippet
+actor "Developer / Agent" as A
+participant "WorkMesh\n(CLI or MCP)" as W
+participant "Repo working tree\n(docs/ + workmesh/)" as R
+participant "Global sessions\n(~/.workmesh)" as G
+
+note over A,W
+Commands can be run directly (CLI) or via your coding agent (MCP).
+The phase separators indicate when a command is typically used.
+end note
+
+== Phase 1: Bootstrap (run once per repo) ==
+A -> W : quickstart <project-id> [--agents-snippet]
+W -> R : create docs/projects/<project-id>/ + workmesh/tasks/
+note right of R
+Creates:
+- docs/projects/<project-id>/
+- workmesh/tasks/task-001 - ...
+end note
+A -> W : index-rebuild (optional, first run)
+W -> R : write workmesh/.index/tasks.jsonl
+A -> W : focus set (recommended for agents)
+W -> R : write workmesh/focus.json
+
+== Phase 2: Daily loop (many times) ==
+A -> W : ready --json
+W -> R : read tasks + derived index
+A -> W : claim <task> (lease)
+W -> R : update lease metadata (touch default)
+A -> W : set-status <task> "In Progress"
+W -> R : write front matter + timestamps
+A -> W : note / set-section (capture context)
+W -> R : append to Notes / Implementation Notes
+alt task completed
+  A -> W : set-status <task> Done
+  W -> R : mark done (touch default)
+else pausing work
+  note over A,W
+  Keep status In Progress when you intend to resume soon.
   end note
-  :index-rebuild (optional);
-  :focus set (recommended);
-}
+end
+A -> W : release <task>
+W -> R : clear lease metadata
 
-partition "Daily loop" {
-  :ready --json;
-  :claim (lease);
-  :set-status In Progress;
-  :work (code + docs);
-  :note / set-section (context);
-  if (Done?) then (yes)
-    :set-status Done;
-  else (no)
-    :keep In Progress;
-  endif
-  :release (lease);
-}
+== Phase 3: Continuity (on compaction/reboot/context switches) ==
+A -> W : checkpoint (repo-local)
+W -> R : write checkpoint JSON + Markdown
+A -> W : session save (global, optional/auto)
+W -> G : append sessions/events.jsonl + update sessions/current.json
+A -> W : resume / session resume
+W -> R : print resume steps + show focus
 
-partition "Continuity" {
-  :checkpoint;
-  :resume / checkpoint-diff;
-  note right
-    Checkpoint = repo-local restart point
-    Global sessions = cross-repo continuity
-  end note
-}
+== Phase 4: History + hygiene (periodic) ==
+A -> W : archive (date-based)
+W -> R : move Done tasks -> workmesh/archive/YYYY-MM/
+A -> W : graph-export / issues-export
+W -> R : export snapshots for tooling/analysis
 
-partition "History + safety" {
-  :archive Done tasks (YYYY-MM);
-  :audit log (append-only);
-  :graph-export / issues-export;
-}
-
-stop
 @enduml
 
