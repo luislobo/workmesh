@@ -1,0 +1,150 @@
+{
+  "name": "WorkMesh",
+  "tagline": "Docs-first, MCP-ready tasks and project continuity stored as plain text alongside your code.",
+  "repo": {
+    "language": "rust",
+    "artifacts": ["workmesh (cli)", "workmesh-mcp (stdio mcp server)"]
+  },
+  "why": [
+    "Keep planning artifacts close to code and in git.",
+    "Make dependencies explicit so ready work is queryable.",
+    "Enable restartable work via checkpoints and cross-repo sessions.",
+    "Support multi-agent coordination with leases/claims and deterministic ordering."
+  ],
+  "install": {
+    "prebuilt_releases": {
+      "note": "Each GitHub release includes platform archives. Pick the right Rust target triple for your OS/CPU.",
+      "targets": [
+        "x86_64-apple-darwin (macOS Intel)",
+        "aarch64-apple-darwin (macOS Apple Silicon)",
+        "x86_64-unknown-linux-gnu (Linux x86_64, glibc)",
+        "aarch64-unknown-linux-gnu (Linux arm64, glibc)",
+        "x86_64-pc-windows-msvc (Windows x86_64)"
+      ],
+      "macos_linux_steps": [
+        "Download the release archive (with gh or browser).",
+        "Extract it.",
+        "Install workmesh and workmesh-mcp onto PATH (e.g. /usr/local/bin).",
+        "Verify: workmesh --version; workmesh-mcp --version."
+      ],
+      "windows_steps": [
+        "Download the zip.",
+        "Extract it.",
+        "Add the extracted folder to PATH (or move binaries into a PATH directory).",
+        "Verify: workmesh.exe --version; workmesh-mcp.exe --version."
+      ]
+    },
+    "from_source": {
+      "requirements": ["rust (stable toolchain)"],
+      "steps": [
+        "git clone git@github.com:luislobo/workmesh.git",
+        "cd workmesh",
+        "cargo build",
+        "cargo build -p workmesh-mcp (optional)"
+      ],
+      "binaries": {
+        "cli_debug": "target/debug/workmesh",
+        "mcp_debug": "target/debug/workmesh-mcp"
+      }
+    }
+  },
+  "quickstart": {
+    "commands": [
+      "workmesh --root . quickstart <project-id> --agents-snippet",
+      "workmesh --root . focus set --project-id <project-id> --epic-id task-001 --objective \"Ship v0.3\" (recommended)",
+      "workmesh --root . list --status \"To Do\"",
+      "workmesh --root . next",
+      "workmesh --root . set-status task-001 \"In Progress\"",
+      "workmesh --root . note task-001 \"Found missing edge case\"",
+      "workmesh --root . set-status task-001 Done"
+    ],
+    "creates": {
+      "docs": ["docs/projects/<project-id>/README.md", "docs/projects/<project-id>/prds/", "docs/projects/<project-id>/updates/"],
+      "workmesh": ["workmesh/tasks/task-001 - seed task.md"]
+    }
+  },
+  "concepts": {
+    "task_files": {
+      "format": "markdown with yaml front matter",
+      "fields": ["id", "uid", "title", "kind", "status", "priority", "phase", "dependencies", "labels", "assignee"],
+      "note": "Dependencies are optional, but recommended when a task is blocked."
+    },
+    "kind": {
+      "note": "Jira-friendly. WorkMesh does not enforce a taxonomy; use any string.",
+      "recommended": ["epic", "story", "task", "bug", "subtask", "incident", "spike"]
+    },
+    "focus": {
+      "path": "workmesh/focus.json",
+      "purpose": "Repo-local pointer for project/epic/objective to keep agents scoped and reduce thrash.",
+      "commands": [
+        "workmesh --root . focus show [--json]",
+        "workmesh --root . focus set --project-id <pid> [--epic-id task-123] [--objective \"...\"]",
+        "workmesh --root . focus clear"
+      ],
+      "integration": [
+        "session save captures epic_id from focus (fallback: parse task-123 from git branch).",
+        "session resume resume-script includes focus show."
+      ]
+    },
+    "index": {
+      "path": "workmesh/.index/tasks.jsonl",
+      "format": "jsonl",
+      "purpose": "Fast queries; rebuild/refresh/verify.",
+      "path_values": "repo-relative (does not embed /home/user/...)",
+      "commands": ["index-rebuild", "index-refresh", "index-verify"]
+    },
+    "archive": {
+      "path": "workmesh/archive/YYYY-MM/",
+      "purpose": "Keep Done tasks out of the hot path; date-based archiving."
+    },
+    "sessions": {
+      "repo_local": {
+        "tools": ["checkpoint", "resume", "checkpoint-diff"],
+        "purpose": "Continue work within the same repo."
+      },
+      "global": {
+        "home_env": "WORKMESH_HOME (default: ~/.workmesh)",
+        "files": {
+          "events": "WORKMESH_HOME/sessions/events.jsonl (append-only)",
+          "current": "WORKMESH_HOME/sessions/current.json",
+          "index": "WORKMESH_HOME/.index/sessions.jsonl (derived)"
+        },
+        "tools": ["session save", "session list", "session show", "session resume"],
+        "purpose": "Cross-repo continuity (reboot/OS switch/machine switch)."
+      }
+    },
+    "leases": {
+      "tools": ["claim", "release"],
+      "purpose": "Multi-agent coordination; avoid stepping on the same task."
+    }
+  },
+  "mcp": {
+    "server_binary": "workmesh-mcp",
+    "transport": "stdio",
+    "root_behavior": "If started inside a repo, root can be omitted; otherwise pass root explicitly in calls.",
+    "examples": [
+      { "tool": "ready_tasks", "format": "json" },
+      { "tool": "list_tasks", "root": "/path/to/repo", "status": ["To Do"] }
+    ],
+    "note": "All CLI commands are mirrored as MCP tools (parity tests cover the mapping)."
+  },
+  "repo_layout": {
+    "docs": "docs/ (PRDs, decisions, updates)",
+    "tasks": "workmesh/tasks/ (task markdown files)",
+    "archive": "workmesh/archive/ (archived tasks)",
+    "skills": "skills/ (agent workflow instructions)",
+    "crates": "crates/ (workmesh-core, workmesh-cli, workmesh-mcp)"
+  },
+  "derived_files_policy": {
+    "do_not_commit": ["workmesh/.index/", "workmesh/.audit.log", "WORKMESH_HOME/.index/"],
+    "safe_to_delete": true
+  },
+  "roadmap": {
+    "near_term": [
+      "Harden session continuity (more metadata, richer resume output).",
+      "Expand validation and reporting."
+    ],
+    "later": ["External sync (Jira/Trello/GitHub) deferred.", "UI/visualization layer."]
+  }
+}
+
