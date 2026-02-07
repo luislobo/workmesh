@@ -87,6 +87,9 @@ done <<<"$table"
 
 if [[ "$fail" -ne 0 ]]; then
   echo "TOTAL: $total_line" >&2
+  echo "" >&2
+  echo "Per-file coverage table (core-only view):" >&2
+  echo "$table" >&2
   exit 1
 fi
 
