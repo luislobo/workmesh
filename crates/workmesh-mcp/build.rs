@@ -9,14 +9,37 @@ fn git(args: &[&str]) -> Option<String> {
     Some(text.trim().to_string())
 }
 
+fn rerun_if_changed(path: &str) {
+    // cargo:rerun-if-changed paths are interpreted relative to the crate manifest dir.
+    // Git paths are relative to the repo root, so we normalize them to absolute paths.
+    let Some(toplevel) = git(&["rev-parse", "--show-toplevel"]) else {
+        return;
+    };
+    let p = std::path::Path::new(path);
+    if p.is_absolute() {
+        println!("cargo:rerun-if-changed={}", p.display());
+    } else {
+        println!(
+            "cargo:rerun-if-changed={}",
+            std::path::Path::new(&toplevel).join(p).display()
+        );
+    }
+}
+
 fn main() {
-    println!("cargo:rerun-if-changed=.git/HEAD");
-    println!("cargo:rerun-if-changed=.git/index");
+    // Recompute when git state changes. Paths are repo-relative; normalize for Cargo.
+    if let Some(head) = git(&["rev-parse", "--git-path", "HEAD"]) {
+        rerun_if_changed(&head);
+    }
+    if let Some(index) = git(&["rev-parse", "--git-path", "index"]) {
+        rerun_if_changed(&index);
+    }
 
     let sha = git(&["rev-parse", "--short", "HEAD"]).unwrap_or_else(|| "nogit".to_string());
     let count = git(&["rev-list", "--count", "HEAD"]).unwrap_or_else(|| "0".to_string());
-    let dirty = match Command::new("git").args(["diff", "--quiet"]).status() {
-        Ok(status) if status.success() => "",
+    // Treat any staged/unstaged/untracked change as dirty.
+    let dirty = match git(&["status", "--porcelain"]) {
+        Some(s) if s.is_empty() => "",
         _ => ".dirty",
     };
 
