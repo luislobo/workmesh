@@ -104,7 +104,19 @@ Bulk updates:
 - `select tasks -> bulk-set-status|bulk-set-field|bulk-label-add|bulk-dep-add|bulk-note`
 
 Resume after restart:
-- `resume -> ready -> claim -> continue`
+- Repo resume (checkpoints):
+  - Use when: you are continuing inside the same repo after compaction/restart.
+  - Workflow: `checkpoint -> resume -> ready -> claim -> continue`
+- Global resume (cross-repo sessions):
+  - Use when: you rebooted, switched OS, or you have many repos and want a global "what was I doing?" index.
+  - Workflow: `session save -> (reboot) -> session list -> session resume -> ready -> claim -> continue`
+  - Commands:
+    - `workmesh --root /path session save --objective "..." --json`
+    - `workmesh --root /path session list --limit 20 --json`
+    - `workmesh --root /path session resume [session_id] --json`
+  - Opt-in auto updates:
+    - CLI: `--auto-session-save`
+    - Env: `WORKMESH_AUTO_SESSION=1`
 
 ## Review cadence
 - Weekly task review and priority updates.
