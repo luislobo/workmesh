@@ -18,3 +18,7 @@
 *.dylib
 *.test
 *.out
+
+# Coverage artifacts
+*.profraw
+lcov.info

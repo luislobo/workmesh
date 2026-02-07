@@ -3148,3 +3148,230 @@ fn auto_update_current_session(backlog_dir: &Path, tasks: &[Task]) -> Result<(),
     set_current_session(&home, &updated.id)?;
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use tempfile::TempDir;
+
+    fn text_payload(result: CallToolResult) -> String {
+        result
+            .content
+            .first()
+            .expect("tool content")
+            .as_text_content()
+            .expect("text content")
+            .text
+            .clone()
+    }
+
+    fn write_task(tasks_dir: &Path, id: &str, title: &str, status: &str) {
+        let filename = format!("{} - {}.md", id, title.to_lowercase());
+        let path = tasks_dir.join(filename);
+        let content = format!(
+            "---\n\
+id: {id}\n\
+title: {title}\n\
+kind: task\n\
+status: {status}\n\
+priority: P2\n\
+phase: Phase1\n\
+dependencies: []\n\
+labels: []\n\
+assignee: []\n\
+---\n\n\
+Body\n",
+            id = id,
+            title = title,
+            status = status
+        );
+        std::fs::write(path, content).expect("write task");
+    }
+
+    fn init_repo() -> (TempDir, String, McpContext) {
+        let temp = TempDir::new().expect("tempdir");
+        let repo_root = temp.path().to_path_buf();
+
+        // Minimal docs scaffold so tools that look for docs don't fail.
+        std::fs::create_dir_all(repo_root.join("docs").join("projects").join("alpha").join("updates"))
+            .expect("docs");
+
+        // WorkMesh layout.
+        let tasks_dir = repo_root.join("workmesh").join("tasks");
+        std::fs::create_dir_all(&tasks_dir).expect("tasks");
+
+        let root_arg = repo_root.to_string_lossy().to_string();
+        let context = McpContext {
+            default_root: Some(repo_root.clone()),
+        };
+        (temp, root_arg, context)
+    }
+
+    #[test]
+    fn mcp_list_tasks_all_includes_archive() {
+        let (temp, root_arg, context) = init_repo();
+        let tasks_dir = temp.path().join("workmesh").join("tasks");
+        let archive_dir = temp
+            .path()
+            .join("workmesh")
+            .join("archive")
+            .join("2026-02");
+        std::fs::create_dir_all(&archive_dir).expect("archive");
+
+        write_task(&tasks_dir, "task-001", "Active", "To Do");
+        write_task(&archive_dir, "task-002", "Archived", "Done");
+
+        let list_active = ListTasksTool {
+            root: Some(root_arg.clone()),
+            all: false,
+            status: None,
+            kind: None,
+            phase: None,
+            priority: None,
+            labels: None,
+            depends_on: None,
+            deps_satisfied: None,
+            blocked: None,
+            search: None,
+            sort: "id".to_string(),
+            limit: None,
+            format: "json".to_string(),
+            include_hints: false,
+        }
+        .call(&context)
+        .expect("list");
+        let parsed: serde_json::Value = serde_json::from_str(&text_payload(list_active)).expect("json");
+        let ids: Vec<_> = parsed
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.get("id").unwrap().as_str().unwrap().to_string())
+            .collect();
+        assert!(ids.contains(&"task-001".to_string()));
+        assert!(!ids.contains(&"task-002".to_string()));
+
+        let list_all = ListTasksTool {
+            all: true,
+            ..ListTasksTool {
+                root: Some(root_arg),
+                all: false,
+                status: None,
+                kind: None,
+                phase: None,
+                priority: None,
+                labels: None,
+                depends_on: None,
+                deps_satisfied: None,
+                blocked: None,
+                search: None,
+                sort: "id".to_string(),
+                limit: None,
+                format: "json".to_string(),
+                include_hints: false,
+            }
+        }
+        .call(&context)
+        .expect("list all");
+        let parsed: serde_json::Value = serde_json::from_str(&text_payload(list_all)).expect("json");
+        let ids: Vec<_> = parsed
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.get("id").unwrap().as_str().unwrap().to_string())
+            .collect();
+        assert!(ids.contains(&"task-001".to_string()));
+        assert!(ids.contains(&"task-002".to_string()));
+    }
+
+    #[test]
+    fn mcp_set_status_mutates_task_and_touches_by_default() {
+        let (temp, root_arg, context) = init_repo();
+        let tasks_dir = temp.path().join("workmesh").join("tasks");
+        write_task(&tasks_dir, "task-001", "Active", "To Do");
+
+        let tool = SetStatusTool {
+            task_id: "task-001".to_string(),
+            status: "In Progress".to_string(),
+            root: Some(root_arg),
+            touch: true,
+        };
+        let _ = tool.call(&context).expect("set status");
+
+        let listed = ListTasksTool {
+            root: Some(temp.path().to_string_lossy().to_string()),
+            all: false,
+            status: None,
+            kind: None,
+            phase: None,
+            priority: None,
+            labels: None,
+            depends_on: None,
+            deps_satisfied: None,
+            blocked: None,
+            search: None,
+            sort: "id".to_string(),
+            limit: None,
+            format: "json".to_string(),
+            include_hints: false,
+        }
+        .call(&context)
+        .expect("list");
+        let parsed: serde_json::Value = serde_json::from_str(&text_payload(listed)).expect("json");
+        let task = parsed
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|v| v.get("id").unwrap().as_str().unwrap() == "task-001")
+            .expect("task");
+        assert_eq!(
+            task.get("status").unwrap().as_str().unwrap(),
+            "In Progress"
+        );
+        // updated_date is the "touched" field.
+        assert!(task.get("updated_date").unwrap().as_str().is_some());
+    }
+
+    #[test]
+    fn mcp_add_task_creates_markdown_file() {
+        let (temp, root_arg, context) = init_repo();
+        let tool = AddTaskTool {
+            title: "New task".to_string(),
+            root: Some(root_arg),
+            task_id: None,
+            status: "To Do".to_string(),
+            priority: "P2".to_string(),
+            phase: "Phase1".to_string(),
+            labels: None,
+            dependencies: None,
+            assignee: None,
+        };
+        let result = tool.call(&context).expect("add task");
+        let created: serde_json::Value =
+            serde_json::from_str(&text_payload(result)).expect("json");
+        assert!(created.get("ok").and_then(|v| v.as_bool()).unwrap_or(false));
+
+        // Ensure it shows up in list.
+        let listed = ListTasksTool {
+            root: Some(temp.path().to_string_lossy().to_string()),
+            all: false,
+            status: None,
+            kind: None,
+            phase: None,
+            priority: None,
+            labels: None,
+            depends_on: None,
+            deps_satisfied: None,
+            blocked: None,
+            search: Some("New task".to_string()),
+            sort: "id".to_string(),
+            limit: None,
+            format: "json".to_string(),
+            include_hints: false,
+        }
+        .call(&context)
+        .expect("list");
+        let parsed: serde_json::Value = serde_json::from_str(&text_payload(listed)).expect("json");
+        assert!(!parsed.as_array().unwrap().is_empty());
+    }
+}
