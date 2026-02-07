@@ -218,6 +218,7 @@ fn best_practice_hints() -> Vec<&'static str> {
         "If unsure, start with an empty list and add dependencies as soon as blockers appear.",
         "Prefer specific task ids (e.g., task-042) over vague references.",
         "Update dependencies when status changes to avoid stale blocked tasks.",
+        "Do not commit derived artifacts like `workmesh/.index/` or `workmesh/.audit.log` (they are rebuildable).",
     ]
 }
 

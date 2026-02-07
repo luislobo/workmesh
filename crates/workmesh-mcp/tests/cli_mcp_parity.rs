@@ -89,6 +89,9 @@ fn cli() -> Command {
             .arg("build")
             .arg("-p")
             .arg("workmesh")
+            // Coverage runs set LLVM_PROFILE_FILE; propagating it into nested `cargo build`
+            // sometimes produces invalid `.profraw` artifacts that break `llvm-profdata merge`.
+            .env_remove("LLVM_PROFILE_FILE")
             .current_dir(root)
             .status()
             .expect("build workmesh cli");
