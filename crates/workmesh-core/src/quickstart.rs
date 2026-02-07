@@ -105,5 +105,5 @@ fn snippet_marker() -> &'static str {
 }
 
 fn agents_snippet() -> &'static str {
-    "# WorkMesh Quickstart\n\n- Tasks live in `workmesh/tasks/`.\n- Run `workmesh --root . next` to find the next task.\n- Run `workmesh --root . ready --json` for ready work.\n"
+    "# WorkMesh Quickstart\n\n- Tasks live in `workmesh/tasks/`.\n- Run `workmesh --root . next` to find the next task.\n- Run `workmesh --root . ready --json` for ready work.\n- Derived files (`workmesh/.index/`, `workmesh/.audit.log`) should not be committed.\n"
 }

@@ -13,6 +13,7 @@ and agent-safe coordination (leases/claims).
 - Record blockers as dependencies (or `blocked_by`) so "ready work" is queryable.
 - Prefer `--json` outputs in agent workflows.
 - For multi-agent work: always `claim` before making changes.
+- Do not commit derived artifacts like `workmesh/.index/` or `workmesh/.audit.log` (they are rebuildable).
 
 ## Focus first (agent-scoping)
 `focus` is the lightweight, repo-local state that keeps an agent scoped to the right project/epic.
@@ -58,6 +59,7 @@ Graph export:
 Index (JSONL):
 - Use when: bulk edits happened or index may be stale, or you want fast queries.
 - Commands: `workmesh --root /path index-rebuild|index-refresh|index-verify`
+- Note: index files are derived. Keep them ignored by git.
 
 Discovered work:
 - Use when: you find new work while executing another task.
@@ -102,4 +104,3 @@ Resume after restart:
 ```text
 session resume -> focus_show -> ready -> claim -> continue
 ```
-
