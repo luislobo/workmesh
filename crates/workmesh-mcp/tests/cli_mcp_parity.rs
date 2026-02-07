@@ -1,8 +1,8 @@
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::process::Stdio;
 use std::process::Output;
+use std::process::Stdio;
 use std::sync::Arc;
 use std::sync::Once;
 
@@ -791,7 +791,10 @@ async fn cli_and_mcp_write_and_session_parity() {
     .await;
     let task2_contents =
         std::fs::read_to_string(find_task_path(&tasks_dir, "task-002")).expect("read task-002");
-    assert!(task2_contents.contains("updated_date:"), "set_status Done should set updated_date");
+    assert!(
+        task2_contents.contains("updated_date:"),
+        "set_status Done should set updated_date"
+    );
     let _ = call_tool_text(
         &client,
         "set_field",

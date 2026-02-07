@@ -1545,7 +1545,11 @@ fn main() -> Result<()> {
                     // which breaks Windows strings like `cmd /C C:\path\plantuml.cmd`.
                     // On Windows, keep parsing simple and predictable: whitespace-split.
                     if cfg!(windows) {
-                        Some(cmd.split_whitespace().map(|part| part.to_string()).collect())
+                        Some(
+                            cmd.split_whitespace()
+                                .map(|part| part.to_string())
+                                .collect(),
+                        )
                     } else {
                         Some(shell_words::split(&cmd).map_err(anyhow::Error::msg)?)
                     }

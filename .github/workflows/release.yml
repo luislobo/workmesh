@@ -24,7 +24,9 @@ jobs:
             target: aarch64-unknown-linux-gnu
             ext: ""
             archive: tar.gz
-          - os: macos-13
+          # GitHub-hosted macOS runner availability changes over time; prefer a currently-supported label.
+          # We build both x86_64 and aarch64 targets on the same macOS runner.
+          - os: macos-14
             target: x86_64-apple-darwin
             ext: ""
             archive: tar.gz

@@ -14,11 +14,7 @@ fn main() {
     // The root cause is likely deep call stacks in clap/formatting; bumping the
     // default stack size avoids spurious crashes and keeps behavior consistent
     // across platforms.
-    if std::env::var("CARGO_CFG_TARGET_FAMILY")
-        .ok()
-        .as_deref()
-        == Some("windows")
-    {
+    if std::env::var("CARGO_CFG_TARGET_FAMILY").ok().as_deref() == Some("windows") {
         let target_env = std::env::var("CARGO_CFG_TARGET_ENV").unwrap_or_default();
         if target_env == "msvc" {
             // MSVC linker flag (bytes).
