@@ -131,7 +131,11 @@ assignee: []\n\
         .expect("save");
     assert!(save.status.success());
     let saved: Value = serde_json::from_slice(&save.stdout).expect("json");
-    let session_id = saved.get("id").and_then(|v| v.as_str()).unwrap().to_string();
+    let session_id = saved
+        .get("id")
+        .and_then(|v| v.as_str())
+        .unwrap()
+        .to_string();
     let first_updated = saved
         .get("updated_at")
         .and_then(|v| v.as_str())

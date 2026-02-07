@@ -1,8 +1,9 @@
 use std::fs;
 
 use workmesh_core::global_sessions::{
-    append_session_saved, load_sessions_latest, new_session_id, now_rfc3339, resolve_workmesh_home,
-    rebuild_sessions_index, set_current_session, verify_sessions_index, AgentSession,
+    append_session_saved, load_sessions_latest, new_session_id, now_rfc3339,
+    rebuild_sessions_index, resolve_workmesh_home, set_current_session, verify_sessions_index,
+    AgentSession,
 };
 
 fn temp_home() -> tempfile::TempDir {
@@ -32,6 +33,7 @@ fn append_and_load_sessions_returns_latest_snapshots() {
         cwd: "/repo/a".to_string(),
         repo_root: None,
         project_id: None,
+        epic_id: None,
         objective: "Do thing A".to_string(),
         working_set: vec!["task-001".to_string()],
         notes: None,
@@ -46,6 +48,7 @@ fn append_and_load_sessions_returns_latest_snapshots() {
         cwd: "/repo/b".to_string(),
         repo_root: None,
         project_id: None,
+        epic_id: None,
         objective: "Do thing B".to_string(),
         working_set: vec![],
         notes: None,
@@ -86,6 +89,7 @@ fn rebuild_and_verify_sessions_index() {
         cwd: "/repo/c".to_string(),
         repo_root: None,
         project_id: None,
+        epic_id: None,
         objective: "Do thing C".to_string(),
         working_set: vec![],
         notes: None,

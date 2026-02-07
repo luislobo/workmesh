@@ -13,7 +13,7 @@ use workmesh_core::audit::{append_audit_event, AuditEvent};
 use workmesh_core::backlog::{locate_backlog_dir, resolve_backlog, BacklogResolution};
 use workmesh_core::config::update_do_not_migrate;
 use workmesh_core::focus::{
-    clear_focus, infer_project_id, load_focus, save_focus, extract_task_id_from_branch, FocusState,
+    clear_focus, extract_task_id_from_branch, infer_project_id, load_focus, save_focus, FocusState,
 };
 use workmesh_core::gantt::{
     plantuml_gantt, render_plantuml_svg, write_text_file, PlantumlRenderError,
@@ -33,11 +33,11 @@ use workmesh_core::session::{
 };
 use workmesh_core::task::{load_tasks, load_tasks_with_archive, Lease, Task};
 use workmesh_core::task_ops::{
-    append_note, create_task_file, filter_tasks, graph_export, next_task, now_timestamp,
-    ready_tasks, render_task_line, replace_section, set_list_field, sort_tasks, status_counts,
-    task_to_json_value, tasks_to_json, tasks_to_jsonl, timestamp_plus_minutes, update_body,
-    update_lease_fields, update_task_field, update_task_field_or_section, validate_tasks,
-    FieldValue, is_lease_active,
+    append_note, create_task_file, filter_tasks, graph_export, is_lease_active, next_task,
+    now_timestamp, ready_tasks, render_task_line, replace_section, set_list_field, sort_tasks,
+    status_counts, task_to_json_value, tasks_to_json, tasks_to_jsonl, timestamp_plus_minutes,
+    update_body, update_lease_fields, update_task_field, update_task_field_or_section,
+    validate_tasks, FieldValue,
 };
 
 #[derive(Parser)]
@@ -884,6 +884,9 @@ fn render_session_detail(session: &AgentSession) -> String {
     if let Some(project_id) = session.project_id.as_deref() {
         lines.push(format!("project_id: {}", project_id));
     }
+    if let Some(epic_id) = session.epic_id.as_deref() {
+        lines.push(format!("epic_id: {}", epic_id));
+    }
     lines.push(format!("objective: {}", session.objective));
     if !session.working_set.is_empty() {
         lines.push(format!("working_set: {}", session.working_set.join(", ")));
@@ -915,6 +918,10 @@ fn resume_script(session: &AgentSession) -> Vec<String> {
     let mut lines = Vec::new();
     lines.push(format!("cd {}", session.cwd));
 
+    if let Some(repo_root) = session.repo_root.as_deref() {
+        lines.push(format!("workmesh --root {} focus show", repo_root));
+    }
+
     if let (Some(repo_root), Some(project_id)) =
         (session.repo_root.as_deref(), session.project_id.as_deref())
     {
@@ -928,7 +935,10 @@ fn resume_script(session: &AgentSession) -> Vec<String> {
     if let Some(repo_root) = session.repo_root.as_deref() {
         if let Some(task_id) = session.working_set.first() {
             lines.push(format!("workmesh --root {} show {}", repo_root, task_id));
-            lines.push(format!("workmesh --root {} claim {} you", repo_root, task_id));
+            lines.push(format!(
+                "workmesh --root {} claim {} you",
+                repo_root, task_id
+            ));
         }
     }
 
@@ -950,6 +960,9 @@ fn auto_update_current_session(backlog_dir: &Path) -> Result<()> {
     let repo_root = rr.to_string_lossy().to_string();
     let repo_tasks = load_tasks(backlog_dir);
     let project_id = resolve_project_id(&rr, &repo_tasks, None);
+    let epic_id = load_focus(backlog_dir)?
+        .and_then(|f| f.epic_id)
+        .or_else(|| best_effort_git_branch(&rr).and_then(|b| extract_task_id_from_branch(&b)));
 
     let working_set: Vec<String> = repo_tasks
         .iter()
@@ -981,6 +994,7 @@ fn auto_update_current_session(backlog_dir: &Path) -> Result<()> {
         cwd: cwd_str,
         repo_root: Some(repo_root),
         project_id: Some(project_id),
+        epic_id: epic_id.or(existing.epic_id.clone()),
         objective: existing.objective.clone(),
         working_set,
         notes: existing.notes.clone(),
@@ -1326,6 +1340,7 @@ fn main() -> Result<()> {
 
                     let mut repo_root: Option<String> = None;
                     let mut project_id: Option<String> = project.clone();
+                    let mut epic_id: Option<String> = None;
                     let mut working_set: Vec<String> = tasks_override.unwrap_or_default();
                     let mut git: Option<GitSnapshot> = None;
                     let mut checkpoint: Option<CheckpointRef> = None;
@@ -1336,13 +1351,16 @@ fn main() -> Result<()> {
                         let rr = repo_root_from_backlog(&backlog_dir);
                         repo_root = Some(rr.to_string_lossy().to_string());
                         let repo_tasks = load_tasks(&backlog_dir);
+                        epic_id = load_focus(&backlog_dir)?
+                            .and_then(|f| f.epic_id)
+                            .or_else(|| {
+                                best_effort_git_branch(&rr)
+                                    .and_then(|b| extract_task_id_from_branch(&b))
+                            });
 
                         if project_id.is_none() {
-                            project_id = Some(resolve_project_id(
-                                &rr,
-                                &repo_tasks,
-                                project.as_deref(),
-                            ));
+                            project_id =
+                                Some(resolve_project_id(&rr, &repo_tasks, project.as_deref()));
                         }
 
                         if working_set.is_empty() {
@@ -1363,12 +1381,11 @@ fn main() -> Result<()> {
                                     path: summary.checkpoint_path.to_string_lossy().to_string(),
                                     timestamp: Some(summary.snapshot.generated_at.clone()),
                                 });
-                                recent_changes = Some(
-                                    workmesh_core::global_sessions::RecentChanges {
+                                recent_changes =
+                                    Some(workmesh_core::global_sessions::RecentChanges {
                                         dirs: summary.snapshot.top_level_dirs.clone(),
                                         files: summary.snapshot.changed_files.clone(),
-                                    },
-                                );
+                                    });
                             }
                         }
                     }
@@ -1381,6 +1398,7 @@ fn main() -> Result<()> {
                         cwd: cwd_str,
                         repo_root,
                         project_id,
+                        epic_id,
                         objective,
                         working_set,
                         notes,
@@ -1426,9 +1444,11 @@ fn main() -> Result<()> {
                     }
                 }
                 SessionCommand::Resume { session_id, json } => {
-                    let id = session_id.or_else(|| read_current_session_id(&home)).unwrap_or_else(
-                        || die("No session id provided and no current session pointer found"),
-                    );
+                    let id = session_id
+                        .or_else(|| read_current_session_id(&home))
+                        .unwrap_or_else(|| {
+                            die("No session id provided and no current session pointer found")
+                        });
                     let sessions = load_sessions_latest_fast(&home)?;
                     let session = sessions
                         .into_iter()
@@ -1558,8 +1578,14 @@ fn main() -> Result<()> {
                             }))?
                         );
                     } else if let Some(focus) = focus {
-                        println!("project_id: {}", focus.project_id.unwrap_or_else(|| "(none)".into()));
-                        println!("epic_id: {}", focus.epic_id.unwrap_or_else(|| "(none)".into()));
+                        println!(
+                            "project_id: {}",
+                            focus.project_id.unwrap_or_else(|| "(none)".into())
+                        );
+                        println!(
+                            "epic_id: {}",
+                            focus.epic_id.unwrap_or_else(|| "(none)".into())
+                        );
                         println!(
                             "objective: {}",
                             focus.objective.unwrap_or_else(|| "(none)".into())
@@ -1582,7 +1608,9 @@ fn main() -> Result<()> {
                     if json {
                         println!(
                             "{}",
-                            serde_json::to_string_pretty(&serde_json::json!({ "ok": true, "cleared": cleared }))?
+                            serde_json::to_string_pretty(
+                                &serde_json::json!({ "ok": true, "cleared": cleared })
+                            )?
                         );
                     } else if cleared {
                         println!("Focus cleared");

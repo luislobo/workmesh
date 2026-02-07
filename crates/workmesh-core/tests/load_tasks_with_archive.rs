@@ -45,4 +45,3 @@ fn load_tasks_with_archive_includes_archived_markdown_files() {
     assert!(ids.contains(&"task-001".to_string()));
     assert!(ids.contains(&"task-002".to_string()));
 }
-

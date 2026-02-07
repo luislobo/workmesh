@@ -35,6 +35,8 @@ pub struct AgentSession {
     pub cwd: String,
     pub repo_root: Option<String>,
     pub project_id: Option<String>,
+    #[serde(default)]
+    pub epic_id: Option<String>,
     pub objective: String,
     pub working_set: Vec<String>,
     pub notes: Option<String>,
@@ -75,9 +77,11 @@ pub fn resolve_workmesh_home() -> Result<PathBuf> {
             return Ok(PathBuf::from(trimmed));
         }
     }
-    home_dir().map(|home| home.join(".workmesh")).ok_or_else(|| {
-        anyhow!("Unable to resolve home directory; set WORKMESH_HOME to an absolute path")
-    })
+    home_dir()
+        .map(|home| home.join(".workmesh"))
+        .ok_or_else(|| {
+            anyhow!("Unable to resolve home directory; set WORKMESH_HOME to an absolute path")
+        })
 }
 
 fn home_dir() -> Option<PathBuf> {
@@ -202,8 +206,8 @@ pub fn rebuild_sessions_index(home: &Path) -> Result<SessionsIndexSummary> {
     let index_path = sessions_index_path(home);
     let tmp = index_path.with_extension("jsonl.tmp");
 
-    let mut file = fs::File::create(&tmp)
-        .with_context(|| format!("create temp index {}", tmp.display()))?;
+    let mut file =
+        fs::File::create(&tmp).with_context(|| format!("create temp index {}", tmp.display()))?;
     for session in &sessions {
         let line = serde_json::to_string(session).context("serialize session for index")?;
         writeln!(file, "{}", line).context("write index line")?;

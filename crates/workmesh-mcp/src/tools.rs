@@ -19,7 +19,9 @@ use workmesh_core::audit::{append_audit_event, AuditEvent};
 use workmesh_core::backlog::{
     locate_backlog_dir, resolve_backlog, resolve_backlog_dir, BacklogError,
 };
-use workmesh_core::focus::{clear_focus, infer_project_id, load_focus, save_focus, FocusState};
+use workmesh_core::focus::{
+    clear_focus, extract_task_id_from_branch, infer_project_id, load_focus, save_focus, FocusState,
+};
 use workmesh_core::gantt::{plantuml_gantt, render_plantuml_svg, write_text_file};
 use workmesh_core::global_sessions::{
     append_session_saved, load_sessions_latest, new_session_id, now_rfc3339,
@@ -1162,8 +1164,8 @@ impl FocusShowTool {
         };
         let repo_root = resolve_repo_root(context, self.root.as_deref());
         let inferred_project = infer_project_id(&repo_root);
-        let loaded = load_focus(&backlog_dir)
-            .map_err(|err| CallToolError::from_message(err.to_string()))?;
+        let loaded =
+            load_focus(&backlog_dir).map_err(|err| CallToolError::from_message(err.to_string()))?;
         if self.format == "text" {
             if let Some(focus) = loaded {
                 return ok_text(format!(
@@ -2379,8 +2381,8 @@ impl CheckpointDiffTool {
 
 impl SessionSaveTool {
     fn call(&self, _context: &McpContext) -> Result<CallToolResult, CallToolError> {
-        let home = resolve_workmesh_home()
-            .map_err(|err| CallToolError::from_message(err.to_string()))?;
+        let home =
+            resolve_workmesh_home().map_err(|err| CallToolError::from_message(err.to_string()))?;
 
         let cwd = self
             .cwd
@@ -2395,6 +2397,7 @@ impl SessionSaveTool {
 
         let mut repo_root: Option<String> = None;
         let mut project_id: Option<String> = self.project.clone();
+        let mut epic_id: Option<String> = None;
         let mut working_set: Vec<String> = tasks_override;
         let mut git: Option<GitSnapshot> = None;
         let mut checkpoint: Option<CheckpointRef> = None;
@@ -2404,6 +2407,10 @@ impl SessionSaveTool {
             let rr = repo_root_from_backlog(&backlog_dir);
             repo_root = Some(rr.to_string_lossy().to_string());
             let repo_tasks = load_tasks(&backlog_dir);
+            epic_id = load_focus(&backlog_dir)
+                .ok()
+                .flatten()
+                .and_then(|f| f.epic_id);
 
             if project_id.is_none() {
                 project_id = Some(resolve_project_id(
@@ -2439,6 +2446,11 @@ impl SessionSaveTool {
         }
 
         let now = now_rfc3339();
+        if epic_id.is_none() {
+            if let Some(branch) = git.as_ref().and_then(|g| g.branch.as_deref()) {
+                epic_id = extract_task_id_from_branch(branch);
+            }
+        }
         let session = AgentSession {
             id: new_session_id(),
             created_at: now.clone(),
@@ -2446,6 +2458,7 @@ impl SessionSaveTool {
             cwd: cwd_str,
             repo_root,
             project_id,
+            epic_id,
             objective: self.objective.clone(),
             working_set,
             notes: self.notes.clone(),
@@ -2468,8 +2481,8 @@ impl SessionSaveTool {
 
 impl SessionListTool {
     fn call(&self, _context: &McpContext) -> Result<CallToolResult, CallToolError> {
-        let home = resolve_workmesh_home()
-            .map_err(|err| CallToolError::from_message(err.to_string()))?;
+        let home =
+            resolve_workmesh_home().map_err(|err| CallToolError::from_message(err.to_string()))?;
         let mut sessions = load_sessions_latest(&home)
             .map_err(|err| CallToolError::from_message(err.to_string()))?;
         if let Some(limit) = self.limit {
@@ -2492,8 +2505,8 @@ impl SessionListTool {
 
 impl SessionShowTool {
     fn call(&self, _context: &McpContext) -> Result<CallToolResult, CallToolError> {
-        let home = resolve_workmesh_home()
-            .map_err(|err| CallToolError::from_message(err.to_string()))?;
+        let home =
+            resolve_workmesh_home().map_err(|err| CallToolError::from_message(err.to_string()))?;
         let sessions = load_sessions_latest(&home)
             .map_err(|err| CallToolError::from_message(err.to_string()))?;
         let session = sessions
@@ -2509,8 +2522,8 @@ impl SessionShowTool {
 
 impl SessionResumeTool {
     fn call(&self, _context: &McpContext) -> Result<CallToolResult, CallToolError> {
-        let home = resolve_workmesh_home()
-            .map_err(|err| CallToolError::from_message(err.to_string()))?;
+        let home =
+            resolve_workmesh_home().map_err(|err| CallToolError::from_message(err.to_string()))?;
         let id = self
             .session_id
             .clone()
@@ -2722,7 +2735,10 @@ fn resume_script(session: &AgentSession) -> Vec<String> {
     if let Some(repo_root) = session.repo_root.as_deref() {
         if let Some(task_id) = session.working_set.first() {
             lines.push(format!("workmesh --root {} show {}", repo_root, task_id));
-            lines.push(format!("workmesh --root {} claim {} you", repo_root, task_id));
+            lines.push(format!(
+                "workmesh --root {} claim {} you",
+                repo_root, task_id
+            ));
         }
     }
 
@@ -3210,6 +3226,10 @@ fn auto_update_current_session(backlog_dir: &Path, tasks: &[Task]) -> Result<(),
     let rr = repo_root_from_backlog(backlog_dir);
     let repo_root = rr.to_string_lossy().to_string();
     let project_id = resolve_project_id(&rr, tasks, None);
+    let epic_id = load_focus(backlog_dir)
+        .ok()
+        .flatten()
+        .and_then(|f| f.epic_id);
 
     let working_set: Vec<String> = tasks
         .iter()
@@ -3241,6 +3261,7 @@ fn auto_update_current_session(backlog_dir: &Path, tasks: &[Task]) -> Result<(),
         cwd: cwd_str,
         repo_root: Some(repo_root),
         project_id: Some(project_id),
+        epic_id: epic_id.or(existing.epic_id.clone()),
         objective: existing.objective.clone(),
         working_set,
         notes: existing.notes.clone(),
@@ -3299,8 +3320,14 @@ Body\n",
         let repo_root = temp.path().to_path_buf();
 
         // Minimal docs scaffold so tools that look for docs don't fail.
-        std::fs::create_dir_all(repo_root.join("docs").join("projects").join("alpha").join("updates"))
-            .expect("docs");
+        std::fs::create_dir_all(
+            repo_root
+                .join("docs")
+                .join("projects")
+                .join("alpha")
+                .join("updates"),
+        )
+        .expect("docs");
 
         // WorkMesh layout.
         let tasks_dir = repo_root.join("workmesh").join("tasks");
@@ -3317,11 +3344,7 @@ Body\n",
     fn mcp_list_tasks_all_includes_archive() {
         let (temp, root_arg, context) = init_repo();
         let tasks_dir = temp.path().join("workmesh").join("tasks");
-        let archive_dir = temp
-            .path()
-            .join("workmesh")
-            .join("archive")
-            .join("2026-02");
+        let archive_dir = temp.path().join("workmesh").join("archive").join("2026-02");
         std::fs::create_dir_all(&archive_dir).expect("archive");
 
         write_task(&tasks_dir, "task-001", "Active", "To Do");
@@ -3346,7 +3369,8 @@ Body\n",
         }
         .call(&context)
         .expect("list");
-        let parsed: serde_json::Value = serde_json::from_str(&text_payload(list_active)).expect("json");
+        let parsed: serde_json::Value =
+            serde_json::from_str(&text_payload(list_active)).expect("json");
         let ids: Vec<_> = parsed
             .as_array()
             .unwrap()
@@ -3378,7 +3402,8 @@ Body\n",
         }
         .call(&context)
         .expect("list all");
-        let parsed: serde_json::Value = serde_json::from_str(&text_payload(list_all)).expect("json");
+        let parsed: serde_json::Value =
+            serde_json::from_str(&text_payload(list_all)).expect("json");
         let ids: Vec<_> = parsed
             .as_array()
             .unwrap()
@@ -3429,10 +3454,7 @@ Body\n",
             .iter()
             .find(|v| v.get("id").unwrap().as_str().unwrap() == "task-001")
             .expect("task");
-        assert_eq!(
-            task.get("status").unwrap().as_str().unwrap(),
-            "In Progress"
-        );
+        assert_eq!(task.get("status").unwrap().as_str().unwrap(), "In Progress");
         // updated_date is the "touched" field.
         assert!(task.get("updated_date").unwrap().as_str().is_some());
     }
@@ -3452,8 +3474,7 @@ Body\n",
             assignee: None,
         };
         let result = tool.call(&context).expect("add task");
-        let created: serde_json::Value =
-            serde_json::from_str(&text_payload(result)).expect("json");
+        let created: serde_json::Value = serde_json::from_str(&text_payload(result)).expect("json");
         assert!(created.get("ok").and_then(|v| v.as_bool()).unwrap_or(false));
 
         // Ensure it shows up in list.

@@ -138,6 +138,28 @@ workmesh/
     task-001 - seed task.md
 ```
 
+## Focus (keep agents scoped)
+`focus` is a repo-local "what we are doing right now" pointer for humans and agents. It is used to
+reduce thrash across sessions and help WorkMesh infer context when saving global sessions.
+
+It lives at: `workmesh/focus.json` (inside your repo, versionable if you want).
+
+Common workflow:
+```bash
+# set focus explicitly (best for agents)
+workmesh --root . focus set --project-id workmesh --epic-id task-001 --objective "Ship v0.3"
+
+# inspect current focus
+workmesh --root . focus show
+
+# clear focus
+workmesh --root . focus clear
+```
+
+Integration points:
+- `session save` captures `epic_id` from `focus` (or best-effort from git branch like `task-123`).
+- `session resume` prints a resume script that includes `focus show` as the first step.
+
 ## Task file format (plain text)
 Each task is a Markdown file with front matter and sections:
 ```markdown
@@ -328,7 +350,8 @@ Antigravity IDE:
 ## Skills (Codex/Claude)
 WorkMesh can serve its own skill content to agents.
 
-- Skill file: `.codex/skills/workmesh/SKILL.md`
+- Skill file (in this repo): `skills/workmesh/SKILL.md`
+- Installed skill path (Codex default): `~/.codex/skills/workmesh/SKILL.md`
 - MCP tool: `skill_content` or `project_management_skill`
 
 This lets the MCP server return the exact workflow instructions for agents.
@@ -393,7 +416,7 @@ Auto session updates (opt-in):
 - `docs/` - project documentation, PRDs, decisions, updates.
 - `workmesh/tasks/` - Markdown tasks managed by the CLI/MCP tools.
 - `crates/` - Rust crates (CLI, core, MCP server).
-- `.codex/skills/` - WorkMesh agent skills.
+- `skills/` - WorkMesh agent skills (source of truth).
 
 ## Troubleshooting
 - **No tasks found**: ensure `workmesh/tasks/` exists or run `quickstart`.

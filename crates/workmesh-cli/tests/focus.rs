@@ -69,6 +69,8 @@ fn focus_set_show_clear_json() {
         .expect("focus clear");
     assert!(clear.status.success());
     let cleared: Value = serde_json::from_slice(&clear.stdout).expect("json");
-    assert!(cleared.get("cleared").and_then(|v| v.as_bool()).unwrap_or(false));
+    assert!(cleared
+        .get("cleared")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false));
 }
-
