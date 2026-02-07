@@ -3,7 +3,7 @@ id: task-043
 uid: 01KGV3B9QPGCJK1D266MB0RJ8Y
 title: Global sessions: JSONL index rebuild/refresh/verify for fast list
 kind: task
-status: To Do
+status: Done
 priority: P2
 phase: Phase4
 dependencies: []
@@ -14,8 +14,8 @@ relationships:
   parent: []
   child: []
   discovered_from: []
+updated_date: 2026-02-06 22:16
 ---
-
 Description:
 --------------------------------------------------
 - Add an optional derived index for sessions (JSONL) for fast list/query:
@@ -32,3 +32,6 @@ Definition of Done:
 --------------------------------------------------
 - Code/config committed.
 - Docs updated if needed.
+
+Notes:
+- Implemented global sessions JSONL index under WORKMESH_HOME/.index/sessions.jsonl with rebuild/refresh/verify. Session list/show/resume use the index when present and fall back to source events.

@@ -2,7 +2,7 @@ use std::fs;
 
 use workmesh_core::global_sessions::{
     append_session_saved, load_sessions_latest, new_session_id, now_rfc3339, resolve_workmesh_home,
-    set_current_session, AgentSession,
+    rebuild_sessions_index, set_current_session, verify_sessions_index, AgentSession,
 };
 
 fn temp_home() -> tempfile::TempDir {
@@ -74,3 +74,30 @@ fn set_current_session_writes_pointer_file() {
     assert!(contents.contains("01TESTSESSION"));
 }
 
+#[test]
+fn rebuild_and_verify_sessions_index() {
+    let dir = temp_home();
+    let home = dir.path();
+
+    let session = AgentSession {
+        id: new_session_id(),
+        created_at: now_rfc3339(),
+        updated_at: "2026-01-03T10:00:00-08:00".to_string(),
+        cwd: "/repo/c".to_string(),
+        repo_root: None,
+        project_id: None,
+        objective: "Do thing C".to_string(),
+        working_set: vec![],
+        notes: None,
+        git: None,
+        checkpoint: None,
+        recent_changes: None,
+    };
+    append_session_saved(home, session).expect("append");
+
+    let summary = rebuild_sessions_index(home).expect("rebuild");
+    assert!(summary.indexed >= 1);
+
+    let report = verify_sessions_index(home).expect("verify");
+    assert!(report.ok, "expected ok, got {:?}", report);
+}
