@@ -303,7 +303,10 @@ async fn cli_and_mcp_global_sessions_parity() {
     let mcp_show_json: serde_json::Value =
         serde_json::from_str(&mcp_show_text).expect("session_show json");
     assert_eq!(
-        mcp_show_json.get("objective").and_then(|v| v.as_str()).unwrap(),
+        mcp_show_json
+            .get("objective")
+            .and_then(|v| v.as_str())
+            .unwrap(),
         "Test objective (cli)"
     );
 
@@ -1341,8 +1344,14 @@ async fn cli_and_mcp_focus_parity() {
     let temp = TempDir::new().expect("tempdir");
     let repo_root = temp.path();
     std::fs::create_dir_all(repo_root.join("workmesh").join("tasks")).expect("tasks dir");
-    std::fs::create_dir_all(repo_root.join("docs").join("projects").join("alpha").join("updates"))
-        .expect("docs dir");
+    std::fs::create_dir_all(
+        repo_root
+            .join("docs")
+            .join("projects")
+            .join("alpha")
+            .join("updates"),
+    )
+    .expect("docs dir");
 
     // MCP: set focus
     let client = start_client(repo_root).await;
@@ -1360,7 +1369,10 @@ async fn cli_and_mcp_focus_parity() {
     )
     .await;
     let set_json: serde_json::Value = serde_json::from_str(&set).expect("json");
-    assert!(set_json.get("ok").and_then(|v| v.as_bool()).unwrap_or(false));
+    assert!(set_json
+        .get("ok")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false));
 
     // CLI: show focus should reflect set values
     let show = cli()
@@ -1372,12 +1384,24 @@ async fn cli_and_mcp_focus_parity() {
         .output()
         .expect("cli focus show");
     assert_output_ok!(show);
-    let parsed: serde_json::Value =
-        serde_json::from_slice(&show.stdout).expect("json");
-    let focus = parsed.get("focus").expect("focus").as_object().expect("obj");
-    assert_eq!(focus.get("project_id").and_then(|v| v.as_str()).unwrap(), "alpha");
-    assert_eq!(focus.get("epic_id").and_then(|v| v.as_str()).unwrap(), "task-039");
-    assert_eq!(focus.get("objective").and_then(|v| v.as_str()).unwrap(), "Ship focus");
+    let parsed: serde_json::Value = serde_json::from_slice(&show.stdout).expect("json");
+    let focus = parsed
+        .get("focus")
+        .expect("focus")
+        .as_object()
+        .expect("obj");
+    assert_eq!(
+        focus.get("project_id").and_then(|v| v.as_str()).unwrap(),
+        "alpha"
+    );
+    assert_eq!(
+        focus.get("epic_id").and_then(|v| v.as_str()).unwrap(),
+        "task-039"
+    );
+    assert_eq!(
+        focus.get("objective").and_then(|v| v.as_str()).unwrap(),
+        "Ship focus"
+    );
 
     // CLI: clear focus
     let cleared = cli()
@@ -1389,8 +1413,7 @@ async fn cli_and_mcp_focus_parity() {
         .output()
         .expect("cli focus clear");
     assert_output_ok!(cleared);
-    let cleared_json: serde_json::Value =
-        serde_json::from_slice(&cleared.stdout).expect("json");
+    let cleared_json: serde_json::Value = serde_json::from_slice(&cleared.stdout).expect("json");
     assert!(cleared_json
         .get("cleared")
         .and_then(|v| v.as_bool())

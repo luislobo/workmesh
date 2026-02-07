@@ -81,4 +81,3 @@ fn list_all_includes_archived_done_tasks() {
         .collect();
     assert!(ids.contains(&"task-001".to_string()));
 }
-

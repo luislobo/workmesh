@@ -98,4 +98,3 @@ pub fn extract_task_id_from_branch(branch: &str) -> Option<String> {
     }
     None
 }
-

@@ -36,8 +36,14 @@ fn focus_round_trip_save_load_clear() {
 fn infer_project_id_returns_only_project_when_singleton() {
     let temp = TempDir::new().expect("tempdir");
     let repo_root = temp.path();
-    std::fs::create_dir_all(repo_root.join("docs").join("projects").join("alpha").join("updates"))
-        .expect("docs");
+    std::fs::create_dir_all(
+        repo_root
+            .join("docs")
+            .join("projects")
+            .join("alpha")
+            .join("updates"),
+    )
+    .expect("docs");
     assert_eq!(infer_project_id(repo_root), Some("alpha".to_string()));
 }
 
@@ -54,4 +60,3 @@ fn extract_task_id_from_branch_finds_task_id_anywhere() {
     assert_eq!(extract_task_id_from_branch("nope"), None);
     assert_eq!(extract_task_id_from_branch("task-"), None);
 }
-
