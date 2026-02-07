@@ -3,7 +3,7 @@ id: task-040
 uid: 01KGV3B9P3BSD3M9TM71Q9QYW0
 title: Global sessions: core model + storage under ~/.workmesh
 kind: task
-status: To Do
+status: Done
 priority: P1
 phase: Phase4
 dependencies: []
@@ -14,8 +14,8 @@ relationships:
   parent: []
   child: []
   discovered_from: []
+updated_date: 2026-02-06 22:01
 ---
-
 Description:
 --------------------------------------------------
 - Add a new global storage root (default: `~/.workmesh/`) and a session record model.
@@ -33,3 +33,6 @@ Definition of Done:
 --------------------------------------------------
 - Code/config committed.
 - Docs updated if needed.
+
+Notes:
+- Implemented global sessions core module + storage + tests.

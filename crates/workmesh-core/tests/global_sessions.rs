@@ -1,0 +1,76 @@
+use std::fs;
+
+use workmesh_core::global_sessions::{
+    append_session_saved, load_sessions_latest, new_session_id, now_rfc3339, resolve_workmesh_home,
+    set_current_session, AgentSession,
+};
+
+fn temp_home() -> tempfile::TempDir {
+    tempfile::tempdir().expect("tempdir")
+}
+
+#[test]
+fn workmesh_home_prefers_env_var() {
+    let dir = temp_home();
+    std::env::set_var("WORKMESH_HOME", dir.path());
+    let resolved = resolve_workmesh_home().expect("resolve workmesh home");
+    assert_eq!(resolved, dir.path());
+}
+
+#[test]
+fn append_and_load_sessions_returns_latest_snapshots() {
+    let dir = temp_home();
+    let home = dir.path();
+
+    let id1 = new_session_id();
+    let id2 = new_session_id();
+
+    let s1 = AgentSession {
+        id: id1.clone(),
+        created_at: now_rfc3339(),
+        updated_at: "2026-01-01T10:00:00-08:00".to_string(),
+        cwd: "/repo/a".to_string(),
+        repo_root: None,
+        project_id: None,
+        objective: "Do thing A".to_string(),
+        working_set: vec!["task-001".to_string()],
+        notes: None,
+        git: None,
+        checkpoint: None,
+        recent_changes: None,
+    };
+    let s2 = AgentSession {
+        id: id2.clone(),
+        created_at: now_rfc3339(),
+        updated_at: "2026-01-02T10:00:00-08:00".to_string(),
+        cwd: "/repo/b".to_string(),
+        repo_root: None,
+        project_id: None,
+        objective: "Do thing B".to_string(),
+        working_set: vec![],
+        notes: None,
+        git: None,
+        checkpoint: None,
+        recent_changes: None,
+    };
+
+    append_session_saved(home, s1).expect("append s1");
+    append_session_saved(home, s2).expect("append s2");
+
+    let sessions = load_sessions_latest(home).expect("load sessions");
+    assert_eq!(sessions.len(), 2);
+    assert_eq!(sessions[0].id, id2);
+    assert_eq!(sessions[1].id, id1);
+}
+
+#[test]
+fn set_current_session_writes_pointer_file() {
+    let dir = temp_home();
+    let home = dir.path();
+
+    set_current_session(home, "01TESTSESSION").expect("set current");
+    let path = home.join("sessions").join("current.json");
+    let contents = fs::read_to_string(path).expect("read current.json");
+    assert!(contents.contains("01TESTSESSION"));
+}
+
