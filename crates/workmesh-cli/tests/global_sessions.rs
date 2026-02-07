@@ -93,3 +93,79 @@ fn session_save_list_show_resume_json() {
     assert!(!script.is_empty());
 }
 
+#[test]
+fn auto_session_save_updates_current_session_on_mutations() {
+    let home = TempDir::new().expect("home tempdir");
+    let repo = TempDir::new().expect("repo tempdir");
+
+    let tasks_dir = repo.path().join("workmesh").join("tasks");
+    std::fs::create_dir_all(&tasks_dir).expect("tasks dir");
+    std::fs::write(
+        tasks_dir.join("task-001 - alpha.md"),
+        "---\n\
+id: task-001\n\
+title: Alpha\n\
+status: To Do\n\
+priority: P2\n\
+phase: Phase1\n\
+dependencies: []\n\
+labels: []\n\
+assignee: []\n\
+---\n\n\
+## Notes\n- initial\n",
+    )
+    .expect("write task");
+
+    let save = bin()
+        .arg("--root")
+        .arg(repo.path())
+        .env("WORKMESH_HOME", home.path())
+        .arg("session")
+        .arg("save")
+        .arg("--objective")
+        .arg("Auto test")
+        .arg("--cwd")
+        .arg(repo.path())
+        .arg("--json")
+        .output()
+        .expect("save");
+    assert!(save.status.success());
+    let saved: Value = serde_json::from_slice(&save.stdout).expect("json");
+    let session_id = saved.get("id").and_then(|v| v.as_str()).unwrap().to_string();
+    let first_updated = saved
+        .get("updated_at")
+        .and_then(|v| v.as_str())
+        .unwrap()
+        .to_string();
+
+    let mutate = bin()
+        .arg("--root")
+        .arg(repo.path())
+        .env("WORKMESH_HOME", home.path())
+        .arg("--auto-session-save")
+        .arg("set-status")
+        .arg("task-001")
+        .arg("In Progress")
+        .output()
+        .expect("mutate");
+    assert!(mutate.status.success());
+
+    let show = bin()
+        .arg("--root")
+        .arg(repo.path())
+        .env("WORKMESH_HOME", home.path())
+        .arg("session")
+        .arg("show")
+        .arg(&session_id)
+        .arg("--json")
+        .output()
+        .expect("show");
+    assert!(show.status.success());
+    let shown: Value = serde_json::from_slice(&show.stdout).expect("json");
+    let second_updated = shown
+        .get("updated_at")
+        .and_then(|v| v.as_str())
+        .unwrap()
+        .to_string();
+    assert_ne!(first_updated, second_updated);
+}

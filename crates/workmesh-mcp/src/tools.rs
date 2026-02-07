@@ -3061,15 +3061,83 @@ fn auto_checkpoint_enabled() -> bool {
         .unwrap_or(false)
 }
 
+fn auto_session_enabled() -> bool {
+    std::env::var("WORKMESH_AUTO_SESSION")
+        .ok()
+        .map(|value| value.trim().to_lowercase())
+        .map(|value| matches!(value.as_str(), "1" | "true" | "yes" | "on"))
+        .unwrap_or(false)
+}
+
 fn maybe_auto_checkpoint(backlog_dir: &Path) {
-    if !auto_checkpoint_enabled() {
-        return;
-    }
     let tasks = load_tasks(backlog_dir);
-    let options = CheckpointOptions {
-        project_id: None,
-        checkpoint_id: None,
-        audit_limit: 10,
+    if auto_checkpoint_enabled() {
+        let options = CheckpointOptions {
+            project_id: None,
+            checkpoint_id: None,
+            audit_limit: 10,
+        };
+        let _ = write_checkpoint(backlog_dir, &tasks, &options);
+    }
+
+    if auto_session_enabled() {
+        let _ = auto_update_current_session(backlog_dir, &tasks);
+    }
+}
+
+fn auto_update_current_session(backlog_dir: &Path, tasks: &[Task]) -> Result<(), anyhow::Error> {
+    let home = resolve_workmesh_home()?;
+    let Some(current_id) = read_current_session_id(&home) else {
+        return Ok(());
     };
-    let _ = write_checkpoint(backlog_dir, &tasks, &options);
+    let sessions = load_sessions_latest(&home)?;
+    let Some(existing) = sessions.into_iter().find(|s| s.id == current_id) else {
+        return Ok(());
+    };
+
+    let rr = repo_root_from_backlog(backlog_dir);
+    let repo_root = rr.to_string_lossy().to_string();
+    let project_id = resolve_project_id(&rr, tasks, None);
+
+    let working_set: Vec<String> = tasks
+        .iter()
+        .filter(|task| task.status.eq_ignore_ascii_case("in progress") || is_lease_active(task))
+        .map(|task| task.id.clone())
+        .collect();
+
+    let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    let cwd_str = cwd.to_string_lossy().to_string();
+
+    let mut checkpoint: Option<CheckpointRef> = None;
+    let mut recent_changes: Option<RecentChanges> = None;
+    if let Ok(Some(summary)) = resume_summary(&rr, &project_id, None) {
+        checkpoint = Some(CheckpointRef {
+            path: summary.checkpoint_path.to_string_lossy().to_string(),
+            timestamp: Some(summary.snapshot.generated_at.clone()),
+        });
+        recent_changes = Some(RecentChanges {
+            dirs: summary.snapshot.top_level_dirs.clone(),
+            files: summary.snapshot.changed_files.clone(),
+        });
+    }
+
+    let now = now_rfc3339();
+    let updated = AgentSession {
+        id: existing.id.clone(),
+        created_at: existing.created_at.clone(),
+        updated_at: now,
+        cwd: cwd_str,
+        repo_root: Some(repo_root),
+        project_id: Some(project_id),
+        objective: existing.objective.clone(),
+        working_set,
+        notes: existing.notes.clone(),
+        git: Some(best_effort_git_snapshot(&rr)),
+        checkpoint,
+        recent_changes,
+    };
+
+    append_session_saved(&home, updated.clone())?;
+    set_current_session(&home, &updated.id)?;
+    Ok(())
 }
