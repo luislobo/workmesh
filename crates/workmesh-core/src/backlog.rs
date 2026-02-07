@@ -296,6 +296,10 @@ mod tests {
     use super::*;
     use tempfile::TempDir;
 
+    fn canon(path: &Path) -> PathBuf {
+        path.canonicalize().unwrap_or_else(|_| path.to_path_buf())
+    }
+
     #[test]
     fn prefers_workmesh_over_backlog() {
         let temp = TempDir::new().expect("tempdir");
@@ -367,7 +371,7 @@ mod tests {
 
         let resolution = resolve_backlog(temp.path()).expect("resolve");
         assert_eq!(resolution.layout, BacklogLayout::HiddenWorkmesh);
-        assert_eq!(resolution.backlog_dir, temp.path().join(".workmesh"));
+        assert_eq!(canon(&resolution.backlog_dir), canon(&temp.path().join(".workmesh")));
         assert!(resolution.config.is_some());
     }
 
@@ -384,7 +388,7 @@ mod tests {
         let deep = temp.path().join("src").join("pkg");
         std::fs::create_dir_all(&deep).expect("deep");
         let located = locate_backlog_dir(&deep).expect("locate");
-        assert_eq!(located, temp.path().join(".workmesh"));
+        assert_eq!(canon(&located), canon(&temp.path().join(".workmesh")));
     }
 
     #[test]

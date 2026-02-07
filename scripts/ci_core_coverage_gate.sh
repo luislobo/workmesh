@@ -3,11 +3,6 @@ set -euo pipefail
 
 min="${1:-80}"
 
-if ! command -v rg >/dev/null 2>&1; then
-  echo "error: rg (ripgrep) is required for this script" >&2
-  exit 2
-fi
-
 export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-target/llvm-cov-ci}"
 export LLVM_PROFILE_FILE="${LLVM_PROFILE_FILE:-${CARGO_TARGET_DIR}/profraw/%p-%m.profraw}"
 # Reduce flakiness in profile merging by running tests single-threaded.
@@ -23,7 +18,7 @@ out="$(
     --summary-only
 )"
 
-total_line="$(printf '%s\n' "$out" | rg '^TOTAL' | tail -n 1 || true)"
+total_line="$(printf '%s\n' "$out" | awk '$1=="TOTAL"{line=$0} END{print line}')"
 if [[ -z "${total_line}" ]]; then
   echo "error: coverage output did not contain a TOTAL line" >&2
   exit 2
