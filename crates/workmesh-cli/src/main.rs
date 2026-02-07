@@ -10,10 +10,15 @@ mod version;
 
 use workmesh_core::archive::{archive_tasks, ArchiveOptions};
 use workmesh_core::audit::{append_audit_event, AuditEvent};
-use workmesh_core::backlog::{resolve_backlog, BacklogResolution};
+use workmesh_core::backlog::{locate_backlog_dir, resolve_backlog, BacklogResolution};
 use workmesh_core::config::update_do_not_migrate;
 use workmesh_core::gantt::{
     plantuml_gantt, render_plantuml_svg, write_text_file, PlantumlRenderError,
+};
+use workmesh_core::global_sessions::{
+    append_session_saved, load_sessions_latest, new_session_id, now_rfc3339,
+    read_current_session_id, resolve_workmesh_home, set_current_session, AgentSession,
+    CheckpointRef, GitSnapshot,
 };
 use workmesh_core::index::{rebuild_index, refresh_index, verify_index};
 use workmesh_core::migration::{migrate_backlog, MigrationError};
@@ -29,7 +34,7 @@ use workmesh_core::task_ops::{
     ready_tasks, render_task_line, replace_section, set_list_field, sort_tasks, status_counts,
     task_to_json_value, tasks_to_json, tasks_to_jsonl, timestamp_plus_minutes, update_body,
     update_lease_fields, update_task_field, update_task_field_or_section, validate_tasks,
-    FieldValue,
+    FieldValue, is_lease_active,
 };
 
 #[derive(Parser)]
@@ -174,6 +179,11 @@ enum Command {
         note: Option<String>,
         #[arg(long, action = ArgAction::SetTrue)]
         json: bool,
+    },
+    /// Global agent sessions (cross-repo continuity)
+    Session {
+        #[command(subcommand)]
+        command: SessionCommand,
     },
     /// Show changes since a checkpoint
     CheckpointDiff {
@@ -527,6 +537,45 @@ enum Command {
 }
 
 #[derive(Subcommand)]
+enum SessionCommand {
+    /// Save the current agent session to the global store (default: ~/.workmesh)
+    Save {
+        #[arg(long)]
+        objective: String,
+        #[arg(long)]
+        cwd: Option<PathBuf>,
+        #[arg(long)]
+        project: Option<String>,
+        #[arg(long)]
+        tasks: Option<String>,
+        #[arg(long)]
+        notes: Option<String>,
+        #[arg(long, action = ArgAction::SetTrue)]
+        json: bool,
+    },
+    /// List recent agent sessions from the global store
+    List {
+        #[arg(long)]
+        limit: Option<usize>,
+        #[arg(long, action = ArgAction::SetTrue)]
+        json: bool,
+    },
+    /// Show a specific agent session
+    Show {
+        session_id: String,
+        #[arg(long, action = ArgAction::SetTrue)]
+        json: bool,
+    },
+    /// Resume from a session (prints summary + suggested next commands)
+    Resume {
+        /// Session id; if omitted, uses the current session pointer if present
+        session_id: Option<String>,
+        #[arg(long, action = ArgAction::SetTrue)]
+        json: bool,
+    },
+}
+
+#[derive(Subcommand)]
 enum BulkCommand {
     /// Bulk set status for tasks
     SetStatus {
@@ -683,6 +732,131 @@ fn effective_touch(touch: bool, no_touch: bool) -> bool {
         return true;
     }
     true
+}
+
+fn best_effort_git_snapshot(repo_root: &Path) -> GitSnapshot {
+    let branch = std::process::Command::new("git")
+        .arg("-C")
+        .arg(repo_root)
+        .arg("rev-parse")
+        .arg("--abbrev-ref")
+        .arg("HEAD")
+        .output()
+        .ok()
+        .and_then(|out| {
+            if out.status.success() {
+                Some(String::from_utf8_lossy(&out.stdout).trim().to_string())
+            } else {
+                None
+            }
+        })
+        .filter(|value| !value.trim().is_empty());
+
+    let head_sha = std::process::Command::new("git")
+        .arg("-C")
+        .arg(repo_root)
+        .arg("rev-parse")
+        .arg("HEAD")
+        .output()
+        .ok()
+        .and_then(|out| {
+            if out.status.success() {
+                Some(String::from_utf8_lossy(&out.stdout).trim().to_string())
+            } else {
+                None
+            }
+        })
+        .filter(|value| !value.trim().is_empty());
+
+    let dirty = std::process::Command::new("git")
+        .arg("-C")
+        .arg(repo_root)
+        .arg("status")
+        .arg("--porcelain")
+        .output()
+        .ok()
+        .and_then(|out| {
+            if out.status.success() {
+                Some(!String::from_utf8_lossy(&out.stdout).trim().is_empty())
+            } else {
+                None
+            }
+        });
+
+    GitSnapshot {
+        branch,
+        head_sha,
+        dirty,
+    }
+}
+
+fn render_session_line(session: &AgentSession) -> String {
+    format!(
+        "{} | {} | {} | {}",
+        session.id, session.updated_at, session.cwd, session.objective
+    )
+}
+
+fn render_session_detail(session: &AgentSession) -> String {
+    let mut lines = Vec::new();
+    lines.push(format!("id: {}", session.id));
+    lines.push(format!("updated_at: {}", session.updated_at));
+    lines.push(format!("cwd: {}", session.cwd));
+    if let Some(repo_root) = session.repo_root.as_deref() {
+        lines.push(format!("repo_root: {}", repo_root));
+    }
+    if let Some(project_id) = session.project_id.as_deref() {
+        lines.push(format!("project_id: {}", project_id));
+    }
+    lines.push(format!("objective: {}", session.objective));
+    if !session.working_set.is_empty() {
+        lines.push(format!("working_set: {}", session.working_set.join(", ")));
+    }
+    if let Some(notes) = session.notes.as_deref() {
+        if !notes.trim().is_empty() {
+            lines.push(format!("notes: {}", notes));
+        }
+    }
+    if let Some(git) = session.git.as_ref() {
+        if git.branch.is_some() || git.head_sha.is_some() || git.dirty.is_some() {
+            lines.push(format!(
+                "git: branch={} sha={} dirty={}",
+                git.branch.clone().unwrap_or_else(|| "-".to_string()),
+                git.head_sha.clone().unwrap_or_else(|| "-".to_string()),
+                git.dirty
+                    .map(|value| value.to_string())
+                    .unwrap_or_else(|| "-".to_string())
+            ));
+        }
+    }
+    if let Some(checkpoint) = session.checkpoint.as_ref() {
+        lines.push(format!("checkpoint: {}", checkpoint.path));
+    }
+    lines.join("\n")
+}
+
+fn resume_script(session: &AgentSession) -> Vec<String> {
+    let mut lines = Vec::new();
+    lines.push(format!("cd {}", session.cwd));
+
+    if let (Some(repo_root), Some(project_id)) =
+        (session.repo_root.as_deref(), session.project_id.as_deref())
+    {
+        lines.push(format!(
+            "workmesh --root {} resume --project {}",
+            repo_root, project_id
+        ));
+        lines.push(format!("workmesh --root {} ready", repo_root));
+    }
+
+    if let Some(repo_root) = session.repo_root.as_deref() {
+        if let Some(task_id) = session.working_set.first() {
+            lines.push(format!("workmesh --root {} show {}", repo_root, task_id));
+            lines.push(format!("workmesh --root {} claim {} you", repo_root, task_id));
+        }
+    }
+
+    lines
 }
 
 fn main() -> Result<()> {
@@ -987,6 +1161,154 @@ fn main() -> Result<()> {
                 );
             } else {
                 println!("{}", path.display());
+            }
+        }
+        Command::Session { command } => {
+            let home = resolve_workmesh_home()?;
+            match command {
+                SessionCommand::Save {
+                    objective,
+                    cwd,
+                    project,
+                    tasks: task_list,
+                    notes,
+                    json,
+                } => {
+                    let cwd = cwd.unwrap_or(std::env::current_dir()?);
+                    let cwd_str = cwd.to_string_lossy().to_string();
+
+                    let tasks_override = task_list
+                        .as_deref()
+                        .filter(|value| !value.trim().is_empty())
+                        .map(split_csv);
+
+                    let mut repo_root: Option<String> = None;
+                    let mut project_id: Option<String> = project.clone();
+                    let mut working_set: Vec<String> = tasks_override.unwrap_or_default();
+                    let mut git: Option<GitSnapshot> = None;
+                    let mut checkpoint: Option<CheckpointRef> = None;
+                    let mut recent_changes: Option<workmesh_core::global_sessions::RecentChanges> =
+                        None;
+
+                    if let Ok(backlog_dir) = locate_backlog_dir(&cwd) {
+                        let rr = repo_root_from_backlog(&backlog_dir);
+                        repo_root = Some(rr.to_string_lossy().to_string());
+                        let repo_tasks = load_tasks(&backlog_dir);
+
+                        if project_id.is_none() {
+                            project_id = Some(resolve_project_id(
+                                &rr,
+                                &repo_tasks,
+                                project.as_deref(),
+                            ));
+                        }
+
+                        if working_set.is_empty() {
+                            working_set = repo_tasks
+                                .iter()
+                                .filter(|task| {
+                                    task.status.eq_ignore_ascii_case("in progress")
+                                        || is_lease_active(task)
+                                })
+                                .map(|task| task.id.clone())
+                                .collect();
+                        }
+
+                        git = Some(best_effort_git_snapshot(&rr));
+                        if let Some(pid) = project_id.as_deref() {
+                            if let Ok(Some(summary)) = resume_summary(&rr, pid, None) {
+                                checkpoint = Some(CheckpointRef {
+                                    path: summary.checkpoint_path.to_string_lossy().to_string(),
+                                    timestamp: Some(summary.snapshot.generated_at.clone()),
+                                });
+                                recent_changes = Some(
+                                    workmesh_core::global_sessions::RecentChanges {
+                                        dirs: summary.snapshot.top_level_dirs.clone(),
+                                        files: summary.snapshot.changed_files.clone(),
+                                    },
+                                );
+                            }
+                        }
+                    }
+
+                    let now = now_rfc3339();
+                    let session = AgentSession {
+                        id: new_session_id(),
+                        created_at: now.clone(),
+                        updated_at: now,
+                        cwd: cwd_str,
+                        repo_root,
+                        project_id,
+                        objective,
+                        working_set,
+                        notes,
+                        git,
+                        checkpoint,
+                        recent_changes,
+                    };
+
+                    append_session_saved(&home, session.clone())?;
+                    set_current_session(&home, &session.id)?;
+
+                    if json {
+                        println!("{}", serde_json::to_string_pretty(&session)?);
+                    } else {
+                        println!("Saved session {}", session.id);
+                    }
+                }
+                SessionCommand::List { limit, json } => {
+                    let mut sessions = load_sessions_latest(&home)?;
+                    if let Some(limit) = limit {
+                        sessions.truncate(limit);
+                    }
+                    if json {
+                        println!("{}", serde_json::to_string_pretty(&sessions)?);
+                    } else if sessions.is_empty() {
+                        println!("(no sessions)");
+                    } else {
+                        for session in sessions {
+                            println!("{}", render_session_line(&session));
+                        }
+                    }
+                }
+                SessionCommand::Show { session_id, json } => {
+                    let sessions = load_sessions_latest(&home)?;
+                    let session = sessions
+                        .into_iter()
+                        .find(|s| s.id == session_id)
+                        .unwrap_or_else(|| die(&format!("Session not found: {}", session_id)));
+                    if json {
+                        println!("{}", serde_json::to_string_pretty(&session)?);
+                    } else {
+                        println!("{}", render_session_detail(&session));
+                    }
+                }
+                SessionCommand::Resume { session_id, json } => {
+                    let id = session_id.or_else(|| read_current_session_id(&home)).unwrap_or_else(
+                        || die("No session id provided and no current session pointer found"),
+                    );
+                    let sessions = load_sessions_latest(&home)?;
+                    let session = sessions
+                        .into_iter()
+                        .find(|s| s.id == id)
+                        .unwrap_or_else(|| die(&format!("Session not found: {}", id)));
+                    let script = resume_script(&session);
+                    if json {
+                        println!(
+                            "{}",
+                            serde_json::to_string_pretty(
+                                &serde_json::json!({ "session": session, "resume_script": script })
+                            )?
+                        );
+                    } else {
+                        println!("{}", render_session_detail(&session));
+                        println!();
+                        println!("Suggested resume:");
+                        for line in script {
+                            println!("{}", line);
+                        }
+                    }
+                }
             }
         }
         Command::CheckpointDiff { project, id, json } => {
