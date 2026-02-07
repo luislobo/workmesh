@@ -19,6 +19,7 @@ use workmesh_core::audit::{append_audit_event, AuditEvent};
 use workmesh_core::backlog::{
     locate_backlog_dir, resolve_backlog, resolve_backlog_dir, BacklogError,
 };
+use workmesh_core::focus::{clear_focus, infer_project_id, load_focus, save_focus, FocusState};
 use workmesh_core::gantt::{plantuml_gantt, render_plantuml_svg, write_text_file};
 use workmesh_core::global_sessions::{
     append_session_saved, load_sessions_latest, new_session_id, now_rfc3339,
@@ -227,6 +228,9 @@ fn recommended_kinds() -> Vec<&'static str> {
 fn tool_catalog() -> Vec<serde_json::Value> {
     vec![
         serde_json::json!({"name": "version", "summary": "Return WorkMesh version information."}),
+        serde_json::json!({"name": "focus_show", "summary": "Show repo-local focus (project/epic/objective/working set)."}),
+        serde_json::json!({"name": "focus_set", "summary": "Set repo-local focus (project/epic/objective/working set)."}),
+        serde_json::json!({"name": "focus_clear", "summary": "Clear repo-local focus."}),
         serde_json::json!({"name": "list_tasks", "summary": "List tasks with filters and sorting."}),
         serde_json::json!({"name": "show_task", "summary": "Show a single task by id."}),
         serde_json::json!({"name": "next_task", "summary": "Get the next ready task (lowest id, deps satisfied)."}),
@@ -281,6 +285,34 @@ fn tool_catalog() -> Vec<serde_json::Value> {
 #[mcp_tool(name = "version", description = "Return WorkMesh version information.")]
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct VersionTool {
+    #[serde(default = "default_format")]
+    pub format: String,
+}
+
+#[mcp_tool(name = "focus_show", description = "Show repo-local focus state.")]
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct FocusShowTool {
+    pub root: Option<String>,
+    #[serde(default = "default_format")]
+    pub format: String,
+}
+
+#[mcp_tool(name = "focus_set", description = "Set repo-local focus state.")]
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct FocusSetTool {
+    pub root: Option<String>,
+    pub project_id: Option<String>,
+    pub epic_id: Option<String>,
+    pub objective: Option<String>,
+    pub tasks: Option<ListInput>,
+    #[serde(default = "default_format")]
+    pub format: String,
+}
+
+#[mcp_tool(name = "focus_clear", description = "Clear repo-local focus state.")]
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct FocusClearTool {
+    pub root: Option<String>,
     #[serde(default = "default_format")]
     pub format: String,
 }
@@ -951,6 +983,9 @@ tool_box!(
     WorkmeshTools,
     [
         VersionTool,
+        FocusShowTool,
+        FocusSetTool,
+        FocusClearTool,
         ListTasksTool,
         ShowTaskTool,
         NextTaskTool,
@@ -1033,6 +1068,9 @@ impl ServerHandler for WorkmeshServerHandler {
         let tool = WorkmeshTools::try_from(params).map_err(CallToolError::new)?;
         match tool {
             WorkmeshTools::VersionTool(tool) => tool.call(&self.context),
+            WorkmeshTools::FocusShowTool(tool) => tool.call(&self.context),
+            WorkmeshTools::FocusSetTool(tool) => tool.call(&self.context),
+            WorkmeshTools::FocusClearTool(tool) => tool.call(&self.context),
             WorkmeshTools::ListTasksTool(tool) => tool.call(&self.context),
             WorkmeshTools::ShowTaskTool(tool) => tool.call(&self.context),
             WorkmeshTools::NextTaskTool(tool) => tool.call(&self.context),
@@ -1113,6 +1151,73 @@ impl VersionTool {
         }
 
         ok_json(payload)
+    }
+}
+
+impl FocusShowTool {
+    fn call(&self, context: &McpContext) -> Result<CallToolResult, CallToolError> {
+        let backlog_dir = match resolve_root(context, self.root.as_deref()) {
+            Ok(dir) => dir,
+            Err(err) => return ok_json(err),
+        };
+        let repo_root = resolve_repo_root(context, self.root.as_deref());
+        let inferred_project = infer_project_id(&repo_root);
+        let loaded = load_focus(&backlog_dir)
+            .map_err(|err| CallToolError::from_message(err.to_string()))?;
+        if self.format == "text" {
+            if let Some(focus) = loaded {
+                return ok_text(format!(
+                    "project_id: {}\nepic_id: {}\nobjective: {}\nworking_set: {}\n",
+                    focus.project_id.unwrap_or_else(|| "(none)".into()),
+                    focus.epic_id.unwrap_or_else(|| "(none)".into()),
+                    focus.objective.unwrap_or_else(|| "(none)".into()),
+                    if focus.working_set.is_empty() {
+                        "(empty)".into()
+                    } else {
+                        focus.working_set.join(", ")
+                    }
+                ));
+            }
+            return ok_text("(no focus set)".to_string());
+        }
+        ok_json(serde_json::json!({
+            "focus": loaded,
+            "inferred": { "project_id": inferred_project }
+        }))
+    }
+}
+
+impl FocusSetTool {
+    fn call(&self, context: &McpContext) -> Result<CallToolResult, CallToolError> {
+        let backlog_dir = match resolve_root(context, self.root.as_deref()) {
+            Ok(dir) => dir,
+            Err(err) => return ok_json(err),
+        };
+        let repo_root = resolve_repo_root(context, self.root.as_deref());
+        let inferred_project = infer_project_id(&repo_root);
+        let working_set = parse_list_input(self.tasks.clone());
+        let state = FocusState {
+            project_id: self.project_id.clone().or(inferred_project),
+            epic_id: self.epic_id.clone(),
+            objective: self.objective.clone(),
+            working_set,
+            updated_at: None,
+        };
+        let path = save_focus(&backlog_dir, state.clone())
+            .map_err(|err| CallToolError::from_message(err.to_string()))?;
+        ok_json(serde_json::json!({"ok": true, "path": path, "focus": state}))
+    }
+}
+
+impl FocusClearTool {
+    fn call(&self, context: &McpContext) -> Result<CallToolResult, CallToolError> {
+        let backlog_dir = match resolve_root(context, self.root.as_deref()) {
+            Ok(dir) => dir,
+            Err(err) => return ok_json(err),
+        };
+        let cleared = clear_focus(&backlog_dir)
+            .map_err(|err| CallToolError::from_message(err.to_string()))?;
+        ok_json(serde_json::json!({"ok": true, "cleared": cleared}))
     }
 }
 
