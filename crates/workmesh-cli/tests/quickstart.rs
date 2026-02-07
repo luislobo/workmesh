@@ -1,3 +1,4 @@
+use std::fs;
 use std::process::Command;
 
 use tempfile::TempDir;
@@ -31,4 +32,6 @@ fn quickstart_scaffolds_repo() {
 
     let agents = temp.path().join("AGENTS.md");
     assert!(agents.is_file());
+    let agents_text = fs::read_to_string(&agents).expect("read AGENTS.md");
+    assert!(agents_text.contains("Derived files"));
 }
