@@ -47,7 +47,12 @@ jobs:
         uses: taiki-e/install-action@cargo-llvm-cov
 
       - name: Generate coverage (lcov)
+        env:
+          # Isolate coverage artifacts and avoid collisions/corrupt profraw files.
+          CARGO_TARGET_DIR: target/llvm-cov-ci
+          LLVM_PROFILE_FILE: target/llvm-cov-ci/profraw/%p-%m.profraw
         run: |
+          mkdir -p target/llvm-cov-ci/profraw
           cargo llvm-cov --workspace --all-features --lcov --output-path lcov.info
           cargo llvm-cov --workspace --all-features --summary-only
 
