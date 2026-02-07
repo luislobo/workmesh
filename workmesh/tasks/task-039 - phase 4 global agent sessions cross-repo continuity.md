@@ -3,7 +3,7 @@ id: task-039
 uid: 01KGV3B9NAM01W7RRWQQE9BZPS
 title: Phase 4: Global agent sessions (cross-repo continuity)
 kind: epic
-status: To Do
+status: Done
 priority: P1
 phase: Phase4
 dependencies: []
@@ -14,8 +14,8 @@ relationships:
   parent: []
   child: []
   discovered_from: []
+updated_date: 2026-02-06 22:27
 ---
-
 Description:
 --------------------------------------------------
 - Implement a global, developer-local "agent sessions" store so you can resume work across
@@ -40,3 +40,6 @@ Definition of Done:
 --------------------------------------------------
 - Code/config committed.
 - Docs updated if needed.
+
+Notes:
+- Phase 4 global agent sessions delivered: global store under WORKMESH_HOME, session save/list/show/resume (CLI + MCP), sessions index rebuild/verify, opt-in auto updates, docs + skill updated.
