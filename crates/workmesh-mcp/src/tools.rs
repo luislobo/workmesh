@@ -1039,7 +1039,10 @@ impl VersionTool {
                     .get("version")
                     .and_then(|v| v.as_str())
                     .unwrap_or_default(),
-                payload.get("full").and_then(|v| v.as_str()).unwrap_or_default()
+                payload
+                    .get("full")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or_default()
             ));
         }
 
