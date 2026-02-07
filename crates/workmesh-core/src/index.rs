@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use thiserror::Error;
 
+use crate::project::repo_root_from_backlog;
 use crate::task::{load_tasks, Task};
 
 #[derive(Debug, Error)]
@@ -85,25 +86,27 @@ pub fn refresh_index(backlog_dir: &Path) -> Result<IndexSummary, IndexError> {
         return rebuild_index(backlog_dir);
     }
     let mut entries = read_index(&path)?;
-    let mut entry_map: HashMap<PathBuf, IndexEntry> = entries
+    let mut entry_map: HashMap<String, IndexEntry> = entries
         .drain(..)
-        .filter_map(|entry| Some((PathBuf::from(entry.path.clone()), entry)))
+        .map(|entry| (entry.path.clone(), entry))
         .collect();
 
     let tasks = load_tasks(backlog_dir);
     let mut seen = HashSet::new();
+    let repo_root = repo_root_from_backlog(backlog_dir);
     for task in tasks {
         let Some(task_path) = task.file_path.as_ref() else {
             continue;
         };
         let mtime = file_mtime(task_path)?;
         let hash = hash_file(task_path)?;
-        let updated = build_entry(&task, mtime, hash);
-        entry_map.insert(task_path.clone(), updated);
-        seen.insert(task_path.clone());
+        let rel = normalize_rel_path(&repo_root, backlog_dir, task_path);
+        let updated = build_entry(&task, rel.clone(), mtime, hash);
+        entry_map.insert(rel.clone(), updated);
+        seen.insert(rel);
     }
 
-    entry_map.retain(|path, _| seen.contains(path));
+    entry_map.retain(|key, _| seen.contains(key));
     let mut updated_entries: Vec<IndexEntry> = entry_map.into_values().collect();
     sort_entries(&mut updated_entries);
     write_index(&path, &updated_entries)?;
@@ -125,38 +128,40 @@ pub fn verify_index(backlog_dir: &Path) -> Result<IndexReport, IndexError> {
         });
     }
     let entries = read_index(&path)?;
-    let entry_map: HashMap<PathBuf, IndexEntry> = entries
+    let entry_map: HashMap<String, IndexEntry> = entries
         .into_iter()
-        .map(|entry| (PathBuf::from(entry.path.clone()), entry))
+        .map(|entry| (entry.path.clone(), entry))
         .collect();
 
     let tasks = load_tasks(backlog_dir);
     let mut missing = Vec::new();
     let mut stale = Vec::new();
     let mut seen = HashSet::new();
+    let repo_root = repo_root_from_backlog(backlog_dir);
 
     for task in tasks {
         let Some(task_path) = task.file_path.as_ref() else {
             continue;
         };
-        seen.insert(task_path.clone());
-        let entry = match entry_map.get(task_path) {
+        let rel = normalize_rel_path(&repo_root, backlog_dir, task_path);
+        seen.insert(rel.clone());
+        let entry = match entry_map.get(&rel) {
             Some(entry) => entry,
             None => {
-                missing.push(task_path.to_string_lossy().to_string());
+                missing.push(rel);
                 continue;
             }
         };
         let hash = hash_file(task_path)?;
         if entry.hash != hash {
-            stale.push(task_path.to_string_lossy().to_string());
+            stale.push(rel);
         }
     }
 
     let mut extra = Vec::new();
-    for path in entry_map.keys() {
-        if !seen.contains(path) {
-            extra.push(path.to_string_lossy().to_string());
+    for key in entry_map.keys() {
+        if !seen.contains(key) {
+            extra.push(key.clone());
         }
     }
 
@@ -172,27 +177,25 @@ pub fn verify_index(backlog_dir: &Path) -> Result<IndexReport, IndexError> {
 fn build_entries(backlog_dir: &Path) -> Result<Vec<IndexEntry>, IndexError> {
     let tasks = load_tasks(backlog_dir);
     let mut entries = Vec::new();
+    let repo_root = repo_root_from_backlog(backlog_dir);
     for task in tasks {
         let Some(task_path) = task.file_path.as_ref() else {
             continue;
         };
         let mtime = file_mtime(task_path)?;
         let hash = hash_file(task_path)?;
-        entries.push(build_entry(&task, mtime, hash));
+        let rel = normalize_rel_path(&repo_root, backlog_dir, task_path);
+        entries.push(build_entry(&task, rel, mtime, hash));
     }
     sort_entries(&mut entries);
     Ok(entries)
 }
 
-fn build_entry(task: &Task, mtime: i64, hash: String) -> IndexEntry {
+fn build_entry(task: &Task, rel_path: String, mtime: i64, hash: String) -> IndexEntry {
     IndexEntry {
         id: task.id.clone(),
         uid: task.uid.clone(),
-        path: task
-            .file_path
-            .as_ref()
-            .map(|path| path.to_string_lossy().to_string())
-            .unwrap_or_default(),
+        path: rel_path,
         status: task.status.clone(),
         priority: task.priority.clone(),
         phase: task.phase.clone(),
@@ -224,6 +227,16 @@ fn sort_entries(entries: &mut Vec<IndexEntry>) {
         let key_b = (&b.id, b.uid.as_deref().unwrap_or(""), &b.path);
         key_a.cmp(&key_b)
     });
+}
+
+fn normalize_rel_path(repo_root: &Path, backlog_dir: &Path, task_path: &Path) -> String {
+    // Prefer repo-root-relative paths so indexes never leak absolute user paths.
+    // Fallbacks keep behavior stable in unusual layouts.
+    let rel = task_path
+        .strip_prefix(repo_root)
+        .or_else(|_| task_path.strip_prefix(backlog_dir))
+        .unwrap_or(task_path);
+    rel.to_string_lossy().replace('\\', "/")
 }
 
 fn read_index(path: &Path) -> Result<Vec<IndexEntry>, IndexError> {
