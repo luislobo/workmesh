@@ -687,4 +687,89 @@ mod tests {
         let err = split_front_matter("no front matter");
         assert!(matches!(err, Err(TaskParseError::MissingFrontMatter)));
     }
+
+    #[test]
+    fn parse_front_matter_loose_handles_block_scalars_and_lists() {
+        let front = r#"title: >-
+  hello
+  world
+labels:
+  - a
+  - b
+notes: |
+  line1
+  line2
+"#;
+        // Call the loose parser directly to exercise the permissive mode.
+        let data = parse_front_matter_loose(front);
+        assert_eq!(
+            data.get("title").and_then(value_to_string).as_deref(),
+            Some("hello world")
+        );
+        let labels = parse_list_value(data.get("labels"));
+        assert_eq!(labels, vec!["a", "b"]);
+        assert_eq!(
+            data.get("notes").and_then(value_to_string).as_deref(),
+            Some("line1\nline2")
+        );
+    }
+
+    #[test]
+    fn parse_front_matter_prefers_yaml_parser_when_valid() {
+        let front = "\
+title: hello\n\
+labels: [a, b]\n\
+";
+        let data = parse_front_matter(front);
+        assert_eq!(
+            data.get("title").and_then(value_to_string).as_deref(),
+            Some("hello")
+        );
+        assert_eq!(parse_list_value(data.get("labels")), vec!["a", "b"]);
+    }
+
+    #[test]
+    fn id_from_filename_finds_task_id_or_falls_back_to_stem() {
+        let temp = TempDir::new().expect("tempdir");
+        let p = temp.path().join("task-123 - hello.md");
+        fs::write(&p, "---\n---\n").expect("write");
+        assert_eq!(id_from_filename(&p), "task-123");
+
+        let p2 = temp.path().join("weird-name.md");
+        fs::write(&p2, "---\n---\n").expect("write");
+        assert_eq!(id_from_filename(&p2), "weird-name");
+    }
+
+    #[test]
+    fn load_tasks_with_archive_reads_recursive_archive_and_skips_invalid() {
+        let temp = TempDir::new().expect("tempdir");
+        let backlog = temp.path().join("workmesh");
+        let tasks_dir = backlog.join("tasks");
+        let archive_dir = backlog.join("archive").join("2026-02");
+        fs::create_dir_all(&tasks_dir).expect("tasks");
+        fs::create_dir_all(&archive_dir).expect("archive");
+
+        // Valid task.
+        fs::write(
+            tasks_dir.join("task-001 - a.md"),
+            "---\nid: task-001\ntitle: A\nstatus: To Do\npriority: P2\nphase: Phase1\n---\n",
+        )
+        .expect("write");
+
+        // Archived valid task in nested folder.
+        fs::write(
+            archive_dir.join("task-010 - done.md"),
+            "---\nid: task-010\ntitle: Done\nstatus: Done\npriority: P2\nphase: Phase1\n---\n",
+        )
+        .expect("write");
+
+        // Invalid markdown file should be ignored.
+        fs::write(archive_dir.join("task-bad.md"), "no front matter").expect("write");
+
+        let tasks = load_tasks_with_archive(&backlog);
+        let ids: Vec<String> = tasks.into_iter().map(|t| t.id).collect();
+        assert!(ids.contains(&"task-001".to_string()));
+        assert!(ids.contains(&"task-010".to_string()));
+        assert!(!ids.contains(&"task-bad".to_string()));
+    }
 }

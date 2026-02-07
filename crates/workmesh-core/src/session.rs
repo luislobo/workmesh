@@ -788,3 +788,369 @@ fn render_checkpoint_markdown(snapshot: &CheckpointSnapshot) -> String {
 fn parse_timestamp(value: &str) -> Option<NaiveDateTime> {
     NaiveDateTime::parse_from_str(value, "%Y-%m-%d %H:%M").ok()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::task::{Lease, Relationships, Task};
+    use std::collections::HashMap;
+    use std::process::Command;
+    use tempfile::TempDir;
+
+    fn task(
+        id: &str,
+        title: &str,
+        status: &str,
+        updated: Option<&str>,
+        project: Option<&str>,
+        lease: Option<Lease>,
+    ) -> Task {
+        Task {
+            id: id.to_string(),
+            uid: None,
+            kind: "task".to_string(),
+            title: title.to_string(),
+            status: status.to_string(),
+            priority: "P2".to_string(),
+            phase: "Phase1".to_string(),
+            dependencies: vec![],
+            labels: vec![],
+            assignee: vec![],
+            relationships: Relationships::default(),
+            lease: lease.map(|l| l),
+            project: project.map(|p| p.to_string()),
+            initiative: None,
+            created_date: Some("2026-02-01 10:00".to_string()),
+            updated_date: updated.map(|v| v.to_string()),
+            extra: HashMap::new(),
+            file_path: None,
+            body: String::new(),
+        }
+    }
+
+    fn init_git_repo(dir: &Path) {
+        let ok = Command::new("git")
+            .arg("init")
+            .arg("-q")
+            .current_dir(dir)
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false);
+        assert!(ok, "git init");
+        Command::new("git")
+            .args(["config", "user.email", "workmesh@example.com"])
+            .current_dir(dir)
+            .status()
+            .expect("git config");
+        Command::new("git")
+            .args(["config", "user.name", "WorkMesh"])
+            .current_dir(dir)
+            .status()
+            .expect("git config");
+        fs::write(dir.join("README.md"), "hi\n").expect("write");
+        Command::new("git")
+            .args(["add", "README.md"])
+            .current_dir(dir)
+            .status()
+            .expect("git add");
+        Command::new("git")
+            .args(["commit", "-q", "-m", "init"])
+            .current_dir(dir)
+            .status()
+            .expect("git commit");
+    }
+
+    #[test]
+    fn resolve_project_id_prefers_explicit_then_single_task_project_then_docs_then_repo_name() {
+        let temp = TempDir::new().expect("tempdir");
+        let repo = temp.path();
+        fs::create_dir_all(repo.join("docs/projects/myproj")).expect("docs");
+
+        let tasks = vec![
+            task("task-001", "A", "To Do", None, Some("myproj"), None),
+            task("task-002", "B", "To Do", None, Some("myproj"), None),
+        ];
+        assert_eq!(
+            resolve_project_id(repo, &tasks, Some(" explicit ")),
+            "explicit"
+        );
+        assert_eq!(resolve_project_id(repo, &tasks, None), "myproj");
+
+        let tasks_multi = vec![
+            task("task-001", "A", "To Do", None, Some("p1"), None),
+            task("task-002", "B", "To Do", None, Some("p2"), None),
+        ];
+        assert_eq!(resolve_project_id(repo, &tasks_multi, None), "myproj");
+
+        // If docs has a single project dir, it's used even without task project fields.
+        let tasks_none = vec![task("task-001", "A", "To Do", None, None, None)];
+        assert_eq!(resolve_project_id(repo, &tasks_none, None), "myproj");
+    }
+
+    #[test]
+    fn resolve_checkpoint_path_supports_absolute_relative_and_id_variants() {
+        let temp = TempDir::new().expect("tempdir");
+        let repo = temp.path();
+        fs::create_dir_all(repo.join("docs/projects/p/updates")).expect("updates");
+
+        let abs = repo.join("docs/projects/p/updates/checkpoint-aaa.json");
+        fs::write(&abs, "{}").expect("write");
+        assert_eq!(
+            resolve_checkpoint_path(repo, "p", Some(abs.to_string_lossy().as_ref()))
+                .unwrap()
+                .canonicalize()
+                .unwrap(),
+            abs.canonicalize().unwrap()
+        );
+
+        // Relative path from repo root.
+        let rel = "docs/projects/p/updates/checkpoint-bbb.json";
+        fs::write(repo.join(rel), "{}").expect("write");
+        assert_eq!(
+            resolve_checkpoint_path(repo, "p", Some(rel))
+                .unwrap()
+                .canonicalize()
+                .unwrap(),
+            repo.join(rel).canonicalize().unwrap()
+        );
+
+        // ID expands to checkpoint-<id>.json in updates dir.
+        fs::write(
+            repo.join("docs/projects/p/updates/checkpoint-ccc.json"),
+            "{}",
+        )
+        .expect("write");
+        assert!(resolve_checkpoint_path(repo, "p", Some("ccc"))
+            .unwrap()
+            .to_string_lossy()
+            .ends_with("checkpoint-ccc.json"));
+
+        // Empty is treated as none.
+        assert!(resolve_checkpoint_path(repo, "p", Some("  ")).is_none());
+
+        // No id: picks latest by sorted filename.
+        fs::write(
+            repo.join("docs/projects/p/updates/checkpoint-zzz.json"),
+            "{}",
+        )
+        .expect("write");
+        let latest = resolve_checkpoint_path(repo, "p", None).expect("latest");
+        assert!(latest.to_string_lossy().ends_with("checkpoint-zzz.json"));
+    }
+
+    #[test]
+    fn pick_current_task_picks_lowest_id_in_progress() {
+        let tasks = vec![
+            task("task-010", "A", "In Progress", None, None, None),
+            task("task-002", "B", "In Progress", None, None, None),
+            task("task-001", "C", "To Do", None, None, None),
+        ];
+        let current = pick_current_task(&tasks).expect("current");
+        assert_eq!(current.id, "task-002");
+    }
+
+    #[test]
+    fn active_lease_tasks_returns_active_sorted() {
+        let lease_active = Lease {
+            owner: "agent".to_string(),
+            acquired_at: Some("2026-02-01 10:00".to_string()),
+            expires_at: Some("2999-01-01 00:00".to_string()),
+        };
+        let lease_inactive = Lease {
+            owner: "".to_string(),
+            acquired_at: None,
+            expires_at: None,
+        };
+        let tasks = vec![
+            task("task-010", "A", "To Do", None, None, Some(lease_active.clone())),
+            task("task-002", "B", "To Do", None, None, Some(lease_active)),
+            task("task-001", "C", "To Do", None, None, Some(lease_inactive)),
+        ];
+        let leased = active_lease_tasks(&tasks);
+        let ids: Vec<&str> = leased.iter().map(|t| t.id.as_str()).collect();
+        assert_eq!(ids, vec!["task-002", "task-010"]);
+    }
+
+    #[test]
+    fn git_status_parses_branch_and_file_counts() {
+        let temp = TempDir::new().expect("tempdir");
+        let repo = temp.path();
+        init_git_repo(repo);
+
+        // Create one untracked file.
+        fs::write(repo.join("u.txt"), "u\n").expect("write");
+
+        // Create one staged file.
+        fs::write(repo.join("s.txt"), "s\n").expect("write");
+        Command::new("git")
+            .args(["add", "s.txt"])
+            .current_dir(repo)
+            .status()
+            .expect("git add");
+
+        // Create one unstaged change.
+        fs::write(repo.join("README.md"), "changed\n").expect("write");
+
+        let (summary, files) = git_status(repo);
+        assert!(summary.available);
+        assert!(summary.branch.is_some());
+        assert_eq!(summary.untracked, 1);
+        assert_eq!(summary.staged, 1);
+        assert_eq!(summary.unstaged, 1);
+        assert!(files.iter().any(|p| p == "u.txt"));
+    }
+
+    #[test]
+    fn diff_since_checkpoint_tracks_updated_tasks_and_new_changed_files() {
+        let temp = TempDir::new().expect("tempdir");
+        let repo = temp.path();
+        init_git_repo(repo);
+
+        // Backlog dir only needed for audit; keep it minimal.
+        let backlog = repo.join("workmesh");
+        fs::create_dir_all(backlog.join("tasks")).expect("backlog");
+
+        // Current changes: add one new untracked file.
+        fs::write(repo.join("new.txt"), "x\n").expect("write");
+
+        let tasks = vec![
+            task(
+                "task-001",
+                "Old",
+                "To Do",
+                Some("2026-02-01 09:59"),
+                None,
+                None,
+            ),
+            task(
+                "task-002",
+                "Newer",
+                "To Do",
+                Some("2026-02-01 10:00"),
+                None,
+                None,
+            ),
+            task(
+                "task-003",
+                "Newest",
+                "To Do",
+                Some("2026-02-01 10:01"),
+                None,
+                None,
+            ),
+        ];
+
+        let checkpoint = CheckpointSnapshot {
+            checkpoint_id: "x".to_string(),
+            generated_at: "2026-02-01 10:00".to_string(),
+            project_id: "p".to_string(),
+            repo_root: repo.display().to_string(),
+            backlog_dir: backlog.display().to_string(),
+            current_task: None,
+            ready: vec![],
+            leases: vec![],
+            git: GitSummary {
+                available: false,
+                branch: None,
+                upstream: None,
+                ahead: None,
+                behind: None,
+                staged: 0,
+                unstaged: 0,
+                untracked: 0,
+            },
+            changed_files: vec!["README.md".to_string()],
+            top_level_dirs: vec![],
+            audit_events: vec![],
+        };
+
+        let diff = diff_since_checkpoint(repo, &backlog, &tasks, &checkpoint);
+        let updated_ids: Vec<&str> = diff.updated_tasks.iter().map(|t| t.id.as_str()).collect();
+        // >= checkpoint timestamp includes task-002 and task-003
+        assert_eq!(updated_ids, vec!["task-002", "task-003"]);
+        assert!(diff.new_files.iter().any(|p| p == "new.txt"));
+    }
+
+    #[test]
+    fn write_working_set_and_journal_create_files() {
+        let temp = TempDir::new().expect("tempdir");
+        let repo = temp.path();
+        fs::create_dir_all(repo.join("docs/projects/p/updates")).expect("updates");
+
+        let tasks = vec![TaskSummary {
+            id: "task-001".to_string(),
+            uid: None,
+            title: "Do".to_string(),
+            status: "To Do".to_string(),
+            priority: "P2".to_string(),
+            phase: "Phase1".to_string(),
+            project: None,
+            initiative: None,
+            lease: None,
+        }];
+
+        let path = write_working_set(repo, "p", &tasks, Some("note")).expect("working set");
+        let content = fs::read_to_string(&path).expect("read");
+        assert!(content.contains("# Working Set"));
+        assert!(content.contains("## Notes"));
+
+        let j = append_session_journal(repo, "p", Some("task-001"), Some("next"), Some("note"))
+            .expect("journal");
+        let content = fs::read_to_string(&j).expect("read");
+        assert!(content.contains("# Session Journal"));
+        assert!(content.contains("Task: task-001"));
+    }
+
+    #[test]
+    fn render_resume_and_diff_have_stable_defaults() {
+        let snapshot = CheckpointSnapshot {
+            checkpoint_id: "x".to_string(),
+            generated_at: "2026-02-01 10:00".to_string(),
+            project_id: "p".to_string(),
+            repo_root: "/repo".to_string(),
+            backlog_dir: "/repo/workmesh".to_string(),
+            current_task: None,
+            ready: vec![],
+            leases: vec![],
+            git: GitSummary {
+                available: false,
+                branch: None,
+                upstream: None,
+                ahead: None,
+                behind: None,
+                staged: 0,
+                unstaged: 0,
+                untracked: 0,
+            },
+            changed_files: vec![],
+            top_level_dirs: vec![],
+            audit_events: vec![],
+        };
+        let summary = ResumeSummary {
+            snapshot: snapshot.clone(),
+            working_set: Some("- x\n".to_string()),
+            checkpoint_path: PathBuf::from("checkpoint.json"),
+        };
+        let rendered = render_resume(&summary);
+        assert!(rendered.contains("Resume from checkpoint x"));
+        assert!(rendered.contains("Current task:"));
+        assert!(rendered.contains("Working set:"));
+
+        let diff = DiffReport {
+            checkpoint_id: "x".to_string(),
+            checkpoint_time: "t".to_string(),
+            updated_tasks: vec![],
+            new_files: vec![],
+            audit_events: vec![],
+        };
+        let rendered_diff = render_diff(&diff);
+        assert!(rendered_diff.contains("Updated tasks:"));
+        assert!(rendered_diff.contains("- None"));
+    }
+
+    #[test]
+    fn parse_timestamp_parses_expected_format() {
+        assert!(parse_timestamp("2026-02-01 10:00").is_some());
+        assert!(parse_timestamp("not-a-time").is_none());
+    }
+}
