@@ -46,18 +46,7 @@ jobs:
       - name: Install cargo-llvm-cov
         uses: taiki-e/install-action@cargo-llvm-cov
 
-      - name: Generate coverage (lcov)
-        env:
-          # Isolate coverage artifacts and avoid collisions/corrupt profraw files.
-          CARGO_TARGET_DIR: target/llvm-cov-ci
-          LLVM_PROFILE_FILE: target/llvm-cov-ci/profraw/%p-%m.profraw
+      - name: Coverage gate (workmesh-core only)
         run: |
-          mkdir -p target/llvm-cov-ci/profraw
-          cargo llvm-cov --workspace --all-features --lcov --output-path lcov.info
-          cargo llvm-cov --workspace --all-features --summary-only
-
-      - name: Upload coverage artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: lcov
-          path: lcov.info
+          chmod +x scripts/ci_core_coverage_gate.sh
+          scripts/ci_core_coverage_gate.sh 80
