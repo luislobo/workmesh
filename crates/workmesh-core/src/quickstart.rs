@@ -107,3 +107,50 @@ fn snippet_marker() -> &'static str {
 fn agents_snippet() -> &'static str {
     "# WorkMesh Quickstart\n\n- Tasks live in `workmesh/tasks/`.\n- Run `workmesh --root . next` to find the next task.\n- Run `workmesh --root . ready --json` for ready work.\n- Derived files (`workmesh/.index/`, `workmesh/.audit.log`) should not be committed.\n"
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::TempDir;
+
+    #[test]
+    fn create_sample_task_if_missing_creates_first_task_only_when_empty() {
+        let temp = TempDir::new().expect("tempdir");
+        fs::create_dir_all(temp.path()).expect("dir");
+
+        let created = create_sample_task_if_missing(temp.path()).expect("create");
+        assert!(created.is_some());
+        let created = create_sample_task_if_missing(temp.path()).expect("create again");
+        assert!(created.is_none());
+
+        // Non-markdown files don't count as tasks.
+        let temp2 = TempDir::new().expect("tempdir");
+        fs::create_dir_all(temp2.path()).expect("dir");
+        fs::write(temp2.path().join("note.txt"), "hi").expect("write");
+        let created = create_sample_task_if_missing(temp2.path()).expect("create");
+        assert!(created.is_some());
+    }
+
+    #[test]
+    fn write_agents_snippet_writes_or_appends_idempotently() {
+        let temp = TempDir::new().expect("tempdir");
+        let repo = temp.path();
+
+        // When missing, it writes a new file.
+        assert!(write_agents_snippet(repo).expect("write"));
+        let content = fs::read_to_string(repo.join("AGENTS.md")).expect("read");
+        assert!(content.contains(snippet_marker()));
+
+        // When marker already present, it does not modify.
+        assert!(!write_agents_snippet(repo).expect("idempotent"));
+
+        // When file exists without marker, it appends.
+        let temp2 = TempDir::new().expect("tempdir");
+        let repo2 = temp2.path();
+        fs::write(repo2.join("AGENTS.md"), "existing\n").expect("write");
+        assert!(write_agents_snippet(repo2).expect("append"));
+        let content2 = fs::read_to_string(repo2.join("AGENTS.md")).expect("read");
+        assert!(content2.starts_with("existing\n"));
+        assert!(content2.contains(snippet_marker()));
+    }
+}

@@ -1494,4 +1494,303 @@ mod tests {
             .iter()
             .any(|err| err.contains("Duplicate task uid")));
     }
+
+    #[test]
+    fn filter_tasks_applies_common_filters_and_search() {
+        let tasks = vec![
+            Task {
+                id: "task-001".to_string(),
+                uid: None,
+                kind: "task".to_string(),
+                title: "Fix auth".to_string(),
+                status: "To Do".to_string(),
+                priority: "P1".to_string(),
+                phase: "Phase1".to_string(),
+                dependencies: vec![],
+                labels: vec!["security".to_string(), "backend".to_string()],
+                assignee: vec!["luis".to_string()],
+                relationships: Default::default(),
+                lease: None,
+                project: None,
+                initiative: None,
+                created_date: None,
+                updated_date: None,
+                extra: HashMap::new(),
+                file_path: None,
+                body: "needs token refresh".to_string(),
+            },
+            Task {
+                id: "task-002".to_string(),
+                uid: None,
+                kind: "epic".to_string(),
+                title: "Platform epic".to_string(),
+                status: "In Progress".to_string(),
+                priority: "P2".to_string(),
+                phase: "Phase2".to_string(),
+                dependencies: vec![],
+                labels: vec!["platform".to_string()],
+                assignee: vec![],
+                relationships: Default::default(),
+                lease: None,
+                project: None,
+                initiative: None,
+                created_date: None,
+                updated_date: None,
+                extra: HashMap::new(),
+                file_path: None,
+                body: "big work".to_string(),
+            },
+        ];
+
+        let status = vec!["To Do".to_string()];
+        let kind = vec!["task".to_string()];
+        let phase = vec!["Phase1".to_string()];
+        let priority = vec!["P1".to_string()];
+        let labels = vec!["security".to_string()];
+        let filtered = filter_tasks(
+            &tasks,
+            Some(&status),
+            Some(&kind),
+            Some(&phase),
+            Some(&priority),
+            Some(&labels),
+            None,
+            None,
+            None,
+            Some("token"),
+        );
+        assert_eq!(filtered.len(), 1);
+        assert_eq!(filtered[0].id, "task-001");
+    }
+
+    #[test]
+    fn filter_tasks_can_select_blocked_or_deps_ready() {
+        let done = Task {
+            id: "task-001".to_string(),
+            uid: None,
+            kind: "task".to_string(),
+            title: "Done".to_string(),
+            status: "Done".to_string(),
+            priority: "P2".to_string(),
+            phase: "Phase1".to_string(),
+            dependencies: vec![],
+            labels: vec![],
+            assignee: vec![],
+            relationships: Default::default(),
+            lease: None,
+            project: None,
+            initiative: None,
+            created_date: None,
+            updated_date: None,
+            extra: HashMap::new(),
+            file_path: None,
+            body: String::new(),
+        };
+        let ready = Task {
+            id: "task-002".to_string(),
+            uid: None,
+            kind: "task".to_string(),
+            title: "Ready".to_string(),
+            status: "To Do".to_string(),
+            priority: "P2".to_string(),
+            phase: "Phase1".to_string(),
+            dependencies: vec!["task-001".to_string()],
+            labels: vec![],
+            assignee: vec![],
+            relationships: Default::default(),
+            lease: None,
+            project: None,
+            initiative: None,
+            created_date: None,
+            updated_date: None,
+            extra: HashMap::new(),
+            file_path: None,
+            body: String::new(),
+        };
+        let blocked = Task {
+            id: "task-003".to_string(),
+            uid: None,
+            kind: "task".to_string(),
+            title: "Blocked".to_string(),
+            status: "To Do".to_string(),
+            priority: "P2".to_string(),
+            phase: "Phase1".to_string(),
+            dependencies: vec!["task-999".to_string()],
+            labels: vec![],
+            assignee: vec![],
+            relationships: Default::default(),
+            lease: None,
+            project: None,
+            initiative: None,
+            created_date: None,
+            updated_date: None,
+            extra: HashMap::new(),
+            file_path: None,
+            body: String::new(),
+        };
+        let tasks = vec![done, ready, blocked];
+
+        let deps_ready = filter_tasks(
+            &tasks,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            Some(true),
+            None,
+            None,
+        );
+        let ids: Vec<&str> = deps_ready.iter().map(|t| t.id.as_str()).collect();
+        assert_eq!(ids, vec!["task-001", "task-002"]);
+
+        let blocked_only = filter_tasks(
+            &tasks,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            Some(true),
+            None,
+        );
+        assert_eq!(blocked_only.len(), 1);
+        assert_eq!(blocked_only[0].id, "task-003");
+    }
+
+    #[test]
+    fn sort_tasks_unknown_key_is_noop() {
+        let task_a = Task {
+            id: "task-002".to_string(),
+            uid: None,
+            kind: "task".to_string(),
+            title: "B".to_string(),
+            status: "To Do".to_string(),
+            priority: "P2".to_string(),
+            phase: "Phase1".to_string(),
+            dependencies: Vec::new(),
+            labels: Vec::new(),
+            assignee: Vec::new(),
+            relationships: Default::default(),
+            lease: None,
+            project: None,
+            initiative: None,
+            created_date: None,
+            updated_date: None,
+            extra: HashMap::new(),
+            file_path: None,
+            body: String::new(),
+        };
+        let task_b = Task {
+            id: "task-001".to_string(),
+            ..task_a.clone()
+        };
+        let sorted = sort_tasks(vec![&task_a, &task_b], "nope");
+        assert_eq!(sorted[0].id, "task-002");
+        assert_eq!(sorted[1].id, "task-001");
+    }
+
+    #[test]
+    fn update_front_matter_value_can_remove_and_insert_fields() {
+        let text = "---\nstatus: To Do\nlabels: [a, b]\n---\nBody\n";
+        let removed = update_front_matter_value(text, "labels", None).expect("remove");
+        assert!(!removed.contains("labels:"));
+
+        let inserted =
+            update_front_matter_value(text, "kind", Some(FieldValue::Scalar("epic".to_string())))
+                .expect("insert");
+        assert!(inserted.contains("kind: epic"));
+    }
+
+    #[test]
+    fn update_lease_fields_writes_and_clears_lease_metadata() {
+        let temp = TempDir::new().expect("tempdir");
+        let path = temp.path().join("task-001.md");
+        fs::write(&path, "---\nid: task-001\n---\nBody\n").expect("write");
+
+        let lease = crate::task::Lease {
+            owner: "agent".to_string(),
+            acquired_at: Some("2026-02-01 10:00".to_string()),
+            expires_at: Some("2026-02-01 11:00".to_string()),
+        };
+        update_lease_fields(&path, Some(&lease)).expect("set lease");
+        let content = fs::read_to_string(&path).expect("read");
+        assert!(content.contains("lease_owner: agent"));
+        assert!(content.contains("lease_acquired_at: 2026-02-01 10:00"));
+        assert!(content.contains("lease_expires_at: 2026-02-01 11:00"));
+
+        update_lease_fields(&path, None).expect("clear lease");
+        let cleared = fs::read_to_string(&path).expect("read");
+        assert!(!cleared.contains("lease_owner:"));
+        assert!(!cleared.contains("lease_acquired_at:"));
+        assert!(!cleared.contains("lease_expires_at:"));
+    }
+
+    #[test]
+    fn set_list_field_updates_front_matter_list() {
+        let temp = TempDir::new().expect("tempdir");
+        let path = temp.path().join("task-001.md");
+        fs::write(&path, "---\nid: task-001\ndependencies: [a]\n---\nBody\n").expect("write");
+        set_list_field(&path, "dependencies", vec!["x".to_string(), "y".to_string()])
+            .expect("set list");
+        let content = fs::read_to_string(&path).expect("read");
+        assert!(content.contains("dependencies: [x, y]"));
+    }
+
+    #[test]
+    fn update_task_field_or_section_updates_notes_as_section() {
+        let temp = TempDir::new().expect("tempdir");
+        let path = temp.path().join("task-001.md");
+        fs::write(&path, "---\nid: task-001\n---\nDescription:\n- a\n").expect("write");
+        update_task_field_or_section(&path, "notes", Some("- note")).expect("notes");
+        let content = fs::read_to_string(&path).expect("read");
+        assert!(content.contains("Notes:"));
+        assert!(content.contains("- note"));
+    }
+
+    #[test]
+    fn append_note_inserts_into_marked_notes_section() {
+        let body = "Intro\n<!-- SECTION:NOTES:BEGIN -->\nold\n<!-- SECTION:NOTES:END -->\n";
+        let updated = append_note(body, "new note", "impl");
+        assert!(updated.contains("old"));
+        assert!(updated.contains("new note"));
+        assert!(updated.contains("<!-- SECTION:NOTES:BEGIN -->"));
+        assert!(updated.contains("<!-- SECTION:NOTES:END -->"));
+    }
+
+    #[test]
+    fn replace_section_replaces_existing_notes_section() {
+        let body = "Notes:\n--------------------------------------------------\n- old\n\nOther:\n- x\n";
+        let updated = replace_section(body, "Notes", "- new");
+        assert!(updated.contains("Notes:"));
+        assert!(updated.contains("- new"));
+        assert!(!updated.contains("- old"));
+    }
+
+    #[test]
+    fn create_task_file_uses_untitled_slug_when_title_is_blank() {
+        let temp = TempDir::new().expect("tempdir");
+        let tasks_dir = temp.path().join("tasks");
+        fs::create_dir_all(&tasks_dir).expect("tasks dir");
+        let path = create_task_file(
+            &tasks_dir,
+            "task-999",
+            "",
+            "To Do",
+            "P2",
+            "Phase1",
+            &[],
+            &[],
+            &[],
+        )
+        .expect("create");
+        assert!(path
+            .file_name()
+            .unwrap()
+            .to_string_lossy()
+            .contains("untitled"));
+    }
 }

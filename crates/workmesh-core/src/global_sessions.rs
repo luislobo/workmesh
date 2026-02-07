@@ -315,3 +315,135 @@ fn append_jsonl_line(path: &Path, line: &str) -> Result<()> {
     writeln!(file, "{}", line).context("append jsonl line")?;
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Mutex;
+    use tempfile::TempDir;
+
+    static ENV_LOCK: Mutex<()> = Mutex::new(());
+
+    fn session(id: &str, updated_at: &str, cwd: &str) -> AgentSession {
+        AgentSession {
+            id: id.to_string(),
+            created_at: "2026-02-01T00:00:00Z".to_string(),
+            updated_at: updated_at.to_string(),
+            cwd: cwd.to_string(),
+            repo_root: None,
+            project_id: None,
+            epic_id: None,
+            objective: "ship".to_string(),
+            working_set: vec!["task-001".to_string()],
+            notes: None,
+            git: None,
+            checkpoint: None,
+            recent_changes: None,
+        }
+    }
+
+    #[test]
+    fn read_current_session_id_returns_none_for_invalid_json() {
+        let temp = TempDir::new().expect("tempdir");
+        ensure_global_dirs(temp.path()).expect("dirs");
+        fs::write(sessions_current_path(temp.path()), "not-json").expect("write");
+        assert!(read_current_session_id(temp.path()).is_none());
+    }
+
+    #[test]
+    fn load_sessions_latest_ignores_non_session_events_and_blank_lines() {
+        let temp = TempDir::new().expect("tempdir");
+        ensure_global_dirs(temp.path()).expect("dirs");
+        let path = sessions_events_path(temp.path());
+        append_jsonl_line(&path, "").expect("append blank");
+        append_jsonl_line(&path, r#"{"type":"other","session":{"id":"x","created_at":"t","updated_at":"t","cwd":"c","objective":"o","working_set":[]}}"#)
+            .expect("append other");
+        append_session_saved(temp.path(), session("s1", "2026-02-01T01:00:00Z", "/tmp"))
+            .expect("append");
+
+        let sessions = load_sessions_latest(temp.path()).expect("load");
+        assert_eq!(sessions.len(), 1);
+        assert_eq!(sessions[0].id, "s1");
+    }
+
+    #[test]
+    fn verify_sessions_index_reports_missing_extra_and_mismatch() {
+        let temp = TempDir::new().expect("tempdir");
+        let home = temp.path();
+
+        append_session_saved(home, session("s1", "2026-02-01T01:00:00Z", "/a")).expect("append");
+        append_session_saved(home, session("s2", "2026-02-01T02:00:00Z", "/b")).expect("append");
+        rebuild_sessions_index(home).expect("rebuild");
+
+        // Missing: drop s2 by rewriting index with only s1 + extra.
+        let source = load_sessions_latest(home).expect("load source");
+        let mut s1 = source.iter().find(|s| s.id == "s1").unwrap().clone();
+        // Mismatch: keep the same id but change a field checked by verify.
+        s1.cwd = "/changed".to_string();
+        let rewritten = format!(
+            "{}\n{}\n",
+            serde_json::to_string(&s1).unwrap(),
+            serde_json::to_string(&session("extra", "2026-02-01T03:00:00Z", "/x")).unwrap()
+        );
+        let index_path = sessions_index_path(home);
+        fs::write(&index_path, rewritten).expect("write missing");
+
+        let report = verify_sessions_index(home).expect("verify");
+        assert!(!report.ok);
+        assert!(report.missing_in_index.contains(&"s2".to_string()));
+        assert!(report.extra_in_index.contains(&"extra".to_string()));
+        assert!(report.mismatched.contains(&"s1".to_string()));
+    }
+
+    #[test]
+    fn load_sessions_latest_fast_falls_back_when_index_is_corrupt() {
+        let temp = TempDir::new().expect("tempdir");
+        let home = temp.path();
+
+        append_session_saved(home, session("s1", "2026-02-01T01:00:00Z", "/a")).expect("append");
+        rebuild_sessions_index(home).expect("rebuild");
+        fs::write(sessions_index_path(home), "not-json\n").expect("corrupt");
+
+        let sessions = load_sessions_latest_fast(home).expect("load fast");
+        assert_eq!(sessions.len(), 1);
+        assert_eq!(sessions[0].id, "s1");
+    }
+
+    #[test]
+    fn helpers_are_stable_and_refresh_is_a_rebuild() {
+        // Keep env mutation serialized across tests.
+        let _lock = ENV_LOCK.lock().expect("lock");
+
+        let temp = TempDir::new().expect("tempdir");
+        let home = temp.path();
+
+        // Basic helpers.
+        assert!(!now_rfc3339().is_empty());
+        assert!(!new_session_id().is_empty());
+        assert!(sessions_events_path(home).ends_with("sessions/events.jsonl"));
+        assert!(sessions_current_path(home).ends_with("sessions/current.json"));
+        assert!(sessions_index_path(home).ends_with(".index/sessions.jsonl"));
+
+        // WORKMESH_HOME empty should fall back to HOME.
+        std::env::set_var("WORKMESH_HOME", "   ");
+        let resolved = resolve_workmesh_home().expect("resolve");
+        assert!(resolved.to_string_lossy().ends_with(".workmesh"));
+        std::env::remove_var("WORKMESH_HOME");
+
+        append_session_saved(home, session("s1", "2026-02-01T01:00:00Z", "/a")).expect("append");
+        let rebuilt = rebuild_sessions_index(home).expect("rebuild");
+        let refreshed = refresh_sessions_index(home).expect("refresh");
+        assert_eq!(rebuilt.indexed, refreshed.indexed);
+    }
+
+    #[test]
+    fn verify_sessions_index_reports_missing_when_index_is_absent() {
+        let temp = TempDir::new().expect("tempdir");
+        let home = temp.path();
+
+        append_session_saved(home, session("s1", "2026-02-01T01:00:00Z", "/a")).expect("append");
+        let report = verify_sessions_index(home).expect("verify");
+        assert!(!report.ok);
+        assert!(report.missing_in_index.contains(&"s1".to_string()));
+    }
+}

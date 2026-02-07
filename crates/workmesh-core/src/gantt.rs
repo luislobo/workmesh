@@ -371,3 +371,163 @@ fn expand_user(path: &Path) -> PathBuf {
     }
     path.to_path_buf()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::task::{Relationships, Task};
+    use std::collections::HashMap;
+
+    fn task(id: &str, title: &str, status: &str, phase: &str, deps: &[&str]) -> Task {
+        Task {
+            id: id.to_string(),
+            uid: None,
+            kind: "Task".to_string(),
+            title: title.to_string(),
+            status: status.to_string(),
+            priority: "P2".to_string(),
+            phase: phase.to_string(),
+            dependencies: deps.iter().map(|d| d.to_string()).collect(),
+            labels: vec![],
+            assignee: vec![],
+            relationships: Relationships::default(),
+            lease: None,
+            project: None,
+            initiative: None,
+            created_date: None,
+            updated_date: None,
+            extra: HashMap::new(),
+            file_path: None,
+            body: String::new(),
+        }
+    }
+
+    #[test]
+    fn ensure_svg_pipe_adds_missing_args() {
+        let args = ensure_svg_pipe(vec!["plantuml".to_string()]);
+        assert!(args.iter().any(|a| a == "-tsvg"));
+        assert!(args.iter().any(|a| a == "-pipe"));
+
+        let args = ensure_svg_pipe(vec![
+            "plantuml".to_string(),
+            "-pipe".to_string(),
+            "-tsvg".to_string(),
+        ]);
+        assert_eq!(args.iter().filter(|a| *a == "-tsvg").count(), 1);
+        assert_eq!(args.iter().filter(|a| *a == "-pipe").count(), 1);
+    }
+
+    #[test]
+    fn safe_title_sanitizes_and_defaults() {
+        assert_eq!(safe_title(""), "(no title)");
+        assert_eq!(safe_title("a[b]c"), "a(b)c");
+    }
+
+    #[test]
+    fn phase_order_list_uses_default_and_sorts_extras() {
+        let phases = vec![
+            "Phase2".to_string(),
+            "Weird".to_string(),
+            "phase0".to_string(),
+            "Phase1".to_string(),
+        ];
+        let ordered = phase_order_list(phases, None);
+        assert_eq!(ordered[0], "Phase1");
+        assert_eq!(ordered[1], "Phase2");
+        assert_eq!(ordered[2], "phase0");
+        assert_eq!(ordered[3], "Weird");
+    }
+
+    #[test]
+    fn group_by_phase_defaults_to_unphased() {
+        let t1 = task("task-001", "A", "To Do", "", &[]);
+        let t2 = task("task-002", "B", "To Do", "Phase1", &[]);
+        let grouped = group_by_phase(&[&t1, &t2]);
+        assert!(grouped.get("Unphased").is_some());
+        assert!(grouped.get("Phase1").is_some());
+    }
+
+    #[test]
+    fn duration_for_task_adds_small_dependency_penalty() {
+        let mut durations: HashMap<String, i32> = HashMap::new();
+        durations.insert("Phase1".to_string(), 2);
+
+        let t = task("task-001", "A", "To Do", "Phase1", &["task-002", "task-003", "task-004"]);
+        assert_eq!(duration_for_task(&t, &durations), 4);
+    }
+
+    #[test]
+    fn status_key_marks_blocked_until_all_dependencies_done() {
+        let done: HashSet<String> = ["task-002".to_string()].into_iter().collect();
+        let blocked = task("task-001", "A", "To Do", "Phase1", &["task-002", "task-003"]);
+        assert_eq!(status_key(&blocked, &done), "blocked");
+
+        let unblocked = task("task-001", "A", "To Do", "Phase1", &["task-002"]);
+        assert_eq!(status_key(&unblocked, &done), "to do");
+
+        let in_progress = task("task-001", "A", "In Progress", "Phase1", &[]);
+        assert_eq!(status_key(&in_progress, &done), "in progress");
+
+        let done_task = task("task-001", "A", "Done", "Phase1", &[]);
+        assert_eq!(status_key(&done_task, &done), "done");
+    }
+
+    #[test]
+    fn plantuml_gantt_renders_phases_tasks_and_dependencies() {
+        let t1 = task("task-001", "First", "To Do", "Phase1", &[]);
+        let t2 = task("task-002", "", "To Do", "Phase1", &["task-001"]);
+        let t3 = task("task-010", "Later", "Done", "Phase2", &[]);
+        let text = plantuml_gantt(&[t1, t2, t3], Some("2026-01-01"), None, 2, None, true);
+        assert!(text.contains("@startgantt"));
+        assert!(text.contains("Project starts 2026-01-01"));
+        assert!(text.contains("scale 2"));
+        assert!(text.contains("-- Phase1 --"));
+        assert!(text.contains("-- Phase2 --"));
+        assert!(text.contains("task-002 (no title)"));
+        assert!(text.contains("' Dependencies"));
+        assert!(text.contains("[task-001 First] --> [task-002 (no title)]"));
+    }
+
+    #[test]
+    fn start_to_iso_returns_valid_iso_date() {
+        assert_eq!(start_to_iso(Some("2026-02-01")), "2026-02-01");
+        let fallback = start_to_iso(Some("not-a-date"));
+        assert_eq!(fallback.len(), 10);
+        assert!(NaiveDate::parse_from_str(&fallback, "%Y-%m-%d").is_ok());
+    }
+
+    #[test]
+    fn strip_timegrid_removes_vertical_grid_lines_only() {
+        let svg = r#"<svg>
+<line style="stroke: #C0C0C0" x1="10" y1="0" x2="10" y2="100"/>
+<line style="stroke: #C0C0C0" x1="0" y1="10" x2="100" y2="10"/>
+<line style="stroke: #FF0000" x1="20" y1="0" x2="20" y2="100"/>
+</svg>"#;
+        let stripped = strip_timegrid(svg);
+        assert!(!stripped.contains(r#"x1="10""#));
+        assert!(stripped.contains(r#"x1="0""#));
+        assert!(stripped.contains(r#"stroke: #FF0000"#));
+    }
+
+    #[test]
+    fn resolve_plantuml_command_prefers_explicit_env_cmd() {
+        let mut env_map: HashMap<String, String> = HashMap::new();
+        env_map.insert("XH_TASKS_PLANTUML_CMD".to_string(), "plantuml -pipe".to_string());
+        let resolved = resolve_plantuml_command(None, None, Some(&env_map)).expect("resolve");
+        assert_eq!(resolved[0], "plantuml");
+        assert!(resolved.iter().any(|a| a == "-pipe"));
+        assert!(resolved.iter().any(|a| a == "-tsvg"));
+    }
+
+    #[test]
+    fn expand_user_expands_home_when_available() {
+        let home = env::var("HOME").ok();
+        let input = Path::new("~/workmesh-test-file");
+        let expanded = expand_user(input);
+        if let Some(home) = home {
+            assert!(expanded.to_string_lossy().starts_with(&home));
+        } else {
+            assert_eq!(expanded, input);
+        }
+    }
+}
