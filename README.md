@@ -171,7 +171,13 @@ workmesh --root . list --kind epic --sort kind
 ```
 
 ## Session continuity
-Use checkpoints to resume work after compaction or a new session.
+WorkMesh provides two complementary continuity mechanisms:
+
+1. Repo-local checkpoints: store a snapshot inside the repo (good for "continue this repo")
+2. Global agent sessions: store a cross-repo session pointer under `WORKMESH_HOME` (good for "I rebooted / switched OS / changed machines")
+
+### Repo-local checkpoints
+Use checkpoints to resume work after compaction or a new session inside the same repo.
 ```bash
 # write checkpoint
 workmesh --root . checkpoint --project workmesh
@@ -183,6 +189,34 @@ workmesh --root . resume --project workmesh
 workmesh --root . checkpoint-diff --project workmesh
 ```
 
+### Global agent sessions (cross-repo continuity)
+Global sessions are stored outside the repo by default:
+- `WORKMESH_HOME` (default: `~/.workmesh`)
+- Events: `WORKMESH_HOME/sessions/events.jsonl` (append-only)
+- Current pointer: `WORKMESH_HOME/sessions/current.json`
+- Index: `WORKMESH_HOME/.index/sessions.jsonl` (derived, rebuildable)
+
+Typical "I need to reboot/switch OS" workflow:
+```bash
+# before reboot: save a session (sets the current session pointer)
+workmesh --root . session save --objective "Finish Phase 4 sessions docs"
+
+# later: list recent sessions
+workmesh --root . session list --limit 20
+
+# resume from current session pointer (or provide a session id)
+workmesh --root . session resume
+workmesh --root . session resume 01K...
+```
+
+`session resume` prints a short summary plus a "resume script" (suggested next commands).
+
+Auto session updates (opt-in):
+- CLI flag: `--auto-session-save`
+- Env: `WORKMESH_AUTO_SESSION=1`
+
+When enabled, mutating commands update the current global session with best-effort context:
+repo root, inferred project id, working set (in progress tasks / active leases), and a git snapshot.
 ## Migration from legacy backlog/
 WorkMesh prefers `workmesh/` (or `.workmesh/`). If it detects a legacy `backlog/` layout, the CLI will prompt to migrate.
 
@@ -327,11 +361,16 @@ Gantt:
 - `gantt`, `gantt-file`, `gantt-svg`
 
 Session continuity:
-- `checkpoint`, `resume`, `working-set`, `session-journal`, `checkpoint-diff`
+- Repo-local: `checkpoint`, `resume`, `working-set`, `session-journal`, `checkpoint-diff`
+- Global: `session save|list|show|resume|index-rebuild|index-refresh|index-verify`
 
 Auto-checkpointing:
 - CLI flag: `--auto-checkpoint`
 - Env: `WORKMESH_AUTO_CHECKPOINT=1`
+
+Auto session updates (opt-in):
+- CLI flag: `--auto-session-save`
+- Env: `WORKMESH_AUTO_SESSION=1`
 
 ## Features
 - CLI for list/next/show/stats/export, plus task mutation (status, fields, labels, deps, notes).

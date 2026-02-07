@@ -3,7 +3,7 @@ id: task-045
 uid: 01KGV3B9RRCRDS1GB7F6G910CB
 title: Docs: global sessions workflow + examples
 kind: task
-status: To Do
+status: Done
 priority: P2
 phase: Phase4
 dependencies: []
@@ -14,8 +14,8 @@ relationships:
   parent: []
   child: []
   discovered_from: []
+updated_date: 2026-02-06 22:27
 ---
-
 Description:
 --------------------------------------------------
 - Document global sessions in `README.md` and in project docs:
@@ -32,3 +32,6 @@ Definition of Done:
 --------------------------------------------------
 - Code/config committed.
 - Docs updated if needed.
+
+Notes:
+- Updated README and repo skill to document global agent sessions (WORKMESH_HOME store, session save/list/resume, opt-in auto updates via --auto-session-save/WORKMESH_AUTO_SESSION).
