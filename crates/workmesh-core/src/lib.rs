@@ -5,6 +5,7 @@ pub mod audit;
 pub mod backlog;
 pub mod config;
 pub mod gantt;
+pub mod global_sessions;
 pub mod index;
 pub mod migration;
 pub mod project;
