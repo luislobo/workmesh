@@ -13,29 +13,78 @@ This repository contains the Rust implementation (CLI + core + MCP server).
 - Enable agent-safe coordination (leases/claims, stable ordering).
 
 ## Install
-Prerequisites: Rust toolchain (stable).
+Prerequisites:
+- None if you use prebuilt releases
+- Rust toolchain (stable) if you build from source
 
-From GitHub Releases (recommended):
-1. Download the right archive for your OS/CPU from the latest release.
-2. Extract it.
-3. Put `workmesh` and `workmesh-mcp` somewhere on your `PATH`.
+### Prebuilt binaries (recommended)
+Each release publishes archives named like:
+- `workmesh-vX.Y.Z-x86_64-apple-darwin.tar.gz` (macOS Intel)
+- `workmesh-vX.Y.Z-aarch64-apple-darwin.tar.gz` (macOS Apple Silicon)
+- `workmesh-vX.Y.Z-x86_64-unknown-linux-gnu.tar.gz` (Linux x86_64, glibc)
+- `workmesh-vX.Y.Z-aarch64-unknown-linux-gnu.tar.gz` (Linux arm64, glibc)
+- `workmesh-vX.Y.Z-x86_64-pc-windows-msvc.zip` (Windows x86_64)
 
-macOS / Linux (tar.gz):
+Note: in Rust target triples the `unknown` segment is the historical "vendor" field on Linux (`x86_64-unknown-linux-gnu`).
+
+Pick a release version:
 ```bash
-# Example (replace URL with the asset URL for your platform):
-# workmesh-v0.2.3-x86_64-unknown-linux-gnu.tar.gz
+workmesh_version="v0.2.3"
+```
+
+#### macOS / Linux (tar.gz)
+Option A: download with GitHub CLI (`gh`) (no raw URLs):
+```bash
+# Example: Linux x86_64
+gh release download "$workmesh_version" -R luislobo/workmesh \
+  -p "workmesh-$workmesh_version-x86_64-unknown-linux-gnu.tar.gz"
+
+tar -xzf "workmesh-$workmesh_version-x86_64-unknown-linux-gnu.tar.gz"
+sudo install -m 0755 "workmesh-$workmesh_version-x86_64-unknown-linux-gnu/workmesh" /usr/local/bin/workmesh
+sudo install -m 0755 "workmesh-$workmesh_version-x86_64-unknown-linux-gnu/workmesh-mcp" /usr/local/bin/workmesh-mcp
+```
+
+Option B: download from the GitHub release page in a browser, then:
+```bash
 tar -xzf workmesh-vX.Y.Z-<target>.tar.gz
 sudo install -m 0755 workmesh-vX.Y.Z-<target>/workmesh /usr/local/bin/workmesh
 sudo install -m 0755 workmesh-vX.Y.Z-<target>/workmesh-mcp /usr/local/bin/workmesh-mcp
 ```
 
-Windows (zip):
-1. Download `workmesh-vX.Y.Z-x86_64-pc-windows-msvc.zip`
-2. Extract
-3. Put `workmesh.exe` and `workmesh-mcp.exe` somewhere on your `PATH`
+Verify:
+```bash
+workmesh --version
+workmesh-mcp --version
+```
 
-Agent configuration (MCP):
-- Point your agent to the `workmesh-mcp` binary path (either the extracted release binary or your locally built one).
+Optional checksum verification:
+- Linux: `sha256sum <archive>`
+- macOS: `shasum -a 256 <archive>`
+
+#### Windows (zip)
+PowerShell (with `gh`):
+```powershell
+$workmesh_version = "v0.2.3"
+gh release download $workmesh_version -R luislobo/workmesh `
+  -p "workmesh-$workmesh_version-x86_64-pc-windows-msvc.zip"
+
+Expand-Archive "workmesh-$workmesh_version-x86_64-pc-windows-msvc.zip" -DestinationPath . -Force
+# Add the extracted folder to PATH, or move binaries somewhere already on PATH.
+```
+
+Verify:
+```powershell
+.\workmesh-$workmesh_version-x86_64-pc-windows-msvc\workmesh.exe --version
+.\workmesh-$workmesh_version-x86_64-pc-windows-msvc\workmesh-mcp.exe --version
+```
+
+Optional checksum verification:
+```powershell
+CertUtil -hashfile "workmesh-$workmesh_version-x86_64-pc-windows-msvc.zip" SHA256
+```
+
+### Agent configuration (MCP)
+Point your agent to the `workmesh-mcp` binary you installed (either from releases or built locally).
 
 From source:
 ```bash
