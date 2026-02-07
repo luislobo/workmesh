@@ -3,7 +3,7 @@ id: task-041
 uid: 01KGV3B9PKWMS2YYF7JNXYA54X
 title: Global sessions: CLI commands session save/list/show/resume
 kind: story
-status: To Do
+status: Done
 priority: P1
 phase: Phase4
 dependencies: []
@@ -14,8 +14,8 @@ relationships:
   parent: []
   child: []
   discovered_from: []
+updated_date: 2026-02-06 22:07
 ---
-
 Description:
 --------------------------------------------------
 - Implement CLI commands:
@@ -37,3 +37,6 @@ Definition of Done:
 --------------------------------------------------
 - Code/config committed.
 - Docs updated if needed.
+
+Notes:
+- Added global session CLI commands: session save/list/show/resume. Persists to WORKMESH_HOME (~/.workmesh), captures best-effort repo context (repo_root/project_id/working set/git/checkpoint). Added CLI integration tests.
