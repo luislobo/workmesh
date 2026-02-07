@@ -1,0 +1,63 @@
+@startuml
+title WorkMesh DX Workflow (CLI + MCP)
+
+skinparam shadowing false
+skinparam backgroundColor white
+skinparam activity {
+  BackgroundColor #F7F7F7
+  BorderColor #222222
+  FontColor #111111
+  ArrowColor #222222
+}
+skinparam note {
+  BackgroundColor #FFF9DB
+  BorderColor #D09B2C
+  FontColor #111111
+}
+
+start
+
+partition "Bootstrap (new repo)" {
+  :workmesh quickstart;
+  note right
+    Creates:
+    - docs/projects/<project-id>/
+    - workmesh/tasks/task-001...
+    Option: --agents-snippet
+  end note
+  :index-rebuild (optional);
+  :focus set (recommended);
+}
+
+partition "Daily loop" {
+  :ready --json;
+  :claim (lease);
+  :set-status In Progress;
+  :work (code + docs);
+  :note / set-section (context);
+  if (Done?) then (yes)
+    :set-status Done;
+  else (no)
+    :keep In Progress;
+  endif
+  :release (lease);
+}
+
+partition "Continuity" {
+  :checkpoint;
+  :resume / checkpoint-diff;
+  note right
+    Checkpoint = repo-local restart point
+    Global sessions = cross-repo continuity
+  end note
+}
+
+partition "History + safety" {
+  :archive Done tasks (YYYY-MM);
+  :audit log (append-only);
+  :graph-export / issues-export;
+}
+
+stop
+@enduml
+

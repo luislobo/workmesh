@@ -143,6 +143,13 @@ workmesh/
     task-001 - seed task.md
 ```
 
+## DX workflow (diagram)
+This is the intended day-to-day workflow, including multi-agent safety and restartability:
+
+![WorkMesh DX workflow](docs/diagrams/dx-workflow.png)
+
+Diagram source: `docs/diagrams/dx-workflow.puml`
+
 ## Focus (keep agents scoped)
 `focus` is a repo-local "what we are doing right now" pointer for humans and agents. It is used to
 reduce thrash across sessions and help WorkMesh infer context when saving global sessions.
