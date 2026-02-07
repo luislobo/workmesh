@@ -105,6 +105,10 @@ pub fn sessions_current_path(home: &Path) -> PathBuf {
     home.join("sessions").join("current.json")
 }
 
+pub fn sessions_index_path(home: &Path) -> PathBuf {
+    home.join(".index").join("sessions.jsonl")
+}
+
 pub fn ensure_global_dirs(home: &Path) -> Result<()> {
     fs::create_dir_all(home.join("sessions"))
         .with_context(|| format!("create sessions dir under {}", home.display()))?;
@@ -178,6 +182,126 @@ pub fn load_sessions_latest(home: &Path) -> Result<Vec<AgentSession>> {
     Ok(sessions)
 }
 
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+pub struct SessionsIndexSummary {
+    pub indexed: usize,
+    pub path: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+pub struct SessionsIndexReport {
+    pub ok: bool,
+    pub missing_in_index: Vec<String>,
+    pub extra_in_index: Vec<String>,
+    pub mismatched: Vec<String>,
+}
+
+pub fn rebuild_sessions_index(home: &Path) -> Result<SessionsIndexSummary> {
+    ensure_global_dirs(home)?;
+    let sessions = load_sessions_latest(home)?;
+    let index_path = sessions_index_path(home);
+    let tmp = index_path.with_extension("jsonl.tmp");
+
+    let mut file = fs::File::create(&tmp)
+        .with_context(|| format!("create temp index {}", tmp.display()))?;
+    for session in &sessions {
+        let line = serde_json::to_string(session).context("serialize session for index")?;
+        writeln!(file, "{}", line).context("write index line")?;
+    }
+    fs::rename(&tmp, &index_path)
+        .with_context(|| format!("rename {} -> {}", tmp.display(), index_path.display()))?;
+
+    Ok(SessionsIndexSummary {
+        indexed: sessions.len(),
+        path: index_path.to_string_lossy().to_string(),
+    })
+}
+
+pub fn refresh_sessions_index(home: &Path) -> Result<SessionsIndexSummary> {
+    // Sessions are stored as append-only events; a cheap and correct refresh is a rebuild.
+    rebuild_sessions_index(home)
+}
+
+pub fn load_sessions_latest_from_index(home: &Path) -> Result<Vec<AgentSession>> {
+    let index = sessions_index_path(home);
+    if !index.exists() {
+        return Err(anyhow!(
+            "Sessions index not found: {} (run session index-rebuild)",
+            index.display()
+        ));
+    }
+    let file = fs::File::open(&index).with_context(|| format!("open {}", index.display()))?;
+    let reader = BufReader::new(file);
+
+    let mut sessions = Vec::new();
+    for (idx, line) in reader.lines().enumerate() {
+        let line = line.with_context(|| format!("read line {}", idx + 1))?;
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        let session: AgentSession = serde_json::from_str(trimmed)
+            .with_context(|| format!("parse session on line {}", idx + 1))?;
+        sessions.push(session);
+    }
+    sessions.sort_by(|a, b| {
+        b.updated_at
+            .cmp(&a.updated_at)
+            .then_with(|| a.id.cmp(&b.id))
+    });
+    Ok(sessions)
+}
+
+pub fn load_sessions_latest_fast(home: &Path) -> Result<Vec<AgentSession>> {
+    if sessions_index_path(home).exists() {
+        if let Ok(sessions) = load_sessions_latest_from_index(home) {
+            return Ok(sessions);
+        }
+    }
+    load_sessions_latest(home)
+}
+
+pub fn verify_sessions_index(home: &Path) -> Result<SessionsIndexReport> {
+    let source = load_sessions_latest(home)?;
+    let indexed = match load_sessions_latest_from_index(home) {
+        Ok(value) => value,
+        Err(_) => Vec::new(),
+    };
+
+    let source_map: BTreeMap<String, AgentSession> =
+        source.into_iter().map(|s| (s.id.clone(), s)).collect();
+    let index_map: BTreeMap<String, AgentSession> =
+        indexed.into_iter().map(|s| (s.id.clone(), s)).collect();
+
+    let mut missing_in_index = Vec::new();
+    let mut extra_in_index = Vec::new();
+    let mut mismatched = Vec::new();
+
+    for (id, session) in &source_map {
+        match index_map.get(id) {
+            None => missing_in_index.push(id.clone()),
+            Some(indexed) => {
+                if indexed.updated_at != session.updated_at || indexed.cwd != session.cwd {
+                    mismatched.push(id.clone());
+                }
+            }
+        }
+    }
+
+    for id in index_map.keys() {
+        if !source_map.contains_key(id) {
+            extra_in_index.push(id.clone());
+        }
+    }
+
+    Ok(SessionsIndexReport {
+        ok: missing_in_index.is_empty() && extra_in_index.is_empty() && mismatched.is_empty(),
+        missing_in_index,
+        extra_in_index,
+        mismatched,
+    })
+}
+
 fn append_jsonl_line(path: &Path, line: &str) -> Result<()> {
     let mut file = fs::OpenOptions::new()
         .create(true)
@@ -187,4 +311,3 @@ fn append_jsonl_line(path: &Path, line: &str) -> Result<()> {
     writeln!(file, "{}", line).context("append jsonl line")?;
     Ok(())
 }
-

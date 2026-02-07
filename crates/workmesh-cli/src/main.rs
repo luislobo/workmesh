@@ -16,9 +16,9 @@ use workmesh_core::gantt::{
     plantuml_gantt, render_plantuml_svg, write_text_file, PlantumlRenderError,
 };
 use workmesh_core::global_sessions::{
-    append_session_saved, load_sessions_latest, new_session_id, now_rfc3339,
-    read_current_session_id, resolve_workmesh_home, set_current_session, AgentSession,
-    CheckpointRef, GitSnapshot,
+    append_session_saved, load_sessions_latest_fast, new_session_id, now_rfc3339,
+    read_current_session_id, rebuild_sessions_index, refresh_sessions_index, resolve_workmesh_home,
+    set_current_session, verify_sessions_index, AgentSession, CheckpointRef, GitSnapshot,
 };
 use workmesh_core::index::{rebuild_index, refresh_index, verify_index};
 use workmesh_core::migration::{migrate_backlog, MigrationError};
@@ -570,6 +570,21 @@ enum SessionCommand {
     Resume {
         /// Session id; if omitted, uses the current session pointer if present
         session_id: Option<String>,
+        #[arg(long, action = ArgAction::SetTrue)]
+        json: bool,
+    },
+    /// Rebuild the global sessions index (JSONL) for fast queries
+    IndexRebuild {
+        #[arg(long, action = ArgAction::SetTrue)]
+        json: bool,
+    },
+    /// Refresh the global sessions index (JSONL)
+    IndexRefresh {
+        #[arg(long, action = ArgAction::SetTrue)]
+        json: bool,
+    },
+    /// Verify the global sessions index (JSONL) against source events
+    IndexVerify {
         #[arg(long, action = ArgAction::SetTrue)]
         json: bool,
     },
@@ -1257,7 +1272,7 @@ fn main() -> Result<()> {
                     }
                 }
                 SessionCommand::List { limit, json } => {
-                    let mut sessions = load_sessions_latest(&home)?;
+                    let mut sessions = load_sessions_latest_fast(&home)?;
                     if let Some(limit) = limit {
                         sessions.truncate(limit);
                     }
@@ -1272,7 +1287,7 @@ fn main() -> Result<()> {
                     }
                 }
                 SessionCommand::Show { session_id, json } => {
-                    let sessions = load_sessions_latest(&home)?;
+                    let sessions = load_sessions_latest_fast(&home)?;
                     let session = sessions
                         .into_iter()
                         .find(|s| s.id == session_id)
@@ -1287,7 +1302,7 @@ fn main() -> Result<()> {
                     let id = session_id.or_else(|| read_current_session_id(&home)).unwrap_or_else(
                         || die("No session id provided and no current session pointer found"),
                     );
-                    let sessions = load_sessions_latest(&home)?;
+                    let sessions = load_sessions_latest_fast(&home)?;
                     let session = sessions
                         .into_iter()
                         .find(|s| s.id == id)
@@ -1307,6 +1322,32 @@ fn main() -> Result<()> {
                         for line in script {
                             println!("{}", line);
                         }
+                    }
+                }
+                SessionCommand::IndexRebuild { json } => {
+                    let summary = rebuild_sessions_index(&home)?;
+                    if json {
+                        println!("{}", serde_json::to_string_pretty(&summary)?);
+                    } else {
+                        println!("Indexed {} sessions -> {}", summary.indexed, summary.path);
+                    }
+                }
+                SessionCommand::IndexRefresh { json } => {
+                    let summary = refresh_sessions_index(&home)?;
+                    if json {
+                        println!("{}", serde_json::to_string_pretty(&summary)?);
+                    } else {
+                        println!("Indexed {} sessions -> {}", summary.indexed, summary.path);
+                    }
+                }
+                SessionCommand::IndexVerify { json } => {
+                    let report = verify_sessions_index(&home)?;
+                    if json {
+                        println!("{}", serde_json::to_string_pretty(&report)?);
+                    } else if report.ok {
+                        println!("OK");
+                    } else {
+                        println!("{}", serde_json::to_string_pretty(&report)?);
                     }
                 }
             }
