@@ -65,6 +65,10 @@ Use this skill to manage Markdown-backed workmesh tasks with explicit dependenci
   - Use when: bootstrapping a new repo or enabling WorkMesh in an existing repo.
   - Workflow: run once → review scaffold → add first real tasks.
   - Command: `workmesh --root /path quickstart project-id --agents-snippet`
+- Archive-aware listing
+  - Use when: you need to see historical Done tasks that were moved under `workmesh/archive/`.
+  - Workflow: list with `--all` to include archived markdown.
+  - Command: `workmesh --root /path list --all --json`
 
 ## CLI quickstart
 - List: `workmesh --root /path list --status "To Do"`

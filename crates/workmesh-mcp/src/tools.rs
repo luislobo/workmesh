@@ -33,7 +33,7 @@ use workmesh_core::session::{
     append_session_journal, diff_since_checkpoint, render_diff, render_resume, resolve_project_id,
     resume_summary, task_summary, write_checkpoint, write_working_set, CheckpointOptions,
 };
-use workmesh_core::task::{load_tasks, Lease, Task};
+use workmesh_core::task::{load_tasks, load_tasks_with_archive, Lease, Task};
 use workmesh_core::task_ops::{
     append_note, create_task_file, filter_tasks, graph_export, is_lease_active, next_task,
     now_timestamp, ready_tasks, render_task_line, replace_section, set_list_field, sort_tasks,
@@ -289,6 +289,9 @@ pub struct VersionTool {
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct ListTasksTool {
     pub root: Option<String>,
+    /// Include archived tasks under `workmesh/archive/` (recursively).
+    #[serde(default)]
+    pub all: bool,
     pub status: Option<ListInput>,
     pub kind: Option<ListInput>,
     pub phase: Option<ListInput>,
@@ -1119,7 +1122,11 @@ impl ListTasksTool {
             Ok(dir) => dir,
             Err(err) => return ok_json(err),
         };
-        let tasks = load_tasks(&backlog_dir);
+        let tasks = if self.all {
+            load_tasks_with_archive(&backlog_dir)
+        } else {
+            load_tasks(&backlog_dir)
+        };
         let status = parse_list_input(self.status.clone());
         let kind = parse_list_input(self.kind.clone());
         let phase = parse_list_input(self.phase.clone());
