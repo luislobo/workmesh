@@ -6,6 +6,8 @@ commands, dependency-aware planning, and restartable sessions.
 
 This repository contains the Rust implementation (CLI + core + MCP server).
 
+AI-friendly format: see `README.json` (keep it in sync with this file).
+
 ## Why WorkMesh
 - Keep planning artifacts close to code and in git.
 - Make dependencies explicit so "ready work" is queryable.
@@ -108,6 +110,9 @@ cargo build -p workmesh-mcp
 ```bash
 # create docs + workmesh + seed task
 workmesh --root . quickstart workmesh --agents-snippet
+
+# optionally set focus (recommended for agents)
+workmesh --root . focus set --project-id workmesh --epic-id task-001 --objective "Ship v0.3"
 
 # list tasks
 workmesh --root . list --status "To Do"
@@ -264,6 +269,14 @@ workmesh --root . archive
 # archive Done tasks before a specific date
 workmesh --root . archive --before 2024-12-31
 ```
+
+## Derived files (git-friendly)
+WorkMesh generates derived artifacts for speed and continuity:
+- Task index: `workmesh/.index/tasks.jsonl` (derived, rebuildable; ignored by git)
+- Global sessions index: `WORKMESH_HOME/.index/sessions.jsonl` (derived, rebuildable)
+
+These files are intentionally safe to delete and should not be committed.
+
 ## MCP usage
 If the MCP server is started inside a repo, `root` can be omitted. Otherwise pass `root`.
 
@@ -280,8 +293,15 @@ Bulk MCP examples:
 {"tool": "bulk_add_note", "root": "/path/to/repo", "tasks": ["task-001","task-002"], "note": "checkpointed", "section": "notes"}
 ```
 
-## Codex setup (recommended)
-Add WorkMesh MCP to your Codex config (rootless):
+## MCP client setup (examples)
+WorkMesh provides a stdio MCP server binary: `workmesh-mcp`.
+
+You configure your MCP-capable tool/editor to run it as a local stdio server, typically:
+- `command`: path to `workmesh-mcp`
+- `args`: usually `[]`
+- start the tool in the repo so WorkMesh can infer `root` from CWD (or pass `root` explicitly in calls)
+
+Codex example (TOML):
 ```toml
 [mcp_servers.workmesh]
 command = "/path/to/workmesh/target/debug/workmesh-mcp"
@@ -293,38 +313,7 @@ Then start Codex inside your repo and run:
 {"tool": "ready_tasks", "format": "json"}
 ```
 
-## Agent CLI setup (popular)
-Use these if you drive WorkMesh via a terminal agent rather than an IDE.
-
-Codex CLI (OpenAI):
-- Configure MCP via `codex mcp add` or by editing `~/.codex/config.toml` directly.
-- CLI and IDE extension share the same MCP config.
-- Example:
-  ```bash
-  codex mcp add workmesh -- /path/to/workmesh-mcp
-  ```
-
-Claude Code:
-- Add local MCP servers with `claude mcp add <name> -- <command> [args...]`.
-- Remote servers can use `--transport http` with a URL.
-- Example:
-  ```bash
-  claude mcp add workmesh -- /path/to/workmesh-mcp
-  ```
-
-Gemini CLI:
-- MCP support exists in the gemini-cli codebase, but there’s no official setup guide yet.
-- Use the WorkMesh CLI or another MCP-capable client for now.
-
-GitHub Copilot CLI:
-- Use `/mcp add` inside Copilot CLI; MCP servers are stored in `~/.copilot/mcp-config.json`.
-
-Cursor CLI:
-- Cursor CLI supports MCP via `cursor-agent mcp` and uses the same `mcp.json` config as the editor.
-
-## IDE/editor setup
-VS Code (Copilot Agent mode):
-- Add `.vscode/mcp.json` in your repo (or use the “MCP: Add server” command):
+VS Code example (`.vscode/mcp.json`):
   ```json
   {
     "servers": {
@@ -336,16 +325,6 @@ VS Code (Copilot Agent mode):
     }
   }
   ```
-
-Cursor (editor):
-- Supports MCP with stdio/SSE/HTTP transports. Configure WorkMesh as a stdio server in `.cursor/mcp.json` or `~/.cursor/mcp.json`.
-
-IntelliJ / JetBrains IDEs:
-- JetBrains IDEs include an MCP server (2025.2+) to expose IDE tools to external clients.
-- Copilot Chat in JetBrains supports adding MCP servers via its MCP registry UI.
-
-Antigravity IDE:
-- MCP servers are available via Antigravity’s built-in MCP Store (UI-driven setup).
 
 ## Skills (Codex/Claude)
 WorkMesh can serve its own skill content to agents.
