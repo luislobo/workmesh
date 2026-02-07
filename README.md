@@ -337,6 +337,9 @@ This lets the MCP server return the exact workflow instructions for agents.
 Read:
 - `list`, `show`, `next`, `ready`, `stats`, `export`, `issues-export`, `graph-export`
 
+List tips:
+- `workmesh --root . list --all` includes archived tasks under `workmesh/archive/` (useful for historical Done work).
+
 Write:
 - `add`, `add-discovered`, `set-status`, `set-field`, `label-add`, `label-remove`
 - `dep-add`, `dep-remove`, `note`, `set-body`, `set-section`, `claim`, `release`

@@ -237,7 +237,24 @@ pub fn parse_task_file(path: &Path) -> Result<Task, TaskParseError> {
 
 pub fn load_tasks(backlog_dir: &Path) -> Vec<Task> {
     let tasks_dir = backlog_dir.join("tasks");
-    let mut entries: Vec<PathBuf> = match fs::read_dir(&tasks_dir) {
+    load_tasks_from_dir(&tasks_dir)
+}
+
+/// Load tasks from `tasks/` and, optionally, from `archive/` (recursively).
+///
+/// Archived tasks are typically moved out of `tasks/` by the `archive` command, so this is
+/// useful for listing historical Done work without unarchiving files.
+pub fn load_tasks_with_archive(backlog_dir: &Path) -> Vec<Task> {
+    let mut tasks = load_tasks(backlog_dir);
+    let archive_root = backlog_dir.join("archive");
+    if archive_root.is_dir() {
+        tasks.extend(load_tasks_from_dir_recursive(&archive_root));
+    }
+    tasks
+}
+
+fn load_tasks_from_dir(tasks_dir: &Path) -> Vec<Task> {
+    let mut entries: Vec<PathBuf> = match fs::read_dir(tasks_dir) {
         Ok(read_dir) => read_dir
             .filter_map(|entry| entry.ok())
             .map(|entry| entry.path())
@@ -252,6 +269,35 @@ pub fn load_tasks(backlog_dir: &Path) -> Vec<Task> {
         match parse_task_file(&path) {
             Ok(task) => tasks.push(task),
             Err(_) => continue,
+        }
+    }
+    tasks
+}
+
+fn load_tasks_from_dir_recursive(root: &Path) -> Vec<Task> {
+    let mut md_files = Vec::new();
+    let mut stack = vec![root.to_path_buf()];
+    while let Some(dir) = stack.pop() {
+        let Ok(read_dir) = fs::read_dir(&dir) else {
+            continue;
+        };
+        for entry in read_dir.filter_map(|e| e.ok()) {
+            let path = entry.path();
+            if path.is_dir() {
+                stack.push(path);
+                continue;
+            }
+            if path.extension().map(|ext| ext == "md").unwrap_or(false) {
+                md_files.push(path);
+            }
+        }
+    }
+    md_files.sort();
+
+    let mut tasks = Vec::new();
+    for path in md_files {
+        if let Ok(task) = parse_task_file(&path) {
+            tasks.push(task);
         }
     }
     tasks

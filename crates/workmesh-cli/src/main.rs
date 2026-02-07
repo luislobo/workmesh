@@ -28,7 +28,7 @@ use workmesh_core::session::{
     append_session_journal, diff_since_checkpoint, render_diff, render_resume, resolve_project_id,
     resume_summary, task_summary, write_checkpoint, write_working_set, CheckpointOptions,
 };
-use workmesh_core::task::{load_tasks, Lease, Task};
+use workmesh_core::task::{load_tasks, load_tasks_with_archive, Lease, Task};
 use workmesh_core::task_ops::{
     append_note, create_task_file, filter_tasks, graph_export, next_task, now_timestamp,
     ready_tasks, render_task_line, replace_section, set_list_field, sort_tasks, status_counts,
@@ -57,6 +57,9 @@ struct Cli {
 enum Command {
     /// List tasks
     List {
+        /// Include archived tasks under `workmesh/archive/` (recursively)
+        #[arg(long, action = ArgAction::SetTrue)]
+        all: bool,
         #[arg(long, action = ArgAction::Append)]
         status: Vec<String>,
         #[arg(long, action = ArgAction::Append)]
@@ -977,6 +980,7 @@ fn main() -> Result<()> {
 
     match cli.command {
         Command::List {
+            all,
             status,
             kind,
             phase,
@@ -990,6 +994,11 @@ fn main() -> Result<()> {
             limit,
             json,
         } => {
+            let tasks = if all {
+                load_tasks_with_archive(&backlog_dir)
+            } else {
+                load_tasks(&backlog_dir)
+            };
             let filtered = filter_tasks(
                 &tasks,
                 to_list(status.as_slice()).as_deref(),
