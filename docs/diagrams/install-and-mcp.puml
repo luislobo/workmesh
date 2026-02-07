@@ -1,0 +1,36 @@
+@startuml
+title Install + MCP Wiring
+
+skinparam shadowing false
+skinparam backgroundColor white
+skinparam componentStyle rectangle
+skinparam ArrowColor #222222
+skinparam ComponentBorderColor #222222
+skinparam ComponentBackgroundColor #F7F7F7
+skinparam NoteBackgroundColor #FFF9DB
+skinparam NoteBorderColor #D09B2C
+
+actor Developer
+actor "Coding Agent\n(Codex / Claude Code / Cursor / etc)" as Agent
+
+component "workmesh\n(CLI)" as CLI
+component "workmesh-mcp\n(stdio server)" as MCP
+component "workmesh-core\n(library)" as Core
+database "Repo files\n(docs/ + workmesh/)" as Repo
+database "Global sessions\n(~/.workmesh)" as Global
+
+Developer --> CLI : run commands\n(list/next/ready/claim/...)
+CLI --> Core
+Core --> Repo : read/write tasks,\nindex, audit, docs
+Core --> Global : (optional)\nwrite session events
+
+Agent --> MCP : tool calls\n(JSON args)
+MCP --> Core
+
+note right of MCP
+  MCP runs as a local process
+  using stdio (no network).
+end note
+
+@enduml
+

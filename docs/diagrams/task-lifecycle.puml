@@ -1,0 +1,36 @@
+@startuml
+title Task Lifecycle (Dependencies + Leases)
+
+skinparam shadowing false
+skinparam backgroundColor white
+skinparam state {
+  BackgroundColor #F7F7F7
+  BorderColor #222222
+  FontColor #111111
+}
+skinparam ArrowColor #222222
+skinparam NoteBackgroundColor #FFF9DB
+skinparam NoteBorderColor #D09B2C
+
+state ToDo as "To Do"
+state InProgress as "In Progress"
+state Done as "Done"
+
+[*] --> ToDo
+
+ToDo --> InProgress : claim + set-status
+InProgress --> Done : set-status Done
+
+ToDo --> ToDo : dep-add (blocks)
+
+state "Blocked (computed)\nnot a stored status" as Blocked {
+}
+
+ToDo --> Blocked : deps not satisfied
+Blocked --> ToDo : deps satisfied
+
+note right of InProgress
+  Lease prevents other agents\nfrom picking the same task.
+end note
+
+@enduml

@@ -5,6 +5,12 @@
     "language": "rust",
     "artifacts": ["workmesh (cli)", "workmesh-mcp (stdio mcp server)"]
   },
+  "diagrams": {
+    "dx_workflow": "docs/diagrams/dx-workflow.png",
+    "install_and_mcp": "docs/diagrams/install-and-mcp.png",
+    "task_lifecycle": "docs/diagrams/task-lifecycle.png",
+    "session_continuity": "docs/diagrams/continuity.png"
+  },
   "why": [
     "Keep planning artifacts close to code and in git.",
     "Make dependencies explicit so ready work is queryable.",
@@ -147,4 +153,3 @@
     "later": ["External sync (Jira/Trello/GitHub) deferred.", "UI/visualization layer."]
   }
 }
-

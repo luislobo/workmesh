@@ -1,0 +1,42 @@
+@startuml
+title Session Continuity (Repo-local + Global)
+
+skinparam shadowing false
+skinparam backgroundColor white
+skinparam ArrowColor #222222
+skinparam ParticipantBorderColor #222222
+skinparam ParticipantBackgroundColor #F7F7F7
+skinparam NoteBackgroundColor #FFF9DB
+skinparam NoteBorderColor #D09B2C
+
+actor Developer
+participant "workmesh (CLI)" as CLI
+database "docs/projects/<project>/updates/\ncheckpoint-*.json" as Checkpoints
+database "~/.workmesh/sessions/events.jsonl" as Global
+
+Developer -> CLI : checkpoint
+CLI -> Checkpoints : write snapshot\n(repo-local)
+
+Developer -> CLI : session-save\n(optional)
+CLI -> Global : append session_saved\n(cross-repo)
+
+== later (new shell / new agent session) ==
+
+Developer -> CLI : resume
+CLI -> Checkpoints : load latest checkpoint
+CLI --> Developer : render resume script
+
+Developer -> CLI : session-resume\n(optional)
+CLI -> Global : read current session
+CLI --> Developer : print summary + next steps
+
+note right of Checkpoints
+  Best for continuing\nin the same repo.
+end note
+
+note right of Global
+  Best for "I rebooted"\nacross repos/machines.
+end note
+
+@enduml
+

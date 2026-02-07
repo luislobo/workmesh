@@ -14,6 +14,18 @@ AI-friendly format: see `README.json` (keep it in sync with this file).
 - Provide reliable handoff between sessions via checkpoints.
 - Enable agent-safe coordination (leases/claims, stable ordering).
 
+## DX workflow (diagram)
+This is the intended day-to-day workflow, including multi-agent safety and restartability:
+
+![WorkMesh DX workflow](docs/diagrams/dx-workflow.png)
+
+Diagram source: `docs/diagrams/dx-workflow.puml`
+
+Related diagrams (kept close to the sections they document):
+- Install + MCP wiring: `docs/diagrams/install-and-mcp.png`
+- Task lifecycle: `docs/diagrams/task-lifecycle.png`
+- Session continuity: `docs/diagrams/continuity.png`
+
 ## Install
 Prerequisites:
 - None if you use prebuilt releases
@@ -88,6 +100,13 @@ CertUtil -hashfile "workmesh-$workmesh_version-x86_64-pc-windows-msvc.zip" SHA25
 ### Agent configuration (MCP)
 Point your agent to the `workmesh-mcp` binary you installed (either from releases or built locally).
 
+<details>
+<summary>Diagram: Install + MCP wiring</summary>
+
+![Install + MCP wiring](docs/diagrams/install-and-mcp.png)
+
+</details>
+
 From source:
 ```bash
 git clone git@github.com:luislobo/workmesh.git
@@ -143,13 +162,6 @@ workmesh/
     task-001 - seed task.md
 ```
 
-## DX workflow (diagram)
-This is the intended day-to-day workflow, including multi-agent safety and restartability:
-
-![WorkMesh DX workflow](docs/diagrams/dx-workflow.png)
-
-Diagram source: `docs/diagrams/dx-workflow.puml`
-
 ## Focus (keep agents scoped)
 `focus` is a repo-local "what we are doing right now" pointer for humans and agents. It is used to
 reduce thrash across sessions and help WorkMesh infer context when saving global sessions.
@@ -192,6 +204,13 @@ assignee: []
 - Start here
 ```
 
+<details>
+<summary>Diagram: Task lifecycle</summary>
+
+![Task lifecycle](docs/diagrams/task-lifecycle.png)
+
+</details>
+
 ### Kind (Jira-friendly)
 WorkMesh supports a `kind` field to help Jira users map familiar issue types into plain-text tasks.
 
@@ -209,6 +228,13 @@ WorkMesh provides two complementary continuity mechanisms:
 
 1. Repo-local checkpoints: store a snapshot inside the repo (good for "continue this repo")
 2. Global agent sessions: store a cross-repo session pointer under `WORKMESH_HOME` (good for "I rebooted / switched OS / changed machines")
+
+<details>
+<summary>Diagram: Session continuity</summary>
+
+![Session continuity](docs/diagrams/continuity.png)
+
+</details>
 
 ### Repo-local checkpoints
 Use checkpoints to resume work after compaction or a new session inside the same repo.
