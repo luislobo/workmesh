@@ -307,6 +307,11 @@ Write:
 - `add`, `add-discovered`, `set-status`, `set-field`, `label-add`, `label-remove`
 - `dep-add`, `dep-remove`, `note`, `set-body`, `set-section`, `claim`, `release`
 
+Touch behavior:
+- All mutating commands update `updated_date` by default.
+- CLI: pass `--no-touch` to suppress `updated_date` updates.
+- MCP: pass `"touch": false` to suppress `updated_date` updates.
+
 Bulk:
 - `bulk-set-status`, `bulk-set-field`, `bulk-label-add`, `bulk-label-remove`
 - `bulk-dep-add`, `bulk-dep-remove`, `bulk-note`
