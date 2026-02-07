@@ -190,6 +190,9 @@ enum Command {
         status: String,
         #[arg(long, action = ArgAction::SetTrue)]
         touch: bool,
+        /// Do not update `updated_date` (default behavior touches on all mutations)
+        #[arg(long, action = ArgAction::SetTrue)]
+        no_touch: bool,
     },
     /// Claim a task (lease)
     Claim {
@@ -199,12 +202,18 @@ enum Command {
         minutes: Option<i64>,
         #[arg(long, action = ArgAction::SetTrue)]
         touch: bool,
+        /// Do not update `updated_date` (default behavior touches on all mutations)
+        #[arg(long, action = ArgAction::SetTrue)]
+        no_touch: bool,
     },
     /// Release a task lease
     Release {
         task_id: String,
         #[arg(long, action = ArgAction::SetTrue)]
         touch: bool,
+        /// Do not update `updated_date` (default behavior touches on all mutations)
+        #[arg(long, action = ArgAction::SetTrue)]
+        no_touch: bool,
     },
     /// Bulk operations (alias group)
     Bulk {
@@ -219,6 +228,9 @@ enum Command {
         status: String,
         #[arg(long, action = ArgAction::SetTrue)]
         touch: bool,
+        /// Do not update `updated_date` (default behavior touches on all mutations)
+        #[arg(long, action = ArgAction::SetTrue)]
+        no_touch: bool,
         #[arg(long, action = ArgAction::SetTrue)]
         json: bool,
     },
@@ -232,6 +244,9 @@ enum Command {
         value: String,
         #[arg(long, action = ArgAction::SetTrue)]
         touch: bool,
+        /// Do not update `updated_date` (default behavior touches on all mutations)
+        #[arg(long, action = ArgAction::SetTrue)]
+        no_touch: bool,
         #[arg(long, action = ArgAction::SetTrue)]
         json: bool,
     },
@@ -243,6 +258,9 @@ enum Command {
         label: String,
         #[arg(long, action = ArgAction::SetTrue)]
         touch: bool,
+        /// Do not update `updated_date` (default behavior touches on all mutations)
+        #[arg(long, action = ArgAction::SetTrue)]
+        no_touch: bool,
         #[arg(long, action = ArgAction::SetTrue)]
         json: bool,
     },
@@ -254,6 +272,9 @@ enum Command {
         label: String,
         #[arg(long, action = ArgAction::SetTrue)]
         touch: bool,
+        /// Do not update `updated_date` (default behavior touches on all mutations)
+        #[arg(long, action = ArgAction::SetTrue)]
+        no_touch: bool,
         #[arg(long, action = ArgAction::SetTrue)]
         json: bool,
     },
@@ -265,6 +286,9 @@ enum Command {
         dependency: String,
         #[arg(long, action = ArgAction::SetTrue)]
         touch: bool,
+        /// Do not update `updated_date` (default behavior touches on all mutations)
+        #[arg(long, action = ArgAction::SetTrue)]
+        no_touch: bool,
         #[arg(long, action = ArgAction::SetTrue)]
         json: bool,
     },
@@ -276,6 +300,9 @@ enum Command {
         dependency: String,
         #[arg(long, action = ArgAction::SetTrue)]
         touch: bool,
+        /// Do not update `updated_date` (default behavior touches on all mutations)
+        #[arg(long, action = ArgAction::SetTrue)]
+        no_touch: bool,
         #[arg(long, action = ArgAction::SetTrue)]
         json: bool,
     },
@@ -289,6 +316,9 @@ enum Command {
         section: NoteSection,
         #[arg(long, action = ArgAction::SetTrue)]
         touch: bool,
+        /// Do not update `updated_date` (default behavior touches on all mutations)
+        #[arg(long, action = ArgAction::SetTrue)]
+        no_touch: bool,
         #[arg(long, action = ArgAction::SetTrue)]
         json: bool,
     },
@@ -299,6 +329,9 @@ enum Command {
         value: String,
         #[arg(long, action = ArgAction::SetTrue)]
         touch: bool,
+        /// Do not update `updated_date` (default behavior touches on all mutations)
+        #[arg(long, action = ArgAction::SetTrue)]
+        no_touch: bool,
     },
     /// Add label to task
     LabelAdd {
@@ -306,6 +339,9 @@ enum Command {
         label: String,
         #[arg(long, action = ArgAction::SetTrue)]
         touch: bool,
+        /// Do not update `updated_date` (default behavior touches on all mutations)
+        #[arg(long, action = ArgAction::SetTrue)]
+        no_touch: bool,
     },
     /// Remove label from task
     LabelRemove {
@@ -313,6 +349,9 @@ enum Command {
         label: String,
         #[arg(long, action = ArgAction::SetTrue)]
         touch: bool,
+        /// Do not update `updated_date` (default behavior touches on all mutations)
+        #[arg(long, action = ArgAction::SetTrue)]
+        no_touch: bool,
     },
     /// Add dependency to task
     DepAdd {
@@ -320,6 +359,9 @@ enum Command {
         dependency: String,
         #[arg(long, action = ArgAction::SetTrue)]
         touch: bool,
+        /// Do not update `updated_date` (default behavior touches on all mutations)
+        #[arg(long, action = ArgAction::SetTrue)]
+        no_touch: bool,
     },
     /// Remove dependency from task
     DepRemove {
@@ -327,6 +369,9 @@ enum Command {
         dependency: String,
         #[arg(long, action = ArgAction::SetTrue)]
         touch: bool,
+        /// Do not update `updated_date` (default behavior touches on all mutations)
+        #[arg(long, action = ArgAction::SetTrue)]
+        no_touch: bool,
     },
     /// Append a note to a task
     Note {
@@ -336,6 +381,9 @@ enum Command {
         section: NoteSection,
         #[arg(long, action = ArgAction::SetTrue)]
         touch: bool,
+        /// Do not update `updated_date` (default behavior touches on all mutations)
+        #[arg(long, action = ArgAction::SetTrue)]
+        no_touch: bool,
     },
     /// Replace task body (all content after front matter)
     SetBody {
@@ -346,6 +394,9 @@ enum Command {
         file: Option<PathBuf>,
         #[arg(long, action = ArgAction::SetTrue)]
         touch: bool,
+        /// Do not update `updated_date` (default behavior touches on all mutations)
+        #[arg(long, action = ArgAction::SetTrue)]
+        no_touch: bool,
     },
     /// Replace a named section in the task body
     SetSection {
@@ -357,6 +408,9 @@ enum Command {
         file: Option<PathBuf>,
         #[arg(long, action = ArgAction::SetTrue)]
         touch: bool,
+        /// Do not update `updated_date` (default behavior touches on all mutations)
+        #[arg(long, action = ArgAction::SetTrue)]
+        no_touch: bool,
     },
     /// Create a new task
     Add {
@@ -482,6 +536,9 @@ enum BulkCommand {
         status: String,
         #[arg(long, action = ArgAction::SetTrue)]
         touch: bool,
+        /// Do not update `updated_date` (default behavior touches on all mutations)
+        #[arg(long, action = ArgAction::SetTrue)]
+        no_touch: bool,
         #[arg(long, action = ArgAction::SetTrue)]
         json: bool,
     },
@@ -495,6 +552,9 @@ enum BulkCommand {
         value: String,
         #[arg(long, action = ArgAction::SetTrue)]
         touch: bool,
+        /// Do not update `updated_date` (default behavior touches on all mutations)
+        #[arg(long, action = ArgAction::SetTrue)]
+        no_touch: bool,
         #[arg(long, action = ArgAction::SetTrue)]
         json: bool,
     },
@@ -506,6 +566,9 @@ enum BulkCommand {
         label: String,
         #[arg(long, action = ArgAction::SetTrue)]
         touch: bool,
+        /// Do not update `updated_date` (default behavior touches on all mutations)
+        #[arg(long, action = ArgAction::SetTrue)]
+        no_touch: bool,
         #[arg(long, action = ArgAction::SetTrue)]
         json: bool,
     },
@@ -517,6 +580,9 @@ enum BulkCommand {
         label: String,
         #[arg(long, action = ArgAction::SetTrue)]
         touch: bool,
+        /// Do not update `updated_date` (default behavior touches on all mutations)
+        #[arg(long, action = ArgAction::SetTrue)]
+        no_touch: bool,
         #[arg(long, action = ArgAction::SetTrue)]
         json: bool,
     },
@@ -528,6 +594,9 @@ enum BulkCommand {
         dependency: String,
         #[arg(long, action = ArgAction::SetTrue)]
         touch: bool,
+        /// Do not update `updated_date` (default behavior touches on all mutations)
+        #[arg(long, action = ArgAction::SetTrue)]
+        no_touch: bool,
         #[arg(long, action = ArgAction::SetTrue)]
         json: bool,
     },
@@ -539,6 +608,9 @@ enum BulkCommand {
         dependency: String,
         #[arg(long, action = ArgAction::SetTrue)]
         touch: bool,
+        /// Do not update `updated_date` (default behavior touches on all mutations)
+        #[arg(long, action = ArgAction::SetTrue)]
+        no_touch: bool,
         #[arg(long, action = ArgAction::SetTrue)]
         json: bool,
     },
@@ -552,6 +624,9 @@ enum BulkCommand {
         section: NoteSection,
         #[arg(long, action = ArgAction::SetTrue)]
         touch: bool,
+        /// Do not update `updated_date` (default behavior touches on all mutations)
+        #[arg(long, action = ArgAction::SetTrue)]
+        no_touch: bool,
         #[arg(long, action = ArgAction::SetTrue)]
         json: bool,
     },
@@ -597,6 +672,17 @@ impl NoteSection {
 
 fn is_done_status(status: &str) -> bool {
     status.eq_ignore_ascii_case("done")
+}
+
+fn effective_touch(touch: bool, no_touch: bool) -> bool {
+    if no_touch {
+        return false;
+    }
+    // Back-compat: `--touch` is still accepted, but touching is now the default on mutations.
+    if touch {
+        return true;
+    }
+    true
 }
 
 fn main() -> Result<()> {
@@ -922,6 +1008,7 @@ fn main() -> Result<()> {
             task_id,
             status,
             touch,
+            no_touch,
         } => {
             let task = find_task(&tasks, &task_id).unwrap_or_else(|| {
                 die(&format!("Task not found: {}", task_id));
@@ -929,6 +1016,7 @@ fn main() -> Result<()> {
             let path = task.file_path.as_ref().unwrap_or_else(|| {
                 die(&format!("Task not found: {}", task_id));
             });
+            let touch = effective_touch(touch, no_touch);
             update_task_field(path, "status", Some(status.clone().into()))?;
             if touch || is_done_status(&status) {
                 update_task_field(path, "updated_date", Some(now_timestamp().into()))?;
@@ -948,6 +1036,7 @@ fn main() -> Result<()> {
             owner,
             minutes,
             touch,
+            no_touch,
         } => {
             let task = find_task(&tasks, &task_id).unwrap_or_else(|| {
                 die(&format!("Task not found: {}", task_id));
@@ -955,6 +1044,7 @@ fn main() -> Result<()> {
             let path = task.file_path.as_ref().unwrap_or_else(|| {
                 die(&format!("Task not found: {}", task_id));
             });
+            let touch = effective_touch(touch, no_touch);
             let mut assignee = task.assignee.clone();
             if !assignee.iter().any(|value| value == &owner) {
                 assignee.push(owner.clone());
@@ -983,13 +1073,18 @@ fn main() -> Result<()> {
             maybe_auto_checkpoint(&backlog_dir, auto_checkpoint);
             println!("Claimed {} lease -> {}", task.id, lease.owner);
         }
-        Command::Release { task_id, touch } => {
+        Command::Release {
+            task_id,
+            touch,
+            no_touch,
+        } => {
             let task = find_task(&tasks, &task_id).unwrap_or_else(|| {
                 die(&format!("Task not found: {}", task_id));
             });
             let path = task.file_path.as_ref().unwrap_or_else(|| {
                 die(&format!("Task not found: {}", task_id));
             });
+            let touch = effective_touch(touch, no_touch);
             update_lease_fields(path, None)?;
             if touch {
                 update_task_field(path, "updated_date", Some(now_timestamp().into()))?;
@@ -1009,13 +1104,14 @@ fn main() -> Result<()> {
                 tasks: task_ids,
                 status,
                 touch,
+                no_touch,
                 json,
             } => handle_bulk_set_status(
                 &backlog_dir,
                 &tasks,
                 task_ids,
                 status,
-                touch,
+                effective_touch(touch, no_touch),
                 json,
                 auto_checkpoint,
             )?,
@@ -1024,6 +1120,7 @@ fn main() -> Result<()> {
                 field,
                 value,
                 touch,
+                no_touch,
                 json,
             } => handle_bulk_set_field(
                 &backlog_dir,
@@ -1031,7 +1128,7 @@ fn main() -> Result<()> {
                 task_ids,
                 field,
                 value,
-                touch,
+                effective_touch(touch, no_touch),
                 json,
                 auto_checkpoint,
             )?,
@@ -1039,13 +1136,14 @@ fn main() -> Result<()> {
                 tasks: task_ids,
                 label,
                 touch,
+                no_touch,
                 json,
             } => handle_bulk_label_add(
                 &backlog_dir,
                 &tasks,
                 task_ids,
                 label,
-                touch,
+                effective_touch(touch, no_touch),
                 json,
                 auto_checkpoint,
             )?,
@@ -1053,13 +1151,14 @@ fn main() -> Result<()> {
                 tasks: task_ids,
                 label,
                 touch,
+                no_touch,
                 json,
             } => handle_bulk_label_remove(
                 &backlog_dir,
                 &tasks,
                 task_ids,
                 label,
-                touch,
+                effective_touch(touch, no_touch),
                 json,
                 auto_checkpoint,
             )?,
@@ -1067,13 +1166,14 @@ fn main() -> Result<()> {
                 tasks: task_ids,
                 dependency,
                 touch,
+                no_touch,
                 json,
             } => handle_bulk_dep_add(
                 &backlog_dir,
                 &tasks,
                 task_ids,
                 dependency,
-                touch,
+                effective_touch(touch, no_touch),
                 json,
                 auto_checkpoint,
             )?,
@@ -1081,13 +1181,14 @@ fn main() -> Result<()> {
                 tasks: task_ids,
                 dependency,
                 touch,
+                no_touch,
                 json,
             } => handle_bulk_dep_remove(
                 &backlog_dir,
                 &tasks,
                 task_ids,
                 dependency,
-                touch,
+                effective_touch(touch, no_touch),
                 json,
                 auto_checkpoint,
             )?,
@@ -1096,6 +1197,7 @@ fn main() -> Result<()> {
                 note,
                 section,
                 touch,
+                no_touch,
                 json,
             } => handle_bulk_note(
                 &backlog_dir,
@@ -1103,7 +1205,7 @@ fn main() -> Result<()> {
                 task_ids,
                 note,
                 section,
-                touch,
+                effective_touch(touch, no_touch),
                 json,
                 auto_checkpoint,
             )?,
@@ -1112,6 +1214,7 @@ fn main() -> Result<()> {
             tasks: task_ids,
             status,
             touch,
+            no_touch,
             json,
         } => {
             handle_bulk_set_status(
@@ -1119,7 +1222,7 @@ fn main() -> Result<()> {
                 &tasks,
                 task_ids,
                 status,
-                touch,
+                effective_touch(touch, no_touch),
                 json,
                 auto_checkpoint,
             )?;
@@ -1129,6 +1232,7 @@ fn main() -> Result<()> {
             field,
             value,
             touch,
+            no_touch,
             json,
         } => {
             handle_bulk_set_field(
@@ -1137,7 +1241,7 @@ fn main() -> Result<()> {
                 task_ids,
                 field,
                 value,
-                touch,
+                effective_touch(touch, no_touch),
                 json,
                 auto_checkpoint,
             )?;
@@ -1146,6 +1250,7 @@ fn main() -> Result<()> {
             tasks: task_ids,
             label,
             touch,
+            no_touch,
             json,
         } => {
             handle_bulk_label_add(
@@ -1153,7 +1258,7 @@ fn main() -> Result<()> {
                 &tasks,
                 task_ids,
                 label,
-                touch,
+                effective_touch(touch, no_touch),
                 json,
                 auto_checkpoint,
             )?;
@@ -1162,6 +1267,7 @@ fn main() -> Result<()> {
             tasks: task_ids,
             label,
             touch,
+            no_touch,
             json,
         } => {
             handle_bulk_label_remove(
@@ -1169,7 +1275,7 @@ fn main() -> Result<()> {
                 &tasks,
                 task_ids,
                 label,
-                touch,
+                effective_touch(touch, no_touch),
                 json,
                 auto_checkpoint,
             )?;
@@ -1178,6 +1284,7 @@ fn main() -> Result<()> {
             tasks: task_ids,
             dependency,
             touch,
+            no_touch,
             json,
         } => {
             handle_bulk_dep_add(
@@ -1185,7 +1292,7 @@ fn main() -> Result<()> {
                 &tasks,
                 task_ids,
                 dependency,
-                touch,
+                effective_touch(touch, no_touch),
                 json,
                 auto_checkpoint,
             )?;
@@ -1194,6 +1301,7 @@ fn main() -> Result<()> {
             tasks: task_ids,
             dependency,
             touch,
+            no_touch,
             json,
         } => {
             handle_bulk_dep_remove(
@@ -1201,7 +1309,7 @@ fn main() -> Result<()> {
                 &tasks,
                 task_ids,
                 dependency,
-                touch,
+                effective_touch(touch, no_touch),
                 json,
                 auto_checkpoint,
             )?;
@@ -1211,6 +1319,7 @@ fn main() -> Result<()> {
             note,
             section,
             touch,
+            no_touch,
             json,
         } => {
             handle_bulk_note(
@@ -1219,7 +1328,7 @@ fn main() -> Result<()> {
                 task_ids,
                 note,
                 section,
-                touch,
+                effective_touch(touch, no_touch),
                 json,
                 auto_checkpoint,
             )?;
@@ -1229,6 +1338,7 @@ fn main() -> Result<()> {
             field,
             value,
             touch,
+            no_touch,
         } => {
             let task = find_task(&tasks, &task_id).unwrap_or_else(|| {
                 die(&format!("Task not found: {}", task_id));
@@ -1236,6 +1346,7 @@ fn main() -> Result<()> {
             let path = task.file_path.as_ref().unwrap_or_else(|| {
                 die(&format!("Task not found: {}", task_id));
             });
+            let touch = effective_touch(touch, no_touch);
             update_task_field_or_section(path, &field, Some(&value))?;
             if touch {
                 update_task_field(path, "updated_date", Some(now_timestamp().into()))?;
@@ -1254,6 +1365,7 @@ fn main() -> Result<()> {
             task_id,
             label,
             touch,
+            no_touch,
         } => {
             update_list_field(
                 &backlog_dir,
@@ -1262,7 +1374,7 @@ fn main() -> Result<()> {
                 "labels",
                 &label,
                 true,
-                touch,
+                effective_touch(touch, no_touch),
             )?;
             maybe_auto_checkpoint(&backlog_dir, auto_checkpoint);
         }
@@ -1270,6 +1382,7 @@ fn main() -> Result<()> {
             task_id,
             label,
             touch,
+            no_touch,
         } => {
             update_list_field(
                 &backlog_dir,
@@ -1278,7 +1391,7 @@ fn main() -> Result<()> {
                 "labels",
                 &label,
                 false,
-                touch,
+                effective_touch(touch, no_touch),
             )?;
             maybe_auto_checkpoint(&backlog_dir, auto_checkpoint);
         }
@@ -1286,6 +1399,7 @@ fn main() -> Result<()> {
             task_id,
             dependency,
             touch,
+            no_touch,
         } => {
             update_list_field(
                 &backlog_dir,
@@ -1294,7 +1408,7 @@ fn main() -> Result<()> {
                 "dependencies",
                 &dependency,
                 true,
-                touch,
+                effective_touch(touch, no_touch),
             )?;
             maybe_auto_checkpoint(&backlog_dir, auto_checkpoint);
         }
@@ -1302,6 +1416,7 @@ fn main() -> Result<()> {
             task_id,
             dependency,
             touch,
+            no_touch,
         } => {
             update_list_field(
                 &backlog_dir,
@@ -1310,7 +1425,7 @@ fn main() -> Result<()> {
                 "dependencies",
                 &dependency,
                 false,
-                touch,
+                effective_touch(touch, no_touch),
             )?;
             maybe_auto_checkpoint(&backlog_dir, auto_checkpoint);
         }
@@ -1319,6 +1434,7 @@ fn main() -> Result<()> {
             note,
             section,
             touch,
+            no_touch,
         } => {
             let task = find_task(&tasks, &task_id).unwrap_or_else(|| {
                 die(&format!("Task not found: {}", task_id));
@@ -1326,6 +1442,7 @@ fn main() -> Result<()> {
             let path = task.file_path.as_ref().unwrap_or_else(|| {
                 die(&format!("Task not found: {}", task_id));
             });
+            let touch = effective_touch(touch, no_touch);
             let new_body = append_note(&task.body, &note, section.as_str());
             update_body(path, &new_body)?;
             if touch {
@@ -1346,6 +1463,7 @@ fn main() -> Result<()> {
             text,
             file,
             touch,
+            no_touch,
         } => {
             let task = find_task(&tasks, &task_id).unwrap_or_else(|| {
                 die(&format!("Task not found: {}", task_id));
@@ -1353,6 +1471,7 @@ fn main() -> Result<()> {
             let path = task.file_path.as_ref().unwrap_or_else(|| {
                 die(&format!("Task not found: {}", task_id));
             });
+            let touch = effective_touch(touch, no_touch);
             let content = read_content(text.as_deref(), file.as_deref())?;
             update_body(path, &content)?;
             if touch {
@@ -1374,6 +1493,7 @@ fn main() -> Result<()> {
             text,
             file,
             touch,
+            no_touch,
         } => {
             let task = find_task(&tasks, &task_id).unwrap_or_else(|| {
                 die(&format!("Task not found: {}", task_id));
@@ -1381,6 +1501,7 @@ fn main() -> Result<()> {
             let path = task.file_path.as_ref().unwrap_or_else(|| {
                 die(&format!("Task not found: {}", task_id));
             });
+            let touch = effective_touch(touch, no_touch);
             let content = read_content(text.as_deref(), file.as_deref())?;
             let new_body = replace_section(&task.body, &section, &content);
             update_body(path, &new_body)?;

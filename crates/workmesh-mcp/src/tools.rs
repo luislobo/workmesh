@@ -354,7 +354,7 @@ pub struct SetStatusTool {
     pub task_id: String,
     pub status: String,
     pub root: Option<String>,
-    #[serde(default)]
+    #[serde(default = "default_touch")]
     pub touch: bool,
 }
 
@@ -365,7 +365,7 @@ pub struct SetFieldTool {
     pub field: String,
     pub value: String,
     pub root: Option<String>,
-    #[serde(default)]
+    #[serde(default = "default_touch")]
     pub touch: bool,
 }
 
@@ -375,7 +375,7 @@ pub struct AddLabelTool {
     pub task_id: String,
     pub label: String,
     pub root: Option<String>,
-    #[serde(default)]
+    #[serde(default = "default_touch")]
     pub touch: bool,
 }
 
@@ -385,7 +385,7 @@ pub struct RemoveLabelTool {
     pub task_id: String,
     pub label: String,
     pub root: Option<String>,
-    #[serde(default)]
+    #[serde(default = "default_touch")]
     pub touch: bool,
 }
 
@@ -395,7 +395,7 @@ pub struct AddDependencyTool {
     pub task_id: String,
     pub dependency: String,
     pub root: Option<String>,
-    #[serde(default)]
+    #[serde(default = "default_touch")]
     pub touch: bool,
 }
 
@@ -408,7 +408,7 @@ pub struct RemoveDependencyTool {
     pub task_id: String,
     pub dependency: String,
     pub root: Option<String>,
-    #[serde(default)]
+    #[serde(default = "default_touch")]
     pub touch: bool,
 }
 
@@ -418,7 +418,7 @@ pub struct BulkSetStatusTool {
     pub tasks: Option<ListInput>,
     pub status: String,
     pub root: Option<String>,
-    #[serde(default)]
+    #[serde(default = "default_touch")]
     pub touch: bool,
 }
 
@@ -432,7 +432,7 @@ pub struct BulkSetFieldTool {
     pub field: String,
     pub value: String,
     pub root: Option<String>,
-    #[serde(default)]
+    #[serde(default = "default_touch")]
     pub touch: bool,
 }
 
@@ -442,7 +442,7 @@ pub struct BulkAddLabelTool {
     pub tasks: Option<ListInput>,
     pub label: String,
     pub root: Option<String>,
-    #[serde(default)]
+    #[serde(default = "default_touch")]
     pub touch: bool,
 }
 
@@ -455,7 +455,7 @@ pub struct BulkRemoveLabelTool {
     pub tasks: Option<ListInput>,
     pub label: String,
     pub root: Option<String>,
-    #[serde(default)]
+    #[serde(default = "default_touch")]
     pub touch: bool,
 }
 
@@ -468,7 +468,7 @@ pub struct BulkAddDependencyTool {
     pub tasks: Option<ListInput>,
     pub dependency: String,
     pub root: Option<String>,
-    #[serde(default)]
+    #[serde(default = "default_touch")]
     pub touch: bool,
 }
 
@@ -481,7 +481,7 @@ pub struct BulkRemoveDependencyTool {
     pub tasks: Option<ListInput>,
     pub dependency: String,
     pub root: Option<String>,
-    #[serde(default)]
+    #[serde(default = "default_touch")]
     pub touch: bool,
 }
 
@@ -493,7 +493,7 @@ pub struct BulkAddNoteTool {
     pub root: Option<String>,
     #[serde(default = "default_notes_section")]
     pub section: String,
-    #[serde(default)]
+    #[serde(default = "default_touch")]
     pub touch: bool,
 }
 
@@ -527,7 +527,7 @@ pub struct ClaimTaskTool {
     pub owner: String,
     pub root: Option<String>,
     pub minutes: Option<i64>,
-    #[serde(default)]
+    #[serde(default = "default_touch")]
     pub touch: bool,
 }
 
@@ -536,7 +536,7 @@ pub struct ClaimTaskTool {
 pub struct ReleaseTaskTool {
     pub task_id: String,
     pub root: Option<String>,
-    #[serde(default)]
+    #[serde(default = "default_touch")]
     pub touch: bool,
 }
 
@@ -551,7 +551,7 @@ pub struct AddNoteTool {
     pub root: Option<String>,
     #[serde(default = "default_notes_section")]
     pub section: String,
-    #[serde(default)]
+    #[serde(default = "default_touch")]
     pub touch: bool,
 }
 
@@ -564,7 +564,7 @@ pub struct SetBodyTool {
     pub task_id: String,
     pub body: String,
     pub root: Option<String>,
-    #[serde(default)]
+    #[serde(default = "default_touch")]
     pub touch: bool,
 }
 
@@ -578,7 +578,7 @@ pub struct SetSectionTool {
     pub section: String,
     pub content: String,
     pub root: Option<String>,
-    #[serde(default)]
+    #[serde(default = "default_touch")]
     pub touch: bool,
 }
 
@@ -882,6 +882,10 @@ fn default_zoom() -> i32 {
 
 fn default_archive_before() -> String {
     "30d".to_string()
+}
+
+fn default_touch() -> bool {
+    true
 }
 
 fn is_done_status(status: &str) -> bool {
