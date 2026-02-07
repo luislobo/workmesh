@@ -75,6 +75,12 @@ fn cli() -> Command {
         cmd.stdin(Stdio::null());
         cmd.env("WORKMESH_NO_PROMPT", "1");
         cmd.env("RUST_BACKTRACE", "1");
+        // Avoid flaky profraw merges when coverage is enabled: child processes being killed can
+        // leave partially written profiles. Coverage is asserted via core/unit tests.
+        #[cfg(unix)]
+        cmd.env("LLVM_PROFILE_FILE", "/dev/null");
+        #[cfg(windows)]
+        cmd.env("LLVM_PROFILE_FILE", "NUL");
         return cmd;
     }
     static BUILD: Once = Once::new();
@@ -102,6 +108,10 @@ fn cli() -> Command {
     cmd.stdin(Stdio::null());
     cmd.env("WORKMESH_NO_PROMPT", "1");
     cmd.env("RUST_BACKTRACE", "1");
+    #[cfg(unix)]
+    cmd.env("LLVM_PROFILE_FILE", "/dev/null");
+    #[cfg(windows)]
+    cmd.env("LLVM_PROFILE_FILE", "NUL");
     cmd
 }
 
@@ -123,10 +133,16 @@ fn env_lock() -> &'static Mutex<()> {
 }
 
 async fn start_client(root: &Path) -> Arc<rust_mcp_sdk::mcp_client::ClientRuntime> {
+    let mut env = std::collections::HashMap::new();
+    // See note in `cli()`: prevent coverage flakiness from subprocess profile writes.
+    #[cfg(unix)]
+    env.insert("LLVM_PROFILE_FILE".to_string(), "/dev/null".to_string());
+    #[cfg(windows)]
+    env.insert("LLVM_PROFILE_FILE".to_string(), "NUL".to_string());
     let transport = StdioTransport::create_with_server_launch(
         mcp_bin().display().to_string(),
         vec!["--root".into(), root.display().to_string()],
-        None,
+        Some(env),
         TransportOptions::default(),
     )
     .expect("transport");
