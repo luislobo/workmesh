@@ -3,7 +3,7 @@ id: task-044
 uid: 01KGV3B9R7KRPM54C3HMW7ZMA6
 title: Global sessions: opt-in auto session save (flag/env)
 kind: task
-status: To Do
+status: Done
 priority: P2
 phase: Phase4
 dependencies: []
@@ -14,8 +14,8 @@ relationships:
   parent: []
   child: []
   discovered_from: []
+updated_date: 2026-02-06 22:25
 ---
-
 Description:
 --------------------------------------------------
 - Add opt-in automation to keep the global session up to date:
@@ -33,3 +33,6 @@ Definition of Done:
 --------------------------------------------------
 - Code/config committed.
 - Docs updated if needed.
+
+Notes:
+- Implemented opt-in auto session updates: CLI flag --auto-session-save and env WORKMESH_AUTO_SESSION=1. When enabled, mutating commands update the current global session pointer with repo_root/project_id/working_set + git and checkpoint/recent_changes best-effort.

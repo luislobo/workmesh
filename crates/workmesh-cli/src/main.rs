@@ -46,6 +46,9 @@ struct Cli {
     /// Automatically write a checkpoint after mutating commands
     #[arg(long, action = ArgAction::SetTrue, global = true)]
     auto_checkpoint: bool,
+    /// Automatically update the global agent session (requires an active session pointer)
+    #[arg(long, action = ArgAction::SetTrue, global = true)]
+    auto_session_save: bool,
     #[command(subcommand)]
     command: Command,
 }
@@ -874,6 +877,65 @@ fn resume_script(session: &AgentSession) -> Vec<String> {
     lines
 }
 
+fn auto_update_current_session(backlog_dir: &Path) -> Result<()> {
+    let home = resolve_workmesh_home()?;
+    let Some(current_id) = read_current_session_id(&home) else {
+        return Ok(());
+    };
+
+    let sessions = load_sessions_latest_fast(&home)?;
+    let Some(existing) = sessions.into_iter().find(|s| s.id == current_id) else {
+        return Ok(());
+    };
+
+    let rr = repo_root_from_backlog(backlog_dir);
+    let repo_root = rr.to_string_lossy().to_string();
+    let repo_tasks = load_tasks(backlog_dir);
+    let project_id = resolve_project_id(&rr, &repo_tasks, None);
+
+    let working_set: Vec<String> = repo_tasks
+        .iter()
+        .filter(|task| task.status.eq_ignore_ascii_case("in progress") || is_lease_active(task))
+        .map(|task| task.id.clone())
+        .collect();
+
+    let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    let cwd_str = cwd.to_string_lossy().to_string();
+
+    let mut checkpoint: Option<CheckpointRef> = None;
+    let mut recent_changes: Option<workmesh_core::global_sessions::RecentChanges> = None;
+    if let Ok(Some(summary)) = resume_summary(&rr, &project_id, None) {
+        checkpoint = Some(CheckpointRef {
+            path: summary.checkpoint_path.to_string_lossy().to_string(),
+            timestamp: Some(summary.snapshot.generated_at.clone()),
+        });
+        recent_changes = Some(workmesh_core::global_sessions::RecentChanges {
+            dirs: summary.snapshot.top_level_dirs.clone(),
+            files: summary.snapshot.changed_files.clone(),
+        });
+    }
+
+    let now = now_rfc3339();
+    let updated = AgentSession {
+        id: existing.id.clone(),
+        created_at: existing.created_at.clone(),
+        updated_at: now,
+        cwd: cwd_str,
+        repo_root: Some(repo_root),
+        project_id: Some(project_id),
+        objective: existing.objective.clone(),
+        working_set,
+        notes: existing.notes.clone(),
+        git: Some(best_effort_git_snapshot(&rr)),
+        checkpoint,
+        recent_changes,
+    };
+
+    append_session_saved(&home, updated.clone())?;
+    set_current_session(&home, &updated.id)?;
+    Ok(())
+}
+
 fn main() -> Result<()> {
     let cli = Cli::parse();
     if let Command::Quickstart {
@@ -911,6 +973,7 @@ fn main() -> Result<()> {
     let backlog_dir = maybe_prompt_migration(&resolution)?;
     let tasks = load_tasks(&backlog_dir);
     let auto_checkpoint = auto_checkpoint_enabled(&cli);
+    let auto_session = auto_session_enabled(&cli);
 
     match cli.command {
         Command::List {
@@ -1391,7 +1454,7 @@ fn main() -> Result<()> {
                 serde_json::json!({ "status": status.clone() }),
             )?;
             refresh_index_best_effort(&backlog_dir);
-            maybe_auto_checkpoint(&backlog_dir, auto_checkpoint);
+            maybe_auto_checkpoint(&backlog_dir, auto_checkpoint, auto_session);
             println!("Updated {} status -> {}", task.id, status);
         }
         Command::Claim {
@@ -1433,7 +1496,7 @@ fn main() -> Result<()> {
                 }),
             )?;
             refresh_index_best_effort(&backlog_dir);
-            maybe_auto_checkpoint(&backlog_dir, auto_checkpoint);
+            maybe_auto_checkpoint(&backlog_dir, auto_checkpoint, auto_session);
             println!("Claimed {} lease -> {}", task.id, lease.owner);
         }
         Command::Release {
@@ -1459,7 +1522,7 @@ fn main() -> Result<()> {
                 serde_json::json!({}),
             )?;
             refresh_index_best_effort(&backlog_dir);
-            maybe_auto_checkpoint(&backlog_dir, auto_checkpoint);
+            maybe_auto_checkpoint(&backlog_dir, auto_checkpoint, auto_session);
             println!("Released {} lease", task.id);
         }
         Command::Bulk { command } => match command {
@@ -1477,6 +1540,7 @@ fn main() -> Result<()> {
                 effective_touch(touch, no_touch),
                 json,
                 auto_checkpoint,
+                auto_session,
             )?,
             BulkCommand::SetField {
                 tasks: task_ids,
@@ -1494,6 +1558,7 @@ fn main() -> Result<()> {
                 effective_touch(touch, no_touch),
                 json,
                 auto_checkpoint,
+                auto_session,
             )?,
             BulkCommand::LabelAdd {
                 tasks: task_ids,
@@ -1509,6 +1574,7 @@ fn main() -> Result<()> {
                 effective_touch(touch, no_touch),
                 json,
                 auto_checkpoint,
+                auto_session,
             )?,
             BulkCommand::LabelRemove {
                 tasks: task_ids,
@@ -1524,6 +1590,7 @@ fn main() -> Result<()> {
                 effective_touch(touch, no_touch),
                 json,
                 auto_checkpoint,
+                auto_session,
             )?,
             BulkCommand::DepAdd {
                 tasks: task_ids,
@@ -1539,6 +1606,7 @@ fn main() -> Result<()> {
                 effective_touch(touch, no_touch),
                 json,
                 auto_checkpoint,
+                auto_session,
             )?,
             BulkCommand::DepRemove {
                 tasks: task_ids,
@@ -1554,6 +1622,7 @@ fn main() -> Result<()> {
                 effective_touch(touch, no_touch),
                 json,
                 auto_checkpoint,
+                auto_session,
             )?,
             BulkCommand::Note {
                 tasks: task_ids,
@@ -1571,6 +1640,7 @@ fn main() -> Result<()> {
                 effective_touch(touch, no_touch),
                 json,
                 auto_checkpoint,
+                auto_session,
             )?,
         },
         Command::BulkSetStatus {
@@ -1588,6 +1658,7 @@ fn main() -> Result<()> {
                 effective_touch(touch, no_touch),
                 json,
                 auto_checkpoint,
+                auto_session,
             )?;
         }
         Command::BulkSetField {
@@ -1607,6 +1678,7 @@ fn main() -> Result<()> {
                 effective_touch(touch, no_touch),
                 json,
                 auto_checkpoint,
+                auto_session,
             )?;
         }
         Command::BulkLabelAdd {
@@ -1624,6 +1696,7 @@ fn main() -> Result<()> {
                 effective_touch(touch, no_touch),
                 json,
                 auto_checkpoint,
+                auto_session,
             )?;
         }
         Command::BulkLabelRemove {
@@ -1641,6 +1714,7 @@ fn main() -> Result<()> {
                 effective_touch(touch, no_touch),
                 json,
                 auto_checkpoint,
+                auto_session,
             )?;
         }
         Command::BulkDepAdd {
@@ -1658,6 +1732,7 @@ fn main() -> Result<()> {
                 effective_touch(touch, no_touch),
                 json,
                 auto_checkpoint,
+                auto_session,
             )?;
         }
         Command::BulkDepRemove {
@@ -1675,6 +1750,7 @@ fn main() -> Result<()> {
                 effective_touch(touch, no_touch),
                 json,
                 auto_checkpoint,
+                auto_session,
             )?;
         }
         Command::BulkNote {
@@ -1694,6 +1770,7 @@ fn main() -> Result<()> {
                 effective_touch(touch, no_touch),
                 json,
                 auto_checkpoint,
+                auto_session,
             )?;
         }
         Command::SetField {
@@ -1721,7 +1798,7 @@ fn main() -> Result<()> {
                 serde_json::json!({ "field": field.clone(), "value": value.clone() }),
             )?;
             refresh_index_best_effort(&backlog_dir);
-            maybe_auto_checkpoint(&backlog_dir, auto_checkpoint);
+            maybe_auto_checkpoint(&backlog_dir, auto_checkpoint, auto_session);
             println!("Updated {} {} -> {}", task.id, field, value);
         }
         Command::LabelAdd {
@@ -1739,7 +1816,7 @@ fn main() -> Result<()> {
                 true,
                 effective_touch(touch, no_touch),
             )?;
-            maybe_auto_checkpoint(&backlog_dir, auto_checkpoint);
+            maybe_auto_checkpoint(&backlog_dir, auto_checkpoint, auto_session);
         }
         Command::LabelRemove {
             task_id,
@@ -1756,7 +1833,7 @@ fn main() -> Result<()> {
                 false,
                 effective_touch(touch, no_touch),
             )?;
-            maybe_auto_checkpoint(&backlog_dir, auto_checkpoint);
+            maybe_auto_checkpoint(&backlog_dir, auto_checkpoint, auto_session);
         }
         Command::DepAdd {
             task_id,
@@ -1773,7 +1850,7 @@ fn main() -> Result<()> {
                 true,
                 effective_touch(touch, no_touch),
             )?;
-            maybe_auto_checkpoint(&backlog_dir, auto_checkpoint);
+            maybe_auto_checkpoint(&backlog_dir, auto_checkpoint, auto_session);
         }
         Command::DepRemove {
             task_id,
@@ -1790,7 +1867,7 @@ fn main() -> Result<()> {
                 false,
                 effective_touch(touch, no_touch),
             )?;
-            maybe_auto_checkpoint(&backlog_dir, auto_checkpoint);
+            maybe_auto_checkpoint(&backlog_dir, auto_checkpoint, auto_session);
         }
         Command::Note {
             task_id,
@@ -1818,7 +1895,7 @@ fn main() -> Result<()> {
                 serde_json::json!({ "section": section.as_str(), "note": note }),
             )?;
             refresh_index_best_effort(&backlog_dir);
-            maybe_auto_checkpoint(&backlog_dir, auto_checkpoint);
+            maybe_auto_checkpoint(&backlog_dir, auto_checkpoint, auto_session);
             println!("Added note to {}", task.id);
         }
         Command::SetBody {
@@ -1847,7 +1924,7 @@ fn main() -> Result<()> {
                 serde_json::json!({ "length": content.len() }),
             )?;
             refresh_index_best_effort(&backlog_dir);
-            maybe_auto_checkpoint(&backlog_dir, auto_checkpoint);
+            maybe_auto_checkpoint(&backlog_dir, auto_checkpoint, auto_session);
             println!("Updated body for {}", task.id);
         }
         Command::SetSection {
@@ -1878,7 +1955,7 @@ fn main() -> Result<()> {
                 serde_json::json!({ "section": section.clone(), "length": content.len() }),
             )?;
             refresh_index_best_effort(&backlog_dir);
-            maybe_auto_checkpoint(&backlog_dir, auto_checkpoint);
+            maybe_auto_checkpoint(&backlog_dir, auto_checkpoint, auto_session);
             println!("Updated section {} for {}", section, task.id);
         }
         Command::Add {
@@ -1915,7 +1992,7 @@ fn main() -> Result<()> {
                 serde_json::json!({ "title": title }),
             )?;
             refresh_index_best_effort(&backlog_dir);
-            maybe_auto_checkpoint(&backlog_dir, auto_checkpoint);
+            maybe_auto_checkpoint(&backlog_dir, auto_checkpoint, auto_session);
             if json {
                 let payload = serde_json::json!({"path": path, "id": task_id});
                 println!("{}", serde_json::to_string_pretty(&payload)?);
@@ -1963,7 +2040,7 @@ fn main() -> Result<()> {
                 serde_json::json!({ "from": from, "title": title }),
             )?;
             refresh_index_best_effort(&backlog_dir);
-            maybe_auto_checkpoint(&backlog_dir, auto_checkpoint);
+            maybe_auto_checkpoint(&backlog_dir, auto_checkpoint, auto_session);
             if json {
                 let payload = serde_json::json!({"path": path, "id": task_id});
                 println!("{}", serde_json::to_string_pretty(&payload)?);
@@ -1980,7 +2057,7 @@ fn main() -> Result<()> {
                 None,
                 serde_json::json!({ "project_id": project_id }),
             )?;
-            maybe_auto_checkpoint(&backlog_dir, auto_checkpoint);
+            maybe_auto_checkpoint(&backlog_dir, auto_checkpoint, auto_session);
             println!("{}", path.display());
         }
         Command::Validate { json } => {
@@ -2075,7 +2152,7 @@ fn main() -> Result<()> {
                 },
             )?;
             refresh_index_best_effort(&backlog_dir);
-            maybe_auto_checkpoint(&backlog_dir, auto_checkpoint);
+            maybe_auto_checkpoint(&backlog_dir, auto_checkpoint, auto_session);
             if json {
                 let payload = serde_json::json!({
                     "archived": result.archived,
@@ -2294,6 +2371,7 @@ fn handle_bulk_set_status(
     touch: bool,
     json: bool,
     auto_checkpoint: bool,
+    auto_session: bool,
 ) -> Result<()> {
     let ids = normalize_task_ids(split_list(&task_ids));
     if ids.is_empty() {
@@ -2318,7 +2396,7 @@ fn handle_bulk_set_status(
         updated.push(task.id.clone());
     }
     refresh_index_best_effort(backlog_dir);
-    maybe_auto_checkpoint(backlog_dir, auto_checkpoint);
+    maybe_auto_checkpoint(backlog_dir, auto_checkpoint, auto_session);
     emit_bulk_result(&updated, &missing, json);
     Ok(())
 }
@@ -2332,6 +2410,7 @@ fn handle_bulk_set_field(
     touch: bool,
     json: bool,
     auto_checkpoint: bool,
+    auto_session: bool,
 ) -> Result<()> {
     let ids = normalize_task_ids(split_list(&task_ids));
     if ids.is_empty() {
@@ -2356,7 +2435,7 @@ fn handle_bulk_set_field(
         updated.push(task.id.clone());
     }
     refresh_index_best_effort(backlog_dir);
-    maybe_auto_checkpoint(backlog_dir, auto_checkpoint);
+    maybe_auto_checkpoint(backlog_dir, auto_checkpoint, auto_session);
     emit_bulk_result(&updated, &missing, json);
     Ok(())
 }
@@ -2369,6 +2448,7 @@ fn handle_bulk_label_add(
     touch: bool,
     json: bool,
     auto_checkpoint: bool,
+    auto_session: bool,
 ) -> Result<()> {
     let ids = normalize_task_ids(split_list(&task_ids));
     if ids.is_empty() {
@@ -2397,7 +2477,7 @@ fn handle_bulk_label_add(
         updated.push(task.id.clone());
     }
     refresh_index_best_effort(backlog_dir);
-    maybe_auto_checkpoint(backlog_dir, auto_checkpoint);
+    maybe_auto_checkpoint(backlog_dir, auto_checkpoint, auto_session);
     emit_bulk_result(&updated, &missing, json);
     Ok(())
 }
@@ -2410,6 +2490,7 @@ fn handle_bulk_label_remove(
     touch: bool,
     json: bool,
     auto_checkpoint: bool,
+    auto_session: bool,
 ) -> Result<()> {
     let ids = normalize_task_ids(split_list(&task_ids));
     if ids.is_empty() {
@@ -2436,7 +2517,7 @@ fn handle_bulk_label_remove(
         updated.push(task.id.clone());
     }
     refresh_index_best_effort(backlog_dir);
-    maybe_auto_checkpoint(backlog_dir, auto_checkpoint);
+    maybe_auto_checkpoint(backlog_dir, auto_checkpoint, auto_session);
     emit_bulk_result(&updated, &missing, json);
     Ok(())
 }
@@ -2449,6 +2530,7 @@ fn handle_bulk_dep_add(
     touch: bool,
     json: bool,
     auto_checkpoint: bool,
+    auto_session: bool,
 ) -> Result<()> {
     let ids = normalize_task_ids(split_list(&task_ids));
     if ids.is_empty() {
@@ -2477,7 +2559,7 @@ fn handle_bulk_dep_add(
         updated.push(task.id.clone());
     }
     refresh_index_best_effort(backlog_dir);
-    maybe_auto_checkpoint(backlog_dir, auto_checkpoint);
+    maybe_auto_checkpoint(backlog_dir, auto_checkpoint, auto_session);
     emit_bulk_result(&updated, &missing, json);
     Ok(())
 }
@@ -2490,6 +2572,7 @@ fn handle_bulk_dep_remove(
     touch: bool,
     json: bool,
     auto_checkpoint: bool,
+    auto_session: bool,
 ) -> Result<()> {
     let ids = normalize_task_ids(split_list(&task_ids));
     if ids.is_empty() {
@@ -2516,7 +2599,7 @@ fn handle_bulk_dep_remove(
         updated.push(task.id.clone());
     }
     refresh_index_best_effort(backlog_dir);
-    maybe_auto_checkpoint(backlog_dir, auto_checkpoint);
+    maybe_auto_checkpoint(backlog_dir, auto_checkpoint, auto_session);
     emit_bulk_result(&updated, &missing, json);
     Ok(())
 }
@@ -2530,6 +2613,7 @@ fn handle_bulk_note(
     touch: bool,
     json: bool,
     auto_checkpoint: bool,
+    auto_session: bool,
 ) -> Result<()> {
     let ids = normalize_task_ids(split_list(&task_ids));
     if ids.is_empty() {
@@ -2555,7 +2639,7 @@ fn handle_bulk_note(
         updated.push(task.id.clone());
     }
     refresh_index_best_effort(backlog_dir);
-    maybe_auto_checkpoint(backlog_dir, auto_checkpoint);
+    maybe_auto_checkpoint(backlog_dir, auto_checkpoint, auto_session);
     emit_bulk_result(&updated, &missing, json);
     Ok(())
 }
@@ -2660,6 +2744,13 @@ fn auto_checkpoint_enabled(cli: &Cli) -> bool {
     env_flag_true("WORKMESH_AUTO_CHECKPOINT")
 }
 
+fn auto_session_enabled(cli: &Cli) -> bool {
+    if cli.auto_session_save {
+        return true;
+    }
+    env_flag_true("WORKMESH_AUTO_SESSION")
+}
+
 fn env_flag_true(name: &str) -> bool {
     std::env::var(name)
         .ok()
@@ -2668,17 +2759,20 @@ fn env_flag_true(name: &str) -> bool {
         .unwrap_or(false)
 }
 
-fn maybe_auto_checkpoint(backlog_dir: &Path, enabled: bool) {
-    if !enabled {
-        return;
+fn maybe_auto_checkpoint(backlog_dir: &Path, auto_checkpoint: bool, auto_session: bool) {
+    if auto_checkpoint {
+        let tasks = load_tasks(backlog_dir);
+        let options = CheckpointOptions {
+            project_id: None,
+            checkpoint_id: None,
+            audit_limit: 10,
+        };
+        let _ = write_checkpoint(backlog_dir, &tasks, &options);
     }
-    let tasks = load_tasks(backlog_dir);
-    let options = CheckpointOptions {
-        project_id: None,
-        checkpoint_id: None,
-        audit_limit: 10,
-    };
-    let _ = write_checkpoint(backlog_dir, &tasks, &options);
+
+    if auto_session {
+        let _ = auto_update_current_session(backlog_dir);
+    }
 }
 
 fn refresh_index_best_effort(backlog_dir: &Path) {
