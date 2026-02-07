@@ -13,6 +13,16 @@ use async_trait::async_trait;
 // Note: server lifecycle is controlled by the MCP client runtime; this test avoids
 // forcing process exit so it can be stable in CI across platforms.
 
+fn coverage_safe_env() -> std::collections::HashMap<String, String> {
+    let mut env = std::collections::HashMap::new();
+    // Coverage is asserted via core/unit tests; prevent flaky merges from subprocess profraw.
+    #[cfg(unix)]
+    env.insert("LLVM_PROFILE_FILE".to_string(), "/dev/null".to_string());
+    #[cfg(windows)]
+    env.insert("LLVM_PROFILE_FILE".to_string(), "NUL".to_string());
+    env
+}
+
 struct NoopClientHandler;
 
 #[async_trait]
@@ -62,7 +72,7 @@ async fn mcp_list_tasks_and_checkpoint() {
     let transport = StdioTransport::create_with_server_launch(
         server_bin,
         vec![],
-        None,
+        Some(coverage_safe_env()),
         TransportOptions::default(),
     )
     .expect("transport");
@@ -171,7 +181,7 @@ async fn mcp_list_tasks_all_includes_archived_tasks() {
     let transport = StdioTransport::create_with_server_launch(
         server_bin,
         vec![],
-        None,
+        Some(coverage_safe_env()),
         TransportOptions::default(),
     )
     .expect("transport");
@@ -279,7 +289,7 @@ async fn mcp_smoke_more_tools() {
     let transport = StdioTransport::create_with_server_launch(
         server_bin,
         vec![],
-        None,
+        Some(coverage_safe_env()),
         TransportOptions::default(),
     )
     .expect("transport");
