@@ -4,6 +4,7 @@ pub mod archive;
 pub mod audit;
 pub mod backlog;
 pub mod config;
+pub mod focus;
 pub mod gantt;
 pub mod global_sessions;
 pub mod index;

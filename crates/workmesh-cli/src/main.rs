@@ -12,6 +12,9 @@ use workmesh_core::archive::{archive_tasks, ArchiveOptions};
 use workmesh_core::audit::{append_audit_event, AuditEvent};
 use workmesh_core::backlog::{locate_backlog_dir, resolve_backlog, BacklogResolution};
 use workmesh_core::config::update_do_not_migrate;
+use workmesh_core::focus::{
+    clear_focus, infer_project_id, load_focus, save_focus, extract_task_id_from_branch, FocusState,
+};
 use workmesh_core::gantt::{
     plantuml_gantt, render_plantuml_svg, write_text_file, PlantumlRenderError,
 };
@@ -190,6 +193,11 @@ enum Command {
     Session {
         #[command(subcommand)]
         command: SessionCommand,
+    },
+    /// Repo-local focus (project/epic/objective/working set)
+    Focus {
+        #[command(subcommand)]
+        command: FocusCommand,
     },
     /// Show changes since a checkpoint
     CheckpointDiff {
@@ -543,6 +551,34 @@ enum Command {
 }
 
 #[derive(Subcommand)]
+enum FocusCommand {
+    /// Set focus state for the current repo
+    Set {
+        #[arg(long)]
+        project: Option<String>,
+        #[arg(long)]
+        epic: Option<String>,
+        #[arg(long)]
+        objective: Option<String>,
+        /// Comma-separated task ids
+        #[arg(long)]
+        tasks: Option<String>,
+        #[arg(long, action = ArgAction::SetTrue)]
+        json: bool,
+    },
+    /// Show the current focus state
+    Show {
+        #[arg(long, action = ArgAction::SetTrue)]
+        json: bool,
+    },
+    /// Clear the current focus state
+    Clear {
+        #[arg(long, action = ArgAction::SetTrue)]
+        json: bool,
+    },
+}
+
+#[derive(Subcommand)]
 enum SessionCommand {
     /// Save the current agent session to the global store (default: ~/.workmesh)
     Save {
@@ -809,6 +845,25 @@ fn best_effort_git_snapshot(repo_root: &Path) -> GitSnapshot {
         head_sha,
         dirty,
     }
+}
+
+fn best_effort_git_branch(repo_root: &Path) -> Option<String> {
+    std::process::Command::new("git")
+        .arg("-C")
+        .arg(repo_root)
+        .arg("rev-parse")
+        .arg("--abbrev-ref")
+        .arg("HEAD")
+        .output()
+        .ok()
+        .and_then(|out| {
+            if out.status.success() {
+                Some(String::from_utf8_lossy(&out.stdout).trim().to_string())
+            } else {
+                None
+            }
+        })
+        .filter(|value| !value.trim().is_empty())
 }
 
 fn render_session_line(session: &AgentSession) -> String {
@@ -1420,6 +1475,119 @@ fn main() -> Result<()> {
                         println!("OK");
                     } else {
                         println!("{}", serde_json::to_string_pretty(&report)?);
+                    }
+                }
+            }
+        }
+        Command::Focus { command } => {
+            let repo_root = repo_root_from_backlog(&backlog_dir);
+            match command {
+                FocusCommand::Set {
+                    project,
+                    epic,
+                    objective,
+                    tasks: task_list,
+                    json,
+                } => {
+                    let inferred_project = infer_project_id(&repo_root);
+
+                    let epic_id = match epic {
+                        Some(value) => Some(value),
+                        None => {
+                            // Best-effort: if branch name contains a task id, use it.
+                            best_effort_git_branch(&repo_root)
+                                .and_then(|b| extract_task_id_from_branch(&b))
+                        }
+                    };
+
+                    let working_set = task_list
+                        .as_deref()
+                        .filter(|value| !value.trim().is_empty())
+                        .map(split_csv)
+                        .unwrap_or_default();
+
+                    let state = FocusState {
+                        project_id: project.or(inferred_project),
+                        epic_id,
+                        objective,
+                        working_set,
+                        updated_at: None,
+                    };
+                    let path = save_focus(&backlog_dir, state.clone())?;
+                    if json {
+                        println!(
+                            "{}",
+                            serde_json::to_string_pretty(&serde_json::json!({
+                                "ok": true,
+                                "path": path,
+                                "focus": state
+                            }))?
+                        );
+                    } else {
+                        println!("Focus saved: {}", path.display());
+                    }
+                }
+                FocusCommand::Show { json } => {
+                    let inferred_project = infer_project_id(&repo_root);
+                    let inferred_epic = best_effort_git_branch(&repo_root)
+                        .and_then(|b| extract_task_id_from_branch(&b));
+                    let loaded = load_focus(&backlog_dir)?;
+                    let focus = loaded.or_else(|| {
+                        if inferred_project.is_some() || inferred_epic.is_some() {
+                            Some(FocusState {
+                                project_id: inferred_project.clone(),
+                                epic_id: inferred_epic.clone(),
+                                objective: None,
+                                working_set: Vec::new(),
+                                updated_at: None,
+                            })
+                        } else {
+                            None
+                        }
+                    });
+
+                    if json {
+                        println!(
+                            "{}",
+                            serde_json::to_string_pretty(&serde_json::json!({
+                                "focus": focus,
+                                "inferred": {
+                                    "project_id": inferred_project,
+                                    "epic_id": inferred_epic
+                                }
+                            }))?
+                        );
+                    } else if let Some(focus) = focus {
+                        println!("project_id: {}", focus.project_id.unwrap_or_else(|| "(none)".into()));
+                        println!("epic_id: {}", focus.epic_id.unwrap_or_else(|| "(none)".into()));
+                        println!(
+                            "objective: {}",
+                            focus.objective.unwrap_or_else(|| "(none)".into())
+                        );
+                        if focus.working_set.is_empty() {
+                            println!("working_set: (empty)");
+                        } else {
+                            println!("working_set: {}", focus.working_set.join(", "));
+                        }
+                        println!();
+                        println!("Next:");
+                        println!("- workmesh --root . ready --json");
+                        println!("- workmesh --root . claim <task-id> <owner> --minutes 60");
+                    } else {
+                        println!("(no focus set)");
+                    }
+                }
+                FocusCommand::Clear { json } => {
+                    let cleared = clear_focus(&backlog_dir)?;
+                    if json {
+                        println!(
+                            "{}",
+                            serde_json::to_string_pretty(&serde_json::json!({ "ok": true, "cleared": cleared }))?
+                        );
+                    } else if cleared {
+                        println!("Focus cleared");
+                    } else {
+                        println!("(no focus to clear)");
                     }
                 }
             }
