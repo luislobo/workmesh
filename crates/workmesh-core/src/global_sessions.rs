@@ -446,4 +446,42 @@ mod tests {
         assert!(!report.ok);
         assert!(report.missing_in_index.contains(&"s1".to_string()));
     }
+
+    #[test]
+    fn home_dir_prefers_home_then_userprofile_and_can_be_none() {
+        let _lock = ENV_LOCK.lock().expect("lock");
+
+        std::env::set_var("HOME", "/tmp/home-test");
+        std::env::remove_var("USERPROFILE");
+        assert_eq!(home_dir().unwrap(), PathBuf::from("/tmp/home-test"));
+
+        std::env::set_var("HOME", "   ");
+        std::env::set_var("USERPROFILE", "/tmp/profile-test");
+        assert_eq!(home_dir().unwrap(), PathBuf::from("/tmp/profile-test"));
+
+        std::env::set_var("HOME", "   ");
+        std::env::set_var("USERPROFILE", "   ");
+        assert!(home_dir().is_none());
+
+        std::env::remove_var("HOME");
+        std::env::remove_var("USERPROFILE");
+    }
+
+    #[test]
+    fn session_saved_event_new_sets_type() {
+        let event = SessionSavedEvent::new(session("s1", "2026-02-01T01:00:00Z", "/a"));
+        assert_eq!(event.event_type, "session_saved");
+        assert_eq!(event.session.id, "s1");
+    }
+
+    #[test]
+    fn append_jsonl_line_creates_and_appends() {
+        let temp = TempDir::new().expect("tempdir");
+        let path = temp.path().join("events.jsonl");
+        append_jsonl_line(&path, r#"{"a":1}"#).expect("append 1");
+        append_jsonl_line(&path, r#"{"a":2}"#).expect("append 2");
+        let content = fs::read_to_string(&path).expect("read");
+        assert!(content.contains(r#"{"a":1}"#));
+        assert!(content.contains(r#"{"a":2}"#));
+    }
 }

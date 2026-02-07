@@ -1793,4 +1793,113 @@ mod tests {
             .to_string_lossy()
             .contains("untitled"));
     }
+
+    #[test]
+    fn next_task_picks_lowest_ready_task() {
+        let tasks = vec![
+            Task {
+                id: "task-010".to_string(),
+                uid: None,
+                kind: "task".to_string(),
+                title: "later".to_string(),
+                status: "To Do".to_string(),
+                priority: "P2".to_string(),
+                phase: "Phase1".to_string(),
+                dependencies: vec![],
+                labels: vec![],
+                assignee: vec![],
+                relationships: Default::default(),
+                lease: None,
+                project: None,
+                initiative: None,
+                created_date: None,
+                updated_date: None,
+                extra: HashMap::new(),
+                file_path: None,
+                body: String::new(),
+            },
+            Task {
+                id: "task-002".to_string(),
+                uid: None,
+                kind: "task".to_string(),
+                title: "sooner".to_string(),
+                status: "To Do".to_string(),
+                priority: "P2".to_string(),
+                phase: "Phase1".to_string(),
+                dependencies: vec![],
+                labels: vec![],
+                assignee: vec![],
+                relationships: Default::default(),
+                lease: None,
+                project: None,
+                initiative: None,
+                created_date: None,
+                updated_date: None,
+                extra: HashMap::new(),
+                file_path: None,
+                body: String::new(),
+            },
+        ];
+        let next = next_task(&tasks).expect("next");
+        assert_eq!(next.id, "task-002");
+    }
+
+    #[test]
+    fn timestamps_are_rendered_and_parseable() {
+        assert!(!now_timestamp().is_empty());
+        assert!(!timestamp_plus_minutes(10).is_empty());
+    }
+
+    #[test]
+    fn tasks_to_json_and_jsonl_are_valid() {
+        let tasks = vec![Task {
+            id: "task-001".to_string(),
+            uid: Some("01J2R0QZ6QX9V0000000000001".to_string()),
+            kind: "task".to_string(),
+            title: "One".to_string(),
+            status: "To Do".to_string(),
+            priority: "P2".to_string(),
+            phase: "Phase1".to_string(),
+            dependencies: vec![],
+            labels: vec!["x".to_string()],
+            assignee: vec![],
+            relationships: Default::default(),
+            lease: None,
+            project: None,
+            initiative: None,
+            created_date: None,
+            updated_date: None,
+            extra: HashMap::new(),
+            file_path: None,
+            body: "Body".to_string(),
+        }];
+
+        let json = tasks_to_json(&tasks, true);
+        let parsed: serde_json::Value = serde_json::from_str(&json).expect("json");
+        assert!(parsed.as_array().unwrap()[0]["id"] == "task-001");
+        assert!(parsed.as_array().unwrap()[0]["body"] == "Body");
+
+        let jsonl = tasks_to_jsonl(&tasks, false);
+        let line = jsonl.lines().next().unwrap();
+        let parsed_line: serde_json::Value = serde_json::from_str(line).expect("jsonl");
+        assert!(parsed_line.get("body").is_none());
+    }
+
+    #[test]
+    fn section_helpers_handle_common_shapes() {
+        assert!(is_dash_line("-----"));
+        assert!(!is_dash_line("-- x"));
+
+        let lines = vec![
+            "".to_string(),
+            "Notes:".to_string(),
+            "--------------------------------------------------".to_string(),
+            "- a".to_string(),
+        ];
+        assert_eq!(next_non_empty(&lines, 0), Some(1));
+        assert!(is_section_header(&lines, 1));
+
+        let normalized = normalize_section_content("- a\n- b\n");
+        assert_eq!(normalized.len(), 2);
+    }
 }

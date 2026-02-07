@@ -240,6 +240,18 @@ fn derive_repo_root(root: &Path) -> PathBuf {
         || is_named(root, "workmesh")
         || is_named(root, ".workmesh")
     {
+        // If the explicit root is `.../<layout>/tasks`, the repo root is `.../`, not `.../<layout>`.
+        if is_named(root, "tasks") {
+            let parent = root.parent().unwrap_or(root);
+            if is_named(parent, "workmesh")
+                || is_named(parent, ".workmesh")
+                || is_named(parent, "backlog")
+                || is_named(parent, "project")
+            {
+                return parent.parent().unwrap_or(parent).to_path_buf();
+            }
+            return parent.to_path_buf();
+        }
         return root.parent().unwrap_or(root).to_path_buf();
     }
     root.to_path_buf()
@@ -306,5 +318,83 @@ mod tests {
         let resolution = resolve_backlog(temp.path()).expect("resolve");
         assert_eq!(resolution.layout, BacklogLayout::Backlog);
         assert_eq!(resolution.backlog_dir, temp.path().join("backlog"));
+    }
+
+    #[test]
+    fn resolve_backlog_accepts_explicit_tasks_dir() {
+        let temp = TempDir::new().expect("tempdir");
+        let tasks_dir = temp.path().join("workmesh").join("tasks");
+        std::fs::create_dir_all(&tasks_dir).expect("tasks");
+
+        let resolution = resolve_backlog(&tasks_dir).expect("resolve");
+        assert_eq!(resolution.layout, BacklogLayout::Workmesh);
+        assert_eq!(resolution.backlog_dir, temp.path().join("workmesh"));
+        assert_eq!(resolution.repo_root, temp.path().to_path_buf());
+    }
+
+    #[test]
+    fn resolve_backlog_falls_back_to_hidden_workmesh_then_project_then_root_tasks() {
+        let temp = TempDir::new().expect("tempdir");
+        let hidden = temp.path().join(".workmesh").join("tasks");
+        std::fs::create_dir_all(&hidden).expect("hidden");
+        let resolution = resolve_backlog(temp.path()).expect("resolve");
+        assert_eq!(resolution.layout, BacklogLayout::HiddenWorkmesh);
+
+        let temp2 = TempDir::new().expect("tempdir");
+        let project = temp2.path().join("project").join("tasks");
+        std::fs::create_dir_all(&project).expect("project");
+        let resolution = resolve_backlog(temp2.path()).expect("resolve");
+        assert_eq!(resolution.layout, BacklogLayout::Project);
+
+        let temp3 = TempDir::new().expect("tempdir");
+        std::fs::create_dir_all(temp3.path().join("tasks")).expect("root tasks");
+        let resolution = resolve_backlog(temp3.path()).expect("resolve");
+        assert_eq!(resolution.layout, BacklogLayout::RootTasks);
+        assert_eq!(resolution.backlog_dir, temp3.path().to_path_buf());
+    }
+
+    #[test]
+    fn resolve_backlog_uses_config_root_dir_override() {
+        let temp = TempDir::new().expect("tempdir");
+        // Set up both workmesh and hidden; config should pick hidden.
+        std::fs::create_dir_all(temp.path().join("workmesh").join("tasks")).expect("workmesh");
+        std::fs::create_dir_all(temp.path().join(".workmesh").join("tasks")).expect("hidden");
+        std::fs::write(
+            temp.path().join(".workmesh.toml"),
+            "root_dir = \".workmesh\"\n",
+        )
+        .expect("config");
+
+        let resolution = resolve_backlog(temp.path()).expect("resolve");
+        assert_eq!(resolution.layout, BacklogLayout::HiddenWorkmesh);
+        assert_eq!(resolution.backlog_dir, temp.path().join(".workmesh"));
+        assert!(resolution.config.is_some());
+    }
+
+    #[test]
+    fn locate_backlog_dir_prefers_config_root_when_present() {
+        let temp = TempDir::new().expect("tempdir");
+        std::fs::create_dir_all(temp.path().join(".workmesh").join("tasks")).expect("hidden");
+        std::fs::write(
+            temp.path().join(".workmesh.toml"),
+            "root_dir = \".workmesh\"\n",
+        )
+        .expect("config");
+
+        let deep = temp.path().join("src").join("pkg");
+        std::fs::create_dir_all(&deep).expect("deep");
+        let located = locate_backlog_dir(&deep).expect("locate");
+        assert_eq!(located, temp.path().join(".workmesh"));
+    }
+
+    #[test]
+    fn backlog_layout_is_legacy_matches_expected() {
+        assert!(BacklogLayout::Backlog.is_legacy());
+        assert!(BacklogLayout::Project.is_legacy());
+        assert!(BacklogLayout::RootTasks.is_legacy());
+        assert!(BacklogLayout::TasksDir.is_legacy());
+        assert!(!BacklogLayout::Workmesh.is_legacy());
+        assert!(!BacklogLayout::HiddenWorkmesh.is_legacy());
+        assert!(!BacklogLayout::Custom.is_legacy());
     }
 }
