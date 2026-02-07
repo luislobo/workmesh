@@ -20,6 +20,11 @@ use workmesh_core::backlog::{
     locate_backlog_dir, resolve_backlog, resolve_backlog_dir, BacklogError,
 };
 use workmesh_core::gantt::{plantuml_gantt, render_plantuml_svg, write_text_file};
+use workmesh_core::global_sessions::{
+    append_session_saved, load_sessions_latest, new_session_id, now_rfc3339,
+    read_current_session_id, resolve_workmesh_home, set_current_session, AgentSession,
+    CheckpointRef, GitSnapshot, RecentChanges,
+};
 use workmesh_core::index::{rebuild_index, refresh_index, verify_index};
 use workmesh_core::migration::migrate_backlog;
 use workmesh_core::project::{ensure_project_docs, repo_root_from_backlog};
@@ -30,10 +35,11 @@ use workmesh_core::session::{
 };
 use workmesh_core::task::{load_tasks, Lease, Task};
 use workmesh_core::task_ops::{
-    append_note, create_task_file, filter_tasks, graph_export, next_task, now_timestamp,
-    ready_tasks, render_task_line, replace_section, set_list_field, sort_tasks, status_counts,
-    task_to_json_value, tasks_to_jsonl, timestamp_plus_minutes, update_body, update_lease_fields,
-    update_task_field, update_task_field_or_section, validate_tasks, FieldValue,
+    append_note, create_task_file, filter_tasks, graph_export, is_lease_active, next_task,
+    now_timestamp, ready_tasks, render_task_line, replace_section, set_list_field, sort_tasks,
+    status_counts, task_to_json_value, tasks_to_jsonl, timestamp_plus_minutes, update_body,
+    update_lease_fields, update_task_field, update_task_field_or_section, validate_tasks,
+    FieldValue,
 };
 
 const ROOT_REQUIRED_ERROR: &str = "root is required for MCP calls unless the server is started within a repo containing tasks/ or backlog/tasks";
@@ -748,6 +754,51 @@ pub struct CheckpointDiffTool {
 }
 
 #[mcp_tool(
+    name = "session_save",
+    description = "Save a global agent session (cross-repo continuity)."
+)]
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct SessionSaveTool {
+    pub objective: String,
+    pub cwd: Option<String>,
+    pub project: Option<String>,
+    pub tasks: Option<ListInput>,
+    pub notes: Option<String>,
+    #[serde(default = "default_format")]
+    pub format: String,
+}
+
+#[mcp_tool(
+    name = "session_list",
+    description = "List global agent sessions (cross-repo continuity)."
+)]
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct SessionListTool {
+    pub limit: Option<u32>,
+    #[serde(default = "default_format")]
+    pub format: String,
+}
+
+#[mcp_tool(name = "session_show", description = "Show a global agent session.")]
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct SessionShowTool {
+    pub session_id: String,
+    #[serde(default = "default_format")]
+    pub format: String,
+}
+
+#[mcp_tool(
+    name = "session_resume",
+    description = "Resume from a global agent session (summary + suggested commands)."
+)]
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct SessionResumeTool {
+    pub session_id: Option<String>,
+    #[serde(default = "default_format")]
+    pub format: String,
+}
+
+#[mcp_tool(
     name = "best_practices",
     description = "Return best practices guidance."
 )]
@@ -938,6 +989,10 @@ tool_box!(
         WorkingSetTool,
         SessionJournalTool,
         CheckpointDiffTool,
+        SessionSaveTool,
+        SessionListTool,
+        SessionShowTool,
+        SessionResumeTool,
         GanttTextTool,
         GanttFileTool,
         GanttSvgTool,
@@ -1016,6 +1071,10 @@ impl ServerHandler for WorkmeshServerHandler {
             WorkmeshTools::WorkingSetTool(tool) => tool.call(&self.context),
             WorkmeshTools::SessionJournalTool(tool) => tool.call(&self.context),
             WorkmeshTools::CheckpointDiffTool(tool) => tool.call(&self.context),
+            WorkmeshTools::SessionSaveTool(tool) => tool.call(&self.context),
+            WorkmeshTools::SessionListTool(tool) => tool.call(&self.context),
+            WorkmeshTools::SessionShowTool(tool) => tool.call(&self.context),
+            WorkmeshTools::SessionResumeTool(tool) => tool.call(&self.context),
             WorkmeshTools::GanttTextTool(tool) => tool.call(&self.context),
             WorkmeshTools::GanttFileTool(tool) => tool.call(&self.context),
             WorkmeshTools::GanttSvgTool(tool) => tool.call(&self.context),
@@ -2206,6 +2265,162 @@ impl CheckpointDiffTool {
     }
 }
 
+impl SessionSaveTool {
+    fn call(&self, _context: &McpContext) -> Result<CallToolResult, CallToolError> {
+        let home = resolve_workmesh_home()
+            .map_err(|err| CallToolError::from_message(err.to_string()))?;
+
+        let cwd = self
+            .cwd
+            .as_deref()
+            .map(|value| value.trim())
+            .filter(|value| !value.is_empty())
+            .map(PathBuf::from)
+            .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
+        let cwd_str = cwd.to_string_lossy().to_string();
+
+        let tasks_override = parse_list_input(self.tasks.clone());
+
+        let mut repo_root: Option<String> = None;
+        let mut project_id: Option<String> = self.project.clone();
+        let mut working_set: Vec<String> = tasks_override;
+        let mut git: Option<GitSnapshot> = None;
+        let mut checkpoint: Option<CheckpointRef> = None;
+        let mut recent_changes: Option<RecentChanges> = None;
+
+        if let Ok(backlog_dir) = locate_backlog_dir(&cwd) {
+            let rr = repo_root_from_backlog(&backlog_dir);
+            repo_root = Some(rr.to_string_lossy().to_string());
+            let repo_tasks = load_tasks(&backlog_dir);
+
+            if project_id.is_none() {
+                project_id = Some(resolve_project_id(
+                    &rr,
+                    &repo_tasks,
+                    self.project.as_deref(),
+                ));
+            }
+
+            if working_set.is_empty() {
+                working_set = repo_tasks
+                    .iter()
+                    .filter(|task| {
+                        task.status.eq_ignore_ascii_case("in progress") || is_lease_active(task)
+                    })
+                    .map(|task| task.id.clone())
+                    .collect();
+            }
+
+            git = Some(best_effort_git_snapshot(&rr));
+            if let Some(pid) = project_id.as_deref() {
+                if let Ok(Some(summary)) = resume_summary(&rr, pid, None) {
+                    checkpoint = Some(CheckpointRef {
+                        path: summary.checkpoint_path.to_string_lossy().to_string(),
+                        timestamp: Some(summary.snapshot.generated_at.clone()),
+                    });
+                    recent_changes = Some(RecentChanges {
+                        dirs: summary.snapshot.top_level_dirs.clone(),
+                        files: summary.snapshot.changed_files.clone(),
+                    });
+                }
+            }
+        }
+
+        let now = now_rfc3339();
+        let session = AgentSession {
+            id: new_session_id(),
+            created_at: now.clone(),
+            updated_at: now,
+            cwd: cwd_str,
+            repo_root,
+            project_id,
+            objective: self.objective.clone(),
+            working_set,
+            notes: self.notes.clone(),
+            git,
+            checkpoint,
+            recent_changes,
+        };
+
+        append_session_saved(&home, session.clone())
+            .map_err(|err| CallToolError::from_message(err.to_string()))?;
+        set_current_session(&home, &session.id)
+            .map_err(|err| CallToolError::from_message(err.to_string()))?;
+
+        if self.format == "text" {
+            return ok_text(format!("Saved session {}", session.id));
+        }
+        ok_json(serde_json::to_value(session).unwrap_or_default())
+    }
+}
+
+impl SessionListTool {
+    fn call(&self, _context: &McpContext) -> Result<CallToolResult, CallToolError> {
+        let home = resolve_workmesh_home()
+            .map_err(|err| CallToolError::from_message(err.to_string()))?;
+        let mut sessions = load_sessions_latest(&home)
+            .map_err(|err| CallToolError::from_message(err.to_string()))?;
+        if let Some(limit) = self.limit {
+            sessions.truncate(limit as usize);
+        }
+        if self.format == "text" {
+            if sessions.is_empty() {
+                return ok_text("(no sessions)".to_string());
+            }
+            let body = sessions
+                .iter()
+                .map(render_session_line)
+                .collect::<Vec<_>>()
+                .join("\n");
+            return ok_text(body);
+        }
+        ok_json(serde_json::to_value(sessions).unwrap_or_default())
+    }
+}
+
+impl SessionShowTool {
+    fn call(&self, _context: &McpContext) -> Result<CallToolResult, CallToolError> {
+        let home = resolve_workmesh_home()
+            .map_err(|err| CallToolError::from_message(err.to_string()))?;
+        let sessions = load_sessions_latest(&home)
+            .map_err(|err| CallToolError::from_message(err.to_string()))?;
+        let session = sessions
+            .into_iter()
+            .find(|s| s.id == self.session_id)
+            .ok_or_else(|| CallToolError::from_message("Session not found"))?;
+        if self.format == "text" {
+            return ok_text(render_session_detail(&session));
+        }
+        ok_json(serde_json::to_value(session).unwrap_or_default())
+    }
+}
+
+impl SessionResumeTool {
+    fn call(&self, _context: &McpContext) -> Result<CallToolResult, CallToolError> {
+        let home = resolve_workmesh_home()
+            .map_err(|err| CallToolError::from_message(err.to_string()))?;
+        let id = self
+            .session_id
+            .clone()
+            .or_else(|| read_current_session_id(&home))
+            .ok_or_else(|| CallToolError::from_message("No session id provided"))?;
+        let sessions = load_sessions_latest(&home)
+            .map_err(|err| CallToolError::from_message(err.to_string()))?;
+        let session = sessions
+            .into_iter()
+            .find(|s| s.id == id)
+            .ok_or_else(|| CallToolError::from_message("Session not found"))?;
+        let script = resume_script(&session);
+        if self.format == "text" {
+            let mut body = render_session_detail(&session);
+            body.push_str("\n\nSuggested resume:\n");
+            body.push_str(&script.join("\n"));
+            return ok_text(body);
+        }
+        ok_json(serde_json::json!({ "session": session, "resume_script": script }))
+    }
+}
+
 impl BestPracticesTool {
     fn call(&self, context: &McpContext) -> Result<CallToolResult, CallToolError> {
         if resolve_root(context, self.root.as_deref()).is_err() {
@@ -2275,6 +2490,131 @@ impl GanttSvgTool {
         }
         ok_text(svg)
     }
+}
+
+fn best_effort_git_snapshot(repo_root: &Path) -> GitSnapshot {
+    let branch = std::process::Command::new("git")
+        .arg("-C")
+        .arg(repo_root)
+        .arg("rev-parse")
+        .arg("--abbrev-ref")
+        .arg("HEAD")
+        .output()
+        .ok()
+        .and_then(|out| {
+            if out.status.success() {
+                Some(String::from_utf8_lossy(&out.stdout).trim().to_string())
+            } else {
+                None
+            }
+        })
+        .filter(|value| !value.trim().is_empty());
+
+    let head_sha = std::process::Command::new("git")
+        .arg("-C")
+        .arg(repo_root)
+        .arg("rev-parse")
+        .arg("HEAD")
+        .output()
+        .ok()
+        .and_then(|out| {
+            if out.status.success() {
+                Some(String::from_utf8_lossy(&out.stdout).trim().to_string())
+            } else {
+                None
+            }
+        })
+        .filter(|value| !value.trim().is_empty());
+
+    let dirty = std::process::Command::new("git")
+        .arg("-C")
+        .arg(repo_root)
+        .arg("status")
+        .arg("--porcelain")
+        .output()
+        .ok()
+        .and_then(|out| {
+            if out.status.success() {
+                Some(!String::from_utf8_lossy(&out.stdout).trim().is_empty())
+            } else {
+                None
+            }
+        });
+
+    GitSnapshot {
+        branch,
+        head_sha,
+        dirty,
+    }
+}
+
+fn render_session_line(session: &AgentSession) -> String {
+    format!(
+        "{} | {} | {} | {}",
+        session.id, session.updated_at, session.cwd, session.objective
+    )
+}
+
+fn render_session_detail(session: &AgentSession) -> String {
+    let mut lines = Vec::new();
+    lines.push(format!("id: {}", session.id));
+    lines.push(format!("updated_at: {}", session.updated_at));
+    lines.push(format!("cwd: {}", session.cwd));
+    if let Some(repo_root) = session.repo_root.as_deref() {
+        lines.push(format!("repo_root: {}", repo_root));
+    }
+    if let Some(project_id) = session.project_id.as_deref() {
+        lines.push(format!("project_id: {}", project_id));
+    }
+    lines.push(format!("objective: {}", session.objective));
+    if !session.working_set.is_empty() {
+        lines.push(format!("working_set: {}", session.working_set.join(", ")));
+    }
+    if let Some(notes) = session.notes.as_deref() {
+        if !notes.trim().is_empty() {
+            lines.push(format!("notes: {}", notes));
+        }
+    }
+    if let Some(git) = session.git.as_ref() {
+        if git.branch.is_some() || git.head_sha.is_some() || git.dirty.is_some() {
+            lines.push(format!(
+                "git: branch={} sha={} dirty={}",
+                git.branch.clone().unwrap_or_else(|| "-".to_string()),
+                git.head_sha.clone().unwrap_or_else(|| "-".to_string()),
+                git.dirty
+                    .map(|value| value.to_string())
+                    .unwrap_or_else(|| "-".to_string())
+            ));
+        }
+    }
+    if let Some(checkpoint) = session.checkpoint.as_ref() {
+        lines.push(format!("checkpoint: {}", checkpoint.path));
+    }
+    lines.join("\n")
+}
+
+fn resume_script(session: &AgentSession) -> Vec<String> {
+    let mut lines = Vec::new();
+    lines.push(format!("cd {}", session.cwd));
+
+    if let (Some(repo_root), Some(project_id)) =
+        (session.repo_root.as_deref(), session.project_id.as_deref())
+    {
+        lines.push(format!(
+            "workmesh --root {} resume --project {}",
+            repo_root, project_id
+        ));
+        lines.push(format!("workmesh --root {} ready", repo_root));
+    }
+
+    if let Some(repo_root) = session.repo_root.as_deref() {
+        if let Some(task_id) = session.working_set.first() {
+            lines.push(format!("workmesh --root {} show {}", repo_root, task_id));
+            lines.push(format!("workmesh --root {} claim {} you", repo_root, task_id));
+        }
+    }
+
+    lines
 }
 
 fn parse_command_string(raw: &str) -> Result<Vec<String>, CallToolError> {

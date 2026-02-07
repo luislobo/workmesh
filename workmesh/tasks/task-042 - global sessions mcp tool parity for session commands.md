@@ -3,7 +3,7 @@ id: task-042
 uid: 01KGV3B9Q46WWZ4K3RV98S0YE3
 title: Global sessions: MCP tool parity for session commands
 kind: task
-status: To Do
+status: Done
 priority: P1
 phase: Phase4
 dependencies: []
@@ -14,8 +14,8 @@ relationships:
   parent: []
   child: []
   discovered_from: []
+updated_date: 2026-02-06 22:14
 ---
-
 Description:
 --------------------------------------------------
 - Add MCP tools with CLI parity:
@@ -35,3 +35,6 @@ Definition of Done:
 --------------------------------------------------
 - Code/config committed.
 - Docs updated if needed.
+
+Notes:
+- Implemented MCP tools: session_save/session_list/session_show/session_resume backed by ~/.workmesh (WORKMESH_HOME). Added CLI<->MCP parity test for global sessions.
