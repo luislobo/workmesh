@@ -4,7 +4,9 @@ use std::process::Command;
 use std::process::Output;
 use std::process::Stdio;
 use std::sync::Arc;
+use std::sync::Mutex;
 use std::sync::Once;
+use std::sync::OnceLock;
 
 use async_trait::async_trait;
 use chrono::Local;
@@ -112,6 +114,11 @@ fn mcp_bin() -> PathBuf {
     root.join("target").join("debug").join("workmesh-mcp")
 }
 
+fn env_lock() -> &'static Mutex<()> {
+    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+    LOCK.get_or_init(|| Mutex::new(()))
+}
+
 async fn start_client(root: &Path) -> Arc<rust_mcp_sdk::mcp_client::ClientRuntime> {
     let transport = StdioTransport::create_with_server_launch(
         mcp_bin().display().to_string(),
@@ -213,6 +220,94 @@ fn write_fake_plantuml(dir: &Path) -> PathBuf {
     std::fs::write(&path, script).expect("write plantuml script");
     make_executable_best_effort(&path);
     path
+}
+
+#[tokio::test]
+async fn cli_and_mcp_global_sessions_parity() {
+    let _guard = env_lock().lock().expect("env lock");
+    let home = TempDir::new().expect("home tempdir");
+    std::env::set_var("WORKMESH_HOME", home.path());
+
+    let repo = TempDir::new().expect("repo tempdir");
+    let tasks_dir = repo.path().join("workmesh").join("tasks");
+    std::fs::create_dir_all(&tasks_dir).expect("tasks dir");
+    write_task(&tasks_dir, "task-001", "Alpha", "To Do", &[]);
+
+    let client = start_client(repo.path()).await;
+
+    // MCP save -> CLI show
+    let saved_text = call_tool_text(
+        &client,
+        "session_save",
+        serde_json::json!({
+            "objective": "Test objective (mcp)",
+            "cwd": repo.path().display().to_string(),
+            "format": "json"
+        }),
+    )
+    .await;
+    let saved_json: serde_json::Value =
+        serde_json::from_str(&saved_text).expect("session_save json");
+    let mcp_id = saved_json
+        .get("id")
+        .and_then(|v| v.as_str())
+        .expect("id")
+        .to_string();
+
+    let show = cli()
+        .arg("--root")
+        .arg(repo.path())
+        .env("WORKMESH_HOME", home.path())
+        .arg("session")
+        .arg("show")
+        .arg(&mcp_id)
+        .arg("--json")
+        .output()
+        .expect("cli session show");
+    assert_output_ok!(show);
+    let cli_show: serde_json::Value = serde_json::from_slice(&show.stdout).expect("cli json");
+    assert_eq!(cli_show.get("id").and_then(|v| v.as_str()).unwrap(), mcp_id);
+
+    // CLI save -> MCP show
+    let cli_save = cli()
+        .arg("--root")
+        .arg(repo.path())
+        .env("WORKMESH_HOME", home.path())
+        .arg("session")
+        .arg("save")
+        .arg("--objective")
+        .arg("Test objective (cli)")
+        .arg("--cwd")
+        .arg(repo.path())
+        .arg("--json")
+        .output()
+        .expect("cli session save");
+    assert_output_ok!(cli_save);
+    let cli_save_json: serde_json::Value =
+        serde_json::from_slice(&cli_save.stdout).expect("cli save json");
+    let cli_id = cli_save_json
+        .get("id")
+        .and_then(|v| v.as_str())
+        .expect("id")
+        .to_string();
+
+    let mcp_show_text = call_tool_text(
+        &client,
+        "session_show",
+        serde_json::json!({
+            "session_id": cli_id,
+            "format": "json"
+        }),
+    )
+    .await;
+    let mcp_show_json: serde_json::Value =
+        serde_json::from_str(&mcp_show_text).expect("session_show json");
+    assert_eq!(
+        mcp_show_json.get("objective").and_then(|v| v.as_str()).unwrap(),
+        "Test objective (cli)"
+    );
+
+    client.shut_down().await.expect("shutdown");
 }
 
 #[cfg(unix)]
