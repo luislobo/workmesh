@@ -416,6 +416,8 @@ mod tests {
 
         let temp = TempDir::new().expect("tempdir");
         let home = temp.path();
+        let fake_home = temp.path().join("home");
+        fs::create_dir_all(&fake_home).expect("create fake home");
 
         // Basic helpers.
         assert!(!now_rfc3339().is_empty());
@@ -425,10 +427,13 @@ mod tests {
         assert!(sessions_index_path(home).ends_with(".index/sessions.jsonl"));
 
         // WORKMESH_HOME empty should fall back to HOME.
+        std::env::set_var("HOME", &fake_home);
+        std::env::remove_var("USERPROFILE");
         std::env::set_var("WORKMESH_HOME", "   ");
         let resolved = resolve_workmesh_home().expect("resolve");
         assert!(resolved.to_string_lossy().ends_with(".workmesh"));
         std::env::remove_var("WORKMESH_HOME");
+        std::env::remove_var("HOME");
 
         append_session_saved(home, session("s1", "2026-02-01T01:00:00Z", "/a")).expect("append");
         let rebuilt = rebuild_sessions_index(home).expect("rebuild");
