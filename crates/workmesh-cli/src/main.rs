@@ -154,7 +154,7 @@ enum Command {
         /// Include archived tasks under `workmesh/archive/` (recursively)
         #[arg(long, action = ArgAction::SetTrue)]
         all: bool,
-        /// Disable strict mode (allows future non-structured rewrites; currently unused).
+        /// Disable strict mode (also rewrites free-text mentions of task IDs in task bodies).
         #[arg(long, action = ArgAction::SetTrue)]
         non_strict: bool,
         #[arg(long, action = ArgAction::SetTrue)]

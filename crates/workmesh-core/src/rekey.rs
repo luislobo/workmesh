@@ -261,24 +261,30 @@ fn parse_front_matter_loose(front: &str) -> HashMap<String, Value> {
     data
 }
 
-fn rewrite_id_refs_in_list(list: &mut Vec<Value>, mapping_lc: &HashMap<String, String>) {
+fn rewrite_id_refs_in_list_count(list: &mut Vec<Value>, mapping_lc: &HashMap<String, String>) -> usize {
+    let mut changed = 0usize;
     for entry in list.iter_mut() {
         let Some(s) = entry.as_str() else { continue };
         let key = s.trim().to_lowercase();
         if let Some(new_id) = mapping_lc.get(&key) {
-            *entry = Value::String(new_id.clone());
+            if s != new_id {
+                *entry = Value::String(new_id.clone());
+                changed += 1;
+            }
         }
     }
+    changed
 }
 
-fn rewrite_known_ref_fields(map: &mut serde_yaml::Mapping, mapping_lc: &HashMap<String, String>) {
+fn rewrite_known_ref_fields(map: &mut serde_yaml::Mapping, mapping_lc: &HashMap<String, String>) -> usize {
     let list_keys = ["dependencies", "blocked_by", "parent", "child", "discovered_from"];
+    let mut changed = 0usize;
 
     for key in list_keys {
         let k = Value::String(key.to_string());
         if let Some(value) = map.get_mut(&k) {
             if let Value::Sequence(seq) = value {
-                rewrite_id_refs_in_list(seq, mapping_lc);
+                changed += rewrite_id_refs_in_list_count(seq, mapping_lc);
             }
         }
     }
@@ -291,12 +297,14 @@ fn rewrite_known_ref_fields(map: &mut serde_yaml::Mapping, mapping_lc: &HashMap<
                 let k = Value::String(key.to_string());
                 if let Some(value) = rel_map.get_mut(&k) {
                     if let Value::Sequence(seq) = value {
-                        rewrite_id_refs_in_list(seq, mapping_lc);
+                        changed += rewrite_id_refs_in_list_count(seq, mapping_lc);
                     }
                 }
             }
         }
     }
+
+    changed
 }
 
 fn rename_task_file_prefix(old_path: &Path, old_id: &str, new_id: &str) -> Result<Option<PathBuf>, TaskParseError> {
@@ -324,6 +332,53 @@ fn rename_task_file_prefix(old_path: &Path, old_id: &str, new_id: &str) -> Resul
     }
     fs::rename(old_path, &new_path).map_err(|err| TaskParseError::Invalid(err.to_string()))?;
     Ok(Some(new_path))
+}
+
+fn is_id_char(byte: u8) -> bool {
+    byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_'
+}
+
+fn rewrite_body_text(body: &str, mapping_lc: &HashMap<String, String>) -> (String, usize) {
+    // This is intentionally conservative:
+    // - only rewrites tokens that look like task IDs (`task-...`)
+    // - only rewrites exact mapping hits
+    // - only rewrites when the match is bounded by non-id characters
+    //
+    // Rust regex does not support look-around, so we do boundary checks manually.
+    let re = regex::Regex::new(r"(?i)task-[a-z0-9-]+").expect("regex");
+    let bytes = body.as_bytes();
+    let mut out = String::with_capacity(body.len());
+    let mut last = 0usize;
+    let mut changed = 0usize;
+
+    for m in re.find_iter(body) {
+        let start = m.start();
+        let end = m.end();
+
+        let before_ok = start == 0 || !is_id_char(bytes[start.saturating_sub(1)]);
+        let after_ok = end == bytes.len() || !is_id_char(bytes[end]);
+        if !(before_ok && after_ok) {
+            continue;
+        }
+
+        let matched = &body[start..end];
+        let key = matched.to_lowercase();
+        let Some(new_id) = mapping_lc.get(&key) else {
+            continue;
+        };
+
+        out.push_str(&body[last..start]);
+        out.push_str(new_id);
+        last = end;
+        changed += 1;
+    }
+
+    if changed == 0 {
+        return (body.to_string(), 0);
+    }
+
+    out.push_str(&body[last..]);
+    (out, changed)
 }
 
 pub fn rekey_apply(
@@ -356,10 +411,16 @@ pub fn rekey_apply(
     }
     if !missing.is_empty() {
         missing.sort();
-        return Err(TaskParseError::Invalid(format!(
-            "Mapping references missing task ids: {}",
+        if options.strict {
+            return Err(TaskParseError::Invalid(format!(
+                "Mapping references missing task ids: {}",
+                missing.join(", ")
+            )));
+        }
+        warnings.push(format!(
+            "Non-strict mode: continuing despite missing mapping ids: {}",
             missing.join(", ")
-        )));
+        ));
     }
     for new_id in mapping_lc.values() {
         let key = new_id.to_lowercase();
@@ -414,7 +475,14 @@ pub fn rekey_apply(
         let mut map = parse_front_matter_tolerant(&front);
 
         // Rewrite structured references first.
-        rewrite_known_ref_fields(&mut map, &mapping_lc);
+        let structured_changes = rewrite_known_ref_fields(&mut map, &mapping_lc);
+
+        // Optionally rewrite free-text body references.
+        let (new_body, body_changes) = if options.strict {
+            (body.clone(), 0usize)
+        } else {
+            rewrite_body_text(&body, &mapping_lc)
+        };
 
         // Rekey the task's own id if present in mapping.
         let mut renamed = false;
@@ -424,10 +492,27 @@ pub fn rekey_apply(
             renamed = true;
         }
 
-        let yaml_value = Value::Mapping(map);
-        let rendered_front = yaml_to_string_without_doc_marker(&yaml_value)?;
-        let updated = format!("---\n{}\n---\n{}", rendered_front.trim_end(), body);
-        fs::write(&path, updated).map_err(|err| TaskParseError::Invalid(err.to_string()))?;
+        let needs_front_rewrite = renamed || structured_changes > 0;
+        let needs_body_rewrite = body_changes > 0;
+        if !(needs_front_rewrite || needs_body_rewrite) {
+            continue;
+        }
+
+        let rendered_front = if needs_front_rewrite {
+            let yaml_value = Value::Mapping(map);
+            yaml_to_string_without_doc_marker(&yaml_value)?
+        } else {
+            front
+        };
+
+        let updated = format!(
+            "---\n{}\n---\n{}",
+            rendered_front.trim_end(),
+            new_body
+        );
+        if updated != text {
+            fs::write(&path, updated).map_err(|err| TaskParseError::Invalid(err.to_string()))?;
+        }
 
         // Rename file if the id changed.
         if renamed {
@@ -598,5 +683,58 @@ Body\n",
         let renamed_text = fs::read_to_string(&renamed_path).expect("read renamed");
         assert!(renamed_text.contains("id: task-logi-001"));
         assert!(!a.exists());
+    }
+
+    #[test]
+    fn apply_non_strict_rewrites_body_refs_even_when_ids_are_missing() {
+        let temp = TempDir::new().expect("tempdir");
+        let backlog_dir = temp.path().join("workmesh");
+        let tasks_dir = backlog_dir.join("tasks");
+        fs::create_dir_all(&tasks_dir).expect("tasks dir");
+
+        // These tasks already use the new id format, but their bodies reference legacy ids.
+        let path = tasks_dir.join("task-main-001 - alpha.md");
+        let content = "---\n\
+id: task-main-001\n\
+uid: 01TESTUID000000000000000000\n\
+title: Alpha\n\
+kind: task\n\
+status: To Do\n\
+priority: P2\n\
+phase: Phase1\n\
+dependencies: []\n\
+relationships:\n\
+  blocked_by: []\n\
+  parent: []\n\
+  child: []\n\
+  discovered_from: []\n\
+---\n\
+\n\
+Body mentions task-001 and task-002.\n";
+        fs::write(&path, content).expect("write");
+
+        let req = RekeyRequest {
+            mapping: HashMap::from([
+                ("task-001".to_string(), "task-main-001".to_string()),
+                ("task-002".to_string(), "task-main-002".to_string()),
+            ]),
+            strict: false,
+        };
+        let report = rekey_apply(
+            &backlog_dir,
+            &req,
+            RekeyApplyOptions {
+                apply: true,
+                strict: false,
+                include_archive: false,
+            },
+        )
+        .expect("apply");
+        assert!(report.ok);
+
+        let updated = fs::read_to_string(&path).expect("read updated");
+        assert!(updated.contains("Body mentions task-main-001 and task-main-002."));
+        assert!(!updated.contains("task-001"));
+        assert!(!updated.contains("task-002"));
     }
 }
