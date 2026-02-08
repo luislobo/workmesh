@@ -34,6 +34,9 @@ use workmesh_core::index::{rebuild_index, refresh_index, verify_index};
 use workmesh_core::migration::migrate_backlog;
 use workmesh_core::project::{ensure_project_docs, repo_root_from_backlog};
 use workmesh_core::quickstart::quickstart;
+use workmesh_core::rekey::{
+    parse_rekey_request, rekey_apply, render_rekey_prompt, RekeyApplyOptions, RekeyPromptOptions,
+};
 use workmesh_core::session::{
     append_session_journal, diff_since_checkpoint, render_diff, render_resume, resolve_project_id,
     resume_summary, task_summary, write_checkpoint, write_working_set, CheckpointOptions,
@@ -697,6 +700,37 @@ pub struct FixIdsTool {
     pub apply: bool,
 }
 
+#[mcp_tool(
+    name = "rekey_prompt",
+    description = "Generate an agent prompt to propose a task-id rekey mapping (and reference rewrites)."
+)]
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct RekeyPromptTool {
+    pub root: Option<String>,
+    #[serde(default)]
+    pub all: bool,
+    #[serde(default)]
+    pub include_body: bool,
+    pub limit: Option<u32>,
+    #[serde(default = "default_format")]
+    pub format: String,
+}
+
+#[mcp_tool(
+    name = "rekey_apply",
+    description = "Apply a task-id rekey mapping and rewrite structured references (dependencies + relationships)."
+)]
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct RekeyApplyTool {
+    pub root: Option<String>,
+    #[serde(default)]
+    pub apply: bool,
+    #[serde(default)]
+    pub all: bool,
+    /// JSON request. Either `{ \"mapping\": { ... }, \"strict\": true }` or the mapping object directly.
+    pub mapping_json: String,
+}
+
 #[mcp_tool(name = "graph_export", description = "Export task graph as JSON.")]
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct GraphExportTool {
@@ -1024,6 +1058,8 @@ tool_box!(
         QuickstartTool,
         ValidateTool,
         FixIdsTool,
+        RekeyPromptTool,
+        RekeyApplyTool,
         GraphExportTool,
         IssuesExportTool,
         IndexRebuildTool,
@@ -1110,6 +1146,8 @@ impl ServerHandler for WorkmeshServerHandler {
             WorkmeshTools::QuickstartTool(tool) => tool.call(&self.context),
             WorkmeshTools::ValidateTool(tool) => tool.call(&self.context),
             WorkmeshTools::FixIdsTool(tool) => tool.call(&self.context),
+            WorkmeshTools::RekeyPromptTool(tool) => tool.call(&self.context),
+            WorkmeshTools::RekeyApplyTool(tool) => tool.call(&self.context),
             WorkmeshTools::GraphExportTool(tool) => tool.call(&self.context),
             WorkmeshTools::IssuesExportTool(tool) => tool.call(&self.context),
             WorkmeshTools::IndexRebuildTool(tool) => tool.call(&self.context),
@@ -2265,6 +2303,61 @@ impl FixIdsTool {
             })).collect::<Vec<_>>(),
             "warnings": report.warnings,
         }))
+    }
+}
+
+impl RekeyPromptTool {
+    fn call(&self, context: &McpContext) -> Result<CallToolResult, CallToolError> {
+        let backlog_dir = match resolve_root(context, self.root.as_deref()) {
+            Ok(dir) => dir,
+            Err(err) => return ok_json(err),
+        };
+        let prompt = render_rekey_prompt(
+            &backlog_dir,
+            RekeyPromptOptions {
+                include_body: self.include_body,
+                include_archive: self.all,
+                limit: self.limit.map(|v| v as usize),
+            },
+        );
+        if self.format == "json" {
+            ok_json(serde_json::json!({ "ok": true, "prompt": prompt }))
+        } else {
+            ok_text(prompt)
+        }
+    }
+}
+
+impl RekeyApplyTool {
+    fn call(&self, context: &McpContext) -> Result<CallToolResult, CallToolError> {
+        let backlog_dir = match resolve_root(context, self.root.as_deref()) {
+            Ok(dir) => dir,
+            Err(err) => return ok_json(err),
+        };
+        let request = parse_rekey_request(&self.mapping_json).map_err(CallToolError::new)?;
+        let report = rekey_apply(
+            &backlog_dir,
+            &request,
+            RekeyApplyOptions {
+                apply: self.apply,
+                strict: request.strict,
+                include_archive: self.all,
+            },
+        )
+        .map_err(CallToolError::new)?;
+
+        if self.apply {
+            audit_event(
+                &backlog_dir,
+                "rekey_apply",
+                None,
+                serde_json::json!({ "changes": report.changes.len(), "strict": request.strict }),
+            )?;
+            refresh_index_best_effort(&backlog_dir);
+            maybe_auto_checkpoint(&backlog_dir);
+        }
+
+        ok_json(serde_json::to_value(report).unwrap_or_default())
     }
 }
 

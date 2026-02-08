@@ -29,6 +29,9 @@ use workmesh_core::initiative::{best_effort_git_branch as core_git_branch, ensur
 use workmesh_core::migration::{migrate_backlog, MigrationError};
 use workmesh_core::project::{ensure_project_docs, repo_root_from_backlog};
 use workmesh_core::quickstart::quickstart;
+use workmesh_core::rekey::{
+    parse_rekey_request, rekey_apply, render_rekey_prompt, RekeyApplyOptions, RekeyPromptOptions,
+};
 use workmesh_core::session::{
     append_session_journal, diff_since_checkpoint, render_diff, render_resume, resolve_project_id,
     resume_summary, task_summary, write_checkpoint, write_working_set, CheckpointOptions,
@@ -124,6 +127,36 @@ enum Command {
         /// Apply changes (otherwise dry-run)
         #[arg(long, action = ArgAction::SetTrue)]
         apply: bool,
+        #[arg(long, action = ArgAction::SetTrue)]
+        json: bool,
+    },
+    /// Generate an agent prompt to propose a task-id rekey mapping (and reference rewrites).
+    RekeyPrompt {
+        /// Include archived tasks under `workmesh/archive/` (recursively)
+        #[arg(long, action = ArgAction::SetTrue)]
+        all: bool,
+        /// Include task bodies in the prompt data (can be large)
+        #[arg(long, action = ArgAction::SetTrue)]
+        include_body: bool,
+        #[arg(long)]
+        limit: Option<usize>,
+        #[arg(long, action = ArgAction::SetTrue)]
+        json: bool,
+    },
+    /// Apply a task-id rekey mapping and rewrite structured references (dependencies + relationships).
+    RekeyApply {
+        /// Path to mapping JSON (if omitted, reads stdin)
+        #[arg(long)]
+        mapping: Option<PathBuf>,
+        /// Apply changes (otherwise dry-run)
+        #[arg(long, action = ArgAction::SetTrue)]
+        apply: bool,
+        /// Include archived tasks under `workmesh/archive/` (recursively)
+        #[arg(long, action = ArgAction::SetTrue)]
+        all: bool,
+        /// Disable strict mode (allows future non-structured rewrites; currently unused).
+        #[arg(long, action = ArgAction::SetTrue)]
+        non_strict: bool,
         #[arg(long, action = ArgAction::SetTrue)]
         json: bool,
     },
@@ -1288,6 +1321,83 @@ fn main() -> Result<()> {
                 }
                 for change in &report.changes {
                     println!("{} -> {}", change.old_id, change.new_id);
+                }
+                if !apply {
+                    println!("Dry-run: re-run with --apply to write changes.");
+                }
+            }
+        }
+        Command::RekeyPrompt {
+            all,
+            include_body,
+            limit,
+            json,
+        } => {
+            let prompt = render_rekey_prompt(
+                &backlog_dir,
+                RekeyPromptOptions {
+                    include_body,
+                    include_archive: all,
+                    limit,
+                },
+            );
+            if json {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&serde_json::json!({
+                        "ok": true,
+                        "prompt": prompt,
+                    }))?
+                );
+            } else {
+                println!("{}", prompt);
+            }
+        }
+        Command::RekeyApply {
+            mapping,
+            apply,
+            all,
+            non_strict,
+            json,
+        } => {
+            let mapping_text = read_content(None, mapping.as_deref())?;
+            let mut request = parse_rekey_request(&mapping_text)?;
+            if non_strict {
+                request.strict = false;
+            }
+            let report = rekey_apply(
+                &backlog_dir,
+                &request,
+                RekeyApplyOptions {
+                    apply,
+                    strict: request.strict,
+                    include_archive: all,
+                },
+            )?;
+            if apply {
+                audit_event(
+                    &backlog_dir,
+                    "rekey_apply",
+                    None,
+                    serde_json::json!({ "changes": report.changes.len(), "strict": request.strict }),
+                )?;
+                refresh_index_best_effort(&backlog_dir);
+                maybe_auto_checkpoint(&backlog_dir, auto_checkpoint, auto_session);
+            }
+            if json {
+                println!("{}", serde_json::to_string_pretty(&serde_json::to_value(&report)?)?);
+            } else if report.changes.is_empty() {
+                println!("No tasks matched the mapping.");
+            } else {
+                for warning in &report.warnings {
+                    eprintln!("warning: {}", warning);
+                }
+                for change in &report.changes {
+                    if let Some(new_path) = &change.new_path {
+                        println!("{} -> {} ({})", change.old_id, change.new_id, new_path.display());
+                    } else {
+                        println!("{} -> {}", change.old_id, change.new_id);
+                    }
                 }
                 if !apply {
                     println!("Dry-run: re-run with --apply to write changes.");
