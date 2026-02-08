@@ -210,16 +210,16 @@ assignee: []
 
 ## Initiative-slug task IDs (avoid collisions across branches)
 By default, WorkMesh generates task IDs in a namespaced form:
-- `task-<initiative>-NNN` (example: `task-login-001`)
+- `task-<init>-NNN` (example: `task-logi-001`)
 
-The `<initiative>` slug is derived from your current git branch name and then frozen in `.workmesh.toml`
-so multiple agents/terminals in the same repo avoid reusing the same initiative slug.
+The `<init>` key is a 4-letter code derived from your current git branch name and then frozen in `.workmesh.toml`
+so multiple agents/terminals in the same repo avoid reusing the same initiative key.
 
 Details:
-- Branch name to slug: `feature/login-ui` becomes `login-ui` (best-effort slugify, uses last path segment).
+- Branch name to code: `feature/login-ui` becomes `logi` (best-effort, uses last path segment).
 - Freeze mapping: `.workmesh.toml` stores `branch_initiatives.{branch} = "<initiative>"`.
-- Collision avoidance: if a desired slug is already used by another branch, WorkMesh appends `-2`, `-3`, ...
-  (example: `login` then `login-2`).
+- Collision avoidance: if a desired 4-letter code is already used by another branch, WorkMesh picks another
+  deterministic 4-letter code (still length 4).
 - Override (non-git / tests): set `WORKMESH_BRANCH=feature/login` to make the behavior deterministic.
 - Manual override: pass `--id` to `add`/`add-discovered` if you want an explicit id.
 

@@ -78,10 +78,10 @@
     },
     "task_ids": {
       "default_format": "task-<initiative>-NNN",
-      "examples": ["task-login-001", "task-billing-014"],
-      "initiative_source": "Derived from git branch name (last path segment, slugified), then frozen in .workmesh.toml",
+      "examples": ["task-logi-001", "task-bill-014"],
+      "initiative_source": "Derived from git branch name (last path segment), converted into a 4-letter key, then frozen in .workmesh.toml",
       "config_fields": ["branch_initiatives", "initiatives"],
-      "collision_behavior": "If the desired initiative slug is already used, WorkMesh appends -2, -3, ...",
+      "collision_behavior": "If the desired 4-letter initiative key is already used, WorkMesh deterministically chooses another 4-letter key (still length 4).",
       "override_env": "WORKMESH_BRANCH",
       "repair": {
         "purpose": "After merges, detect and rekey duplicate task ids.",
