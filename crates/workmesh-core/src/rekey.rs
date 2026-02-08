@@ -166,13 +166,99 @@ fn yaml_to_string_without_doc_marker(value: &Value) -> Result<String, TaskParseE
     Ok(raw)
 }
 
-fn ensure_yaml_mapping(value: Value) -> Result<serde_yaml::Mapping, TaskParseError> {
-    match value {
-        Value::Mapping(map) => Ok(map),
-        _ => Err(TaskParseError::Invalid(
-            "Front matter must be a YAML mapping".to_string(),
-        )),
+fn parse_front_matter_tolerant(front: &str) -> serde_yaml::Mapping {
+    // Prefer strict YAML when it works; otherwise fallback to a tolerant line parser.
+    // This keeps rekey working on legacy front matter like `title: Phase 1: ...` (colon in scalar).
+    if let Ok(value) = serde_yaml::from_str::<Value>(front) {
+        if let Value::Mapping(map) = value {
+            return map;
+        }
     }
+    let data = parse_front_matter_loose(front);
+    let mut map = serde_yaml::Mapping::new();
+    for (key, value) in data {
+        map.insert(Value::String(key), value);
+    }
+    map
+}
+
+fn parse_front_matter_loose(front: &str) -> HashMap<String, Value> {
+    // Keep this parser intentionally small and forgiving; it mirrors the behavior of the task loader.
+    let mut data = HashMap::new();
+    let lines: Vec<&str> = front.lines().collect();
+    let mut i = 0;
+    while i < lines.len() {
+        let line = lines[i];
+        let trimmed = line.trim();
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            i += 1;
+            continue;
+        }
+        let Some((key, rest)) = line.split_once(':') else {
+            i += 1;
+            continue;
+        };
+        let key = key.trim().to_string();
+        let value = rest.trim();
+        if value == ">-" || value == "|" {
+            let mut block: Vec<String> = Vec::new();
+            i += 1;
+            while i < lines.len() {
+                let next = lines[i];
+                if next.starts_with(' ') || next.starts_with('\t') {
+                    block.push(next.trim().to_string());
+                    i += 1;
+                    continue;
+                }
+                break;
+            }
+            let joined = if value == ">-" {
+                block.join(" ").trim().to_string()
+            } else {
+                block.join("\n")
+            };
+            data.insert(key, Value::String(joined));
+            continue;
+        }
+        if value.is_empty() {
+            let mut items: Vec<Value> = Vec::new();
+            let mut j = i + 1;
+            while j < lines.len() {
+                let next = lines[j];
+                if next.trim_start().starts_with("- ") {
+                    let item = next.trim_start()[2..].trim();
+                    if !item.is_empty() {
+                        items.push(Value::String(item.to_string()));
+                    }
+                    j += 1;
+                    continue;
+                }
+                break;
+            }
+            data.insert(key, Value::Sequence(items));
+            i = j;
+            continue;
+        }
+        if value.starts_with('[') && value.ends_with(']') {
+            let inner = value.trim_matches(&['[', ']'][..]).trim();
+            if inner.is_empty() {
+                data.insert(key, Value::Sequence(Vec::new()));
+            } else {
+                let values = inner
+                    .split(',')
+                    .map(|entry| entry.trim().trim_matches('"').to_string())
+                    .filter(|entry| !entry.is_empty())
+                    .map(Value::String)
+                    .collect::<Vec<_>>();
+                data.insert(key, Value::Sequence(values));
+            }
+            i += 1;
+            continue;
+        }
+        data.insert(key, Value::String(value.to_string()));
+        i += 1;
+    }
+    data
 }
 
 fn rewrite_id_refs_in_list(list: &mut Vec<Value>, mapping_lc: &HashMap<String, String>) {
@@ -325,9 +411,7 @@ pub fn rekey_apply(
 
         let text = fs::read_to_string(&path).map_err(|err| TaskParseError::Invalid(err.to_string()))?;
         let (front, body) = split_front_matter(&text)?;
-        let parsed: Value = serde_yaml::from_str(&front)
-            .map_err(|err| TaskParseError::Invalid(format!("Invalid YAML front matter in {}: {}", path.display(), err)))?;
-        let mut map = ensure_yaml_mapping(parsed)?;
+        let mut map = parse_front_matter_tolerant(&front);
 
         // Rewrite structured references first.
         rewrite_known_ref_fields(&mut map, &mapping_lc);
@@ -457,7 +541,7 @@ Body\n",
         let tasks_dir = backlog_dir.join("tasks");
         fs::create_dir_all(&tasks_dir).expect("tasks dir");
 
-        let a = write_task(&tasks_dir, "task-001", "Alpha", &[], &[]);
+        let a = write_task(&tasks_dir, "task-001", "Alpha: with colon", &[], &[]);
         let b = write_task(&tasks_dir, "task-002", "Beta", &["task-001"], &["task-001"]);
 
         // Load via the real parser to match production.
