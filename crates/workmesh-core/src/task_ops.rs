@@ -436,10 +436,13 @@ pub fn create_task_file(
     labels: &[String],
     assignee: &[String],
 ) -> Result<PathBuf, TaskParseError> {
-    let filename_title = slug_title(title);
-    let filename = format!("{} - {}.md", task_id, filename_title);
-    let path = tasks_dir.join(filename);
+    // Filenames are part of the git merge surface. Include a short UID suffix to avoid collisions
+    // when multiple branches create tasks with the same numeric id.
     let uid = Ulid::new().to_string();
+    let uid_short: String = uid.chars().take(8).collect();
+    let filename_title = slug_title(title);
+    let filename = format!("{} - {} - {}.md", task_id, filename_title, uid_short);
+    let path = tasks_dir.join(filename);
     let content = task_template(
         task_id,
         &uid,
