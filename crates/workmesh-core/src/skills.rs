@@ -262,9 +262,11 @@ mod tests {
             install_embedded_skill(None, SkillScope::User, SkillAgent::Codex, "workmesh", true)
                 .expect("install");
         assert_eq!(written.len(), 1);
-        assert!(written[0]
-            .to_string_lossy()
-            .ends_with(".codex/skills/workmesh/SKILL.md"));
+        let suffix = Path::new(".codex")
+            .join("skills")
+            .join("workmesh")
+            .join("SKILL.md");
+        assert!(written[0].ends_with(&suffix));
         assert!(fs::read_to_string(&written[0]).unwrap().contains("# WorkMesh skill"));
     }
 
@@ -290,9 +292,11 @@ mod tests {
 
         let written = install_embedded_skill_global_auto("workmesh", true).expect("install");
         assert_eq!(written.len(), 1);
-        assert!(written[0]
-            .to_string_lossy()
-            .ends_with(".codex/skills/workmesh/SKILL.md"));
+        let suffix = Path::new(".codex")
+            .join("skills")
+            .join("workmesh")
+            .join("SKILL.md");
+        assert!(written[0].ends_with(&suffix));
         assert!(!temp.path().join(".claude").exists());
         assert!(!temp.path().join(".cursor").exists());
     }

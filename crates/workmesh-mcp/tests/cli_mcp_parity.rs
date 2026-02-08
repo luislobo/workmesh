@@ -69,32 +69,22 @@ macro_rules! assert_output_ok {
 }
 
 fn cli() -> Command {
-    if let Ok(path) = std::env::var("CARGO_BIN_EXE_workmesh") {
-        let mut cmd = Command::new(path);
-        // Avoid interactive prompts (e.g. legacy backlog migration confirmation) in CI.
-        cmd.stdin(Stdio::null());
-        cmd.env("WORKMESH_NO_PROMPT", "1");
-        cmd.env("RUST_BACKTRACE", "1");
-        // Avoid flaky profraw merges when coverage is enabled: child processes being killed can
-        // leave partially written profiles. Coverage is asserted via core/unit tests.
-        #[cfg(unix)]
-        cmd.env("LLVM_PROFILE_FILE", "/dev/null");
-        #[cfg(windows)]
-        cmd.env("LLVM_PROFILE_FILE", "NUL");
-        return cmd;
-    }
     static BUILD: Once = Once::new();
     let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR not set");
     let root = std::path::Path::new(&manifest_dir)
         .parent()
         .and_then(|path| path.parent())
         .expect("workspace root");
-    let candidate = root.join("target").join("debug").join("workmesh");
+    let profile_dir = cargo_profile_dir();
+    let target_dir = cargo_target_dir();
+    let candidate = profile_dir.join(exe_name("workmesh"));
     BUILD.call_once(|| {
         let status = Command::new("cargo")
             .arg("build")
             .arg("-p")
             .arg("workmesh")
+            .arg("--target-dir")
+            .arg(&target_dir)
             // Coverage runs set LLVM_PROFILE_FILE; propagating it into nested `cargo build`
             // sometimes produces invalid `.profraw` artifacts that break `llvm-profdata merge`.
             .env_remove("LLVM_PROFILE_FILE")
@@ -116,15 +106,58 @@ fn cli() -> Command {
 }
 
 fn mcp_bin() -> PathBuf {
-    if let Ok(path) = std::env::var("CARGO_BIN_EXE_workmesh-mcp") {
-        return PathBuf::from(path);
-    }
+    // Cargo sets CARGO_BIN_EXE_* only for binaries built for the current package; when running
+    // workspace-level tests with a custom --target-dir, it's more reliable to resolve relative to
+    // the test executable and build into that same target dir on demand.
     let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR not set");
     let root = std::path::Path::new(&manifest_dir)
         .parent()
         .and_then(|path| path.parent())
         .expect("workspace root");
-    root.join("target").join("debug").join("workmesh-mcp")
+    let profile_dir = cargo_profile_dir();
+    let target_dir = cargo_target_dir();
+    let candidate = profile_dir.join(exe_name("workmesh-mcp"));
+
+    if candidate.exists() {
+        return candidate;
+    }
+
+    let status = Command::new("cargo")
+        .arg("build")
+        .arg("-p")
+        .arg("workmesh-mcp")
+        .arg("--target-dir")
+        .arg(&target_dir)
+        .env_remove("LLVM_PROFILE_FILE")
+        .current_dir(root)
+        .status()
+        .expect("build workmesh-mcp");
+    assert!(status.success());
+    candidate
+}
+
+fn exe_name(stem: &str) -> String {
+    if cfg!(windows) {
+        format!("{}.exe", stem)
+    } else {
+        stem.to_string()
+    }
+}
+
+fn cargo_profile_dir() -> PathBuf {
+    // <target-dir>/<profile>/deps/<test-binary>
+    let exe = std::env::current_exe().expect("current_exe");
+    exe.parent()
+        .and_then(|p| p.parent())
+        .map(|p| p.to_path_buf())
+        .expect("profile dir")
+}
+
+fn cargo_target_dir() -> PathBuf {
+    cargo_profile_dir()
+        .parent()
+        .map(|p| p.to_path_buf())
+        .expect("target dir")
 }
 
 fn env_lock() -> &'static Mutex<()> {
