@@ -28,6 +28,8 @@ use workmesh_core::global_sessions::{
     read_current_session_id, resolve_workmesh_home, set_current_session, AgentSession,
     CheckpointRef, GitSnapshot, RecentChanges,
 };
+use workmesh_core::id_fix::{fix_duplicate_task_ids, FixIdsOptions};
+use workmesh_core::initiative::{best_effort_git_branch as core_git_branch, ensure_branch_initiative, next_namespaced_task_id};
 use workmesh_core::index::{rebuild_index, refresh_index, verify_index};
 use workmesh_core::migration::migrate_backlog;
 use workmesh_core::project::{ensure_project_docs, repo_root_from_backlog};
@@ -684,6 +686,17 @@ pub struct ValidateTool {
     pub root: Option<String>,
 }
 
+#[mcp_tool(
+    name = "fix_ids",
+    description = "Fix duplicate task ids after merges (dry-run unless apply=true)."
+)]
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct FixIdsTool {
+    pub root: Option<String>,
+    #[serde(default)]
+    pub apply: bool,
+}
+
 #[mcp_tool(name = "graph_export", description = "Export task graph as JSON.")]
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct GraphExportTool {
@@ -1010,6 +1023,7 @@ tool_box!(
         ProjectInitTool,
         QuickstartTool,
         ValidateTool,
+        FixIdsTool,
         GraphExportTool,
         IssuesExportTool,
         IndexRebuildTool,
@@ -1095,6 +1109,7 @@ impl ServerHandler for WorkmeshServerHandler {
             WorkmeshTools::ProjectInitTool(tool) => tool.call(&self.context),
             WorkmeshTools::QuickstartTool(tool) => tool.call(&self.context),
             WorkmeshTools::ValidateTool(tool) => tool.call(&self.context),
+            WorkmeshTools::FixIdsTool(tool) => tool.call(&self.context),
             WorkmeshTools::GraphExportTool(tool) => tool.call(&self.context),
             WorkmeshTools::IssuesExportTool(tool) => tool.call(&self.context),
             WorkmeshTools::IndexRebuildTool(tool) => tool.call(&self.context),
@@ -2049,7 +2064,16 @@ impl AddTaskTool {
         };
         let tasks = load_tasks(&backlog_dir);
         let tasks_dir = backlog_dir.join("tasks");
-        let task_id = self.task_id.clone().unwrap_or_else(|| next_id(&tasks));
+        let task_id = match self.task_id.clone() {
+            Some(value) => value,
+            None => {
+                let repo_root = repo_root_from_backlog(&backlog_dir);
+                let branch = core_git_branch(&repo_root).unwrap_or_else(|| "work".to_string());
+                let initiative = ensure_branch_initiative(&repo_root, &branch)
+                    .map_err(|e| CallToolError::from_message(e.to_string()))?;
+                next_namespaced_task_id(&tasks, &initiative)
+            }
+        };
         let labels = parse_list_input(self.labels.clone());
         let dependencies = parse_list_input(self.dependencies.clone());
         let assignee = parse_list_input(self.assignee.clone());
@@ -2104,7 +2128,16 @@ impl AddDiscoveredTool {
         };
         let tasks = load_tasks(&backlog_dir);
         let tasks_dir = backlog_dir.join("tasks");
-        let task_id = self.task_id.clone().unwrap_or_else(|| next_id(&tasks));
+        let task_id = match self.task_id.clone() {
+            Some(value) => value,
+            None => {
+                let repo_root = repo_root_from_backlog(&backlog_dir);
+                let branch = core_git_branch(&repo_root).unwrap_or_else(|| "work".to_string());
+                let initiative = ensure_branch_initiative(&repo_root, &branch)
+                    .map_err(|e| CallToolError::from_message(e.to_string()))?;
+                next_namespaced_task_id(&tasks, &initiative)
+            }
+        };
         let labels = parse_list_input(self.labels.clone());
         let dependencies = parse_list_input(self.dependencies.clone());
         let assignee = parse_list_input(self.assignee.clone());
@@ -2190,6 +2223,48 @@ impl ValidateTool {
         let tasks = load_tasks(&backlog_dir);
         let report = validate_tasks(&tasks, Some(&backlog_dir));
         ok_json(serde_json::to_value(report).unwrap_or_default())
+    }
+}
+
+impl FixIdsTool {
+    fn call(&self, context: &McpContext) -> Result<CallToolResult, CallToolError> {
+        let backlog_dir = match resolve_root(context, self.root.as_deref()) {
+            Ok(dir) => dir,
+            Err(err) => return ok_json(err),
+        };
+        let tasks = load_tasks(&backlog_dir);
+        let report = fix_duplicate_task_ids(
+            &backlog_dir,
+            &tasks,
+            FixIdsOptions {
+                apply: self.apply,
+            },
+        )
+        .map_err(CallToolError::new)?;
+
+        if self.apply {
+            audit_event(
+                &backlog_dir,
+                "fix_ids",
+                None,
+                serde_json::json!({ "changes": report.changes.len() }),
+            )?;
+            refresh_index_best_effort(&backlog_dir);
+            maybe_auto_checkpoint(&backlog_dir);
+        }
+
+        ok_json(serde_json::json!({
+            "ok": true,
+            "apply": self.apply,
+            "changes": report.changes.iter().map(|c| serde_json::json!({
+                "old_id": c.old_id,
+                "new_id": c.new_id,
+                "old_path": c.old_path,
+                "new_path": c.new_path,
+                "uid": c.uid,
+            })).collect::<Vec<_>>(),
+            "warnings": report.warnings,
+        }))
     }
 }
 
@@ -3162,14 +3237,6 @@ fn bulk_result(updated: Vec<String>, missing: Vec<String>) -> serde_json::Value 
         "updated": updated,
         "missing": missing,
     })
-}
-
-fn next_id(tasks: &[Task]) -> String {
-    let mut max_num = 0;
-    for task in tasks {
-        max_num = max_num.max(task.id_num());
-    }
-    format!("task-{:03}", max_num + 1)
 }
 
 fn auto_checkpoint_enabled() -> bool {

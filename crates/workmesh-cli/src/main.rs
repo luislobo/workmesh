@@ -23,7 +23,9 @@ use workmesh_core::global_sessions::{
     read_current_session_id, rebuild_sessions_index, refresh_sessions_index, resolve_workmesh_home,
     set_current_session, verify_sessions_index, AgentSession, CheckpointRef, GitSnapshot,
 };
+use workmesh_core::id_fix::{fix_duplicate_task_ids, FixIdsOptions};
 use workmesh_core::index::{rebuild_index, refresh_index, verify_index};
+use workmesh_core::initiative::{best_effort_git_branch as core_git_branch, ensure_branch_initiative, next_namespaced_task_id};
 use workmesh_core::migration::{migrate_backlog, MigrationError};
 use workmesh_core::project::{ensure_project_docs, repo_root_from_backlog};
 use workmesh_core::quickstart::quickstart;
@@ -114,6 +116,14 @@ enum Command {
     },
     /// Show task stats
     Stats {
+        #[arg(long, action = ArgAction::SetTrue)]
+        json: bool,
+    },
+    /// Fix duplicate task ids (after merges). By default this is a dry-run; pass --apply to write changes.
+    FixIds {
+        /// Apply changes (otherwise dry-run)
+        #[arg(long, action = ArgAction::SetTrue)]
+        apply: bool,
         #[arg(long, action = ArgAction::SetTrue)]
         json: bool,
     },
@@ -1244,6 +1254,46 @@ fn main() -> Result<()> {
                 }
             }
         }
+        Command::FixIds { apply, json } => {
+            let report = fix_duplicate_task_ids(&backlog_dir, &tasks, FixIdsOptions { apply })?;
+            if apply {
+                audit_event(
+                    &backlog_dir,
+                    "fix_ids",
+                    None,
+                    serde_json::json!({ "changes": report.changes.len() }),
+                )?;
+                refresh_index_best_effort(&backlog_dir);
+                maybe_auto_checkpoint(&backlog_dir, auto_checkpoint, auto_session);
+            }
+            if json {
+                let payload = serde_json::json!({
+                    "ok": true,
+                    "apply": apply,
+                    "changes": report.changes.iter().map(|c| serde_json::json!({
+                        "old_id": c.old_id,
+                        "new_id": c.new_id,
+                        "old_path": c.old_path,
+                        "new_path": c.new_path,
+                        "uid": c.uid,
+                    })).collect::<Vec<_>>(),
+                    "warnings": report.warnings,
+                });
+                println!("{}", serde_json::to_string_pretty(&payload)?);
+            } else if report.changes.is_empty() {
+                println!("No duplicate task ids found.");
+            } else {
+                for warning in &report.warnings {
+                    eprintln!("warning: {}", warning);
+                }
+                for change in &report.changes {
+                    println!("{} -> {}", change.old_id, change.new_id);
+                }
+                if !apply {
+                    println!("Dry-run: re-run with --apply to write changes.");
+                }
+            }
+        }
         Command::GraphExport { pretty } => {
             let graph = graph_export(&tasks);
             if pretty {
@@ -2351,7 +2401,16 @@ fn main() -> Result<()> {
             json,
         } => {
             let tasks_dir = backlog_dir.join("tasks");
-            let task_id = id.unwrap_or_else(|| next_id(&tasks));
+            let task_id = match id {
+                Some(value) => value,
+                None => {
+                    let repo_root = repo_root_from_backlog(&backlog_dir);
+                    let branch =
+                        core_git_branch(&repo_root).unwrap_or_else(|| "work".to_string());
+                    let initiative = ensure_branch_initiative(&repo_root, &branch)?;
+                    next_namespaced_task_id(&tasks, &initiative)
+                }
+            };
             let labels = split_csv(&labels);
             let dependencies = split_csv(&dependencies);
             let assignee = split_csv(&assignee);
@@ -2394,7 +2453,16 @@ fn main() -> Result<()> {
             json,
         } => {
             let tasks_dir = backlog_dir.join("tasks");
-            let task_id = id.unwrap_or_else(|| next_id(&tasks));
+            let task_id = match id {
+                Some(value) => value,
+                None => {
+                    let repo_root = repo_root_from_backlog(&backlog_dir);
+                    let branch =
+                        core_git_branch(&repo_root).unwrap_or_else(|| "work".to_string());
+                    let initiative = ensure_branch_initiative(&repo_root, &branch)?;
+                    next_namespaced_task_id(&tasks, &initiative)
+                }
+            };
             let labels = split_csv(&labels);
             let dependencies = split_csv(&dependencies);
             let assignee = split_csv(&assignee);
@@ -3027,14 +3095,6 @@ fn handle_bulk_note(
 
 fn best_practices_text() -> &'static str {
     "workmesh best practices\n\nDependencies:\n- Add dependencies whenever a task is blocked by other work.\n- Prefer explicit task ids (task-042) over vague references.\n- Update dependencies as status changes to avoid stale blockers.\n- Use validate to catch missing or broken dependency chains.\n\nDerived files:\n- Ignore derived artifacts like `workmesh/.index/` and `workmesh/.audit.log` in git.\n- If they show up as changes, rebuild/refresh and do not commit them.\n\nLabels:\n- Use labels to group work (docs, infra, ops).\n- Keep labels short and consistent.\n\nNotes:\n- Capture blockers or decisions in notes for future context.\n"
-}
-
-fn next_id(tasks: &[Task]) -> String {
-    let mut max_num = 0;
-    for task in tasks {
-        max_num = max_num.max(task.id_num());
-    }
-    format!("task-{:03}", max_num + 1)
 }
 
 fn update_list_field(

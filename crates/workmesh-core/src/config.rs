@@ -1,4 +1,5 @@
 use std::fs;
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
@@ -18,6 +19,10 @@ pub enum ConfigError {
 pub struct WorkmeshConfig {
     pub root_dir: Option<String>,
     pub do_not_migrate: Option<bool>,
+    /// Known initiative slugs used to namespace task ids (e.g. "login", "billing")
+    pub initiatives: Option<Vec<String>>,
+    /// Map of git branch name -> initiative slug frozen for that branch
+    pub branch_initiatives: Option<HashMap<String, String>>,
 }
 
 pub fn config_filename_candidates() -> [&'static str; 2] {
@@ -93,6 +98,8 @@ mod tests {
         let config = WorkmeshConfig {
             root_dir: Some("workmesh".to_string()),
             do_not_migrate: Some(true),
+            initiatives: None,
+            branch_initiatives: None,
         };
         write_config(temp.path(), &config).expect("write config");
         let loaded = load_config(temp.path()).expect("load config");
@@ -106,6 +113,8 @@ mod tests {
         let config = WorkmeshConfig {
             root_dir: None,
             do_not_migrate: Some(true),
+            initiatives: None,
+            branch_initiatives: None,
         };
         let path = write_config(temp.path(), &config).expect("write config");
         assert!(path.exists());

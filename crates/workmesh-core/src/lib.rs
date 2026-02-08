@@ -8,6 +8,8 @@ pub mod focus;
 pub mod gantt;
 pub mod global_sessions;
 pub mod index;
+pub mod id_fix;
+pub mod initiative;
 pub mod migration;
 pub mod project;
 pub mod quickstart;

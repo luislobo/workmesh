@@ -46,11 +46,13 @@ fn add_discovered_sets_relationship() {
         .expect("add discovered");
     assert!(output.status.success());
 
-    let created = fs::read_dir(&tasks_dir)
+    // The exact next id is implementation-defined (it may be namespaced by initiative),
+    // but the discovered_from relationship must be recorded.
+    let created_content = fs::read_dir(&tasks_dir)
         .expect("read dir")
         .filter_map(Result::ok)
-        .find(|entry| entry.file_name().to_string_lossy().contains("task-002"))
-        .expect("created task");
-    let content = fs::read_to_string(created.path()).expect("read created");
-    assert!(content.contains("discovered_from: [task-001]"));
+        .map(|entry| fs::read_to_string(entry.path()).expect("read task"))
+        .find(|content| content.contains("discovered_from: [task-001]"))
+        .expect("created task content");
+    assert!(created_content.contains("title: Found bug"));
 }
