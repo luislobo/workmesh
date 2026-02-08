@@ -5,6 +5,9 @@ use anyhow::Result;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
+use crate::task::Task;
+use crate::task_ops::is_done;
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct FocusState {
     #[serde(default)]
@@ -126,6 +129,61 @@ pub fn update_focus_for_task_mutation(
     Ok(changed)
 }
 
+/// If focus is set to an epic that is fully complete, clear epic_id + working_set.
+///
+/// This is intentionally conservative: it only clears when we can prove completion.
+pub fn maybe_auto_clean_focus(backlog_dir: &Path, tasks: &[Task]) -> Result<bool> {
+    let Some(mut focus) = load_focus(backlog_dir)? else {
+        return Ok(false);
+    };
+    let Some(epic_id) = focus.epic_id.clone() else {
+        return Ok(false);
+    };
+    let epic = tasks
+        .iter()
+        .find(|t| t.id.eq_ignore_ascii_case(&epic_id));
+    let Some(epic) = epic else {
+        return Ok(false);
+    };
+    if !is_done(epic) {
+        return Ok(false);
+    }
+    let epic_lc = epic.id.to_lowercase();
+
+    // Children include explicit links and inferred parent references.
+    let mut child_ids: std::collections::HashSet<String> = epic
+        .relationships
+        .child
+        .iter()
+        .map(|c| c.to_lowercase())
+        .collect();
+    for t in tasks {
+        if t.relationships
+            .parent
+            .iter()
+            .any(|p| p.to_lowercase() == epic_lc)
+        {
+            child_ids.insert(t.id.to_lowercase());
+        }
+    }
+    child_ids.remove(&epic_lc);
+
+    for cid in child_ids {
+        let child = tasks.iter().find(|t| t.id.to_lowercase() == cid);
+        let Some(child) = child else {
+            return Ok(false);
+        };
+        if !is_done(child) {
+            return Ok(false);
+        }
+    }
+
+    focus.epic_id = None;
+    focus.working_set.clear();
+    save_focus(backlog_dir, focus)?;
+    Ok(true)
+}
+
 pub fn now_rfc3339() -> String {
     let now: DateTime<Utc> = Utc::now();
     now.to_rfc3339()
@@ -228,5 +286,74 @@ mod tests {
         update_focus_for_task_mutation(backlog_dir, "task-123", None, Some("me")).expect("add");
         let focus = load_focus(backlog_dir).expect("load").expect("present");
         assert_eq!(focus.working_set, vec!["task-123".to_string()]);
+    }
+
+    #[test]
+    fn maybe_auto_clean_focus_clears_epic_when_done_and_children_done() {
+        let temp = TempDir::new().expect("tempdir");
+        let backlog_dir = temp.path();
+        let focus = FocusState {
+            project_id: Some("alpha".to_string()),
+            epic_id: Some("task-main-200".to_string()),
+            objective: None,
+            working_set: vec!["task-main-201".to_string()],
+            updated_at: None,
+        };
+        save_focus(backlog_dir, focus).expect("save");
+
+        let epic = Task {
+            id: "task-main-200".to_string(),
+            uid: None,
+            kind: "epic".to_string(),
+            title: "Epic".to_string(),
+            status: "Done".to_string(),
+            priority: "P2".to_string(),
+            phase: "Phase1".to_string(),
+            dependencies: vec![],
+            labels: vec![],
+            assignee: vec![],
+            relationships: Default::default(),
+            lease: None,
+            project: Some("alpha".to_string()),
+            initiative: None,
+            created_date: None,
+            updated_date: None,
+            extra: std::collections::HashMap::new(),
+            file_path: None,
+            body: String::new(),
+        };
+        let child = Task {
+            id: "task-main-201".to_string(),
+            uid: None,
+            kind: "task".to_string(),
+            title: "Child".to_string(),
+            status: "Done".to_string(),
+            priority: "P2".to_string(),
+            phase: "Phase1".to_string(),
+            dependencies: vec![],
+            labels: vec![],
+            assignee: vec![],
+            relationships: crate::task::Relationships {
+                blocked_by: vec![],
+                parent: vec!["task-main-200".to_string()],
+                child: vec![],
+                discovered_from: vec![],
+            },
+            lease: None,
+            project: Some("alpha".to_string()),
+            initiative: None,
+            created_date: None,
+            updated_date: None,
+            extra: std::collections::HashMap::new(),
+            file_path: None,
+            body: String::new(),
+        };
+        let tasks = vec![epic, child];
+        assert!(maybe_auto_clean_focus(backlog_dir, &tasks).expect("clean"));
+
+        let focus = load_focus(backlog_dir).expect("load").expect("present");
+        assert!(focus.epic_id.is_none());
+        assert!(focus.working_set.is_empty());
+        assert_eq!(focus.project_id.as_deref(), Some("alpha"));
     }
 }
