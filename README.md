@@ -364,13 +364,34 @@ VS Code example (`.vscode/mcp.json`):
   ```
 
 ## Skills (Codex/Claude)
-WorkMesh can serve its own skill content to agents.
+WorkMesh ships with an embedded `workmesh` skill and can also read/write on-disk skills in
+agent-standard locations.
 
-- Skill file (in this repo): `skills/workmesh/SKILL.md`
-- Installed skill path (Codex default): `~/.codex/skills/workmesh/SKILL.md`
-- MCP tool: `skill_content` or `project_management_skill`
+Where agents discover skills (project-level):
+- `.codex/skills/workmesh/SKILL.md`
+- `.claude/skills/workmesh/SKILL.md`
+- `.cursor/skills/workmesh/SKILL.md`
 
-This lets the MCP server return the exact workflow instructions for agents.
+User-level locations:
+- `~/.codex/skills/workmesh/SKILL.md`
+- `~/.claude/skills/workmesh/SKILL.md`
+- `~/.cursor/skills/workmesh/SKILL.md`
+
+Canonical source in this repo:
+- `skills/workmesh/SKILL.md`
+
+Install from the embedded skill (recommended for release binaries):
+```bash
+# user-level install for all supported agent folders
+workmesh --root . skill install --scope user --agent all --force
+
+# project-level install (writes into the repo)
+workmesh --root . skill install --scope project --agent all
+```
+
+Serving skill content via MCP:
+- MCP tools: `skill_content` and `project_management_skill`
+- Resolution order: `.codex/skills` -> `.claude/skills` -> `.cursor/skills` -> `skills/` -> embedded fallback
 
 ## Command reference (CLI)
 Read:
@@ -437,6 +458,7 @@ Auto session updates (opt-in):
 ## Troubleshooting
 - **No tasks found**: ensure `workmesh/tasks/` exists or run `quickstart`.
 - **PlantUML SVG fails**: install `plantuml` or set `PLANTUML_CMD`/`PLANTUML_JAR`.
+- If you want WorkMesh-specific overrides, use `WORKMESH_PLANTUML_CMD` / `WORKMESH_PLANTUML_JAR`.
 - **MCP tool can’t find root**: start MCP in repo or pass `root` explicitly.
 
 ## Roadmap
