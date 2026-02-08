@@ -13,7 +13,8 @@ and agent-safe coordination (leases/claims).
 - Record blockers as dependencies (or `blocked_by`) so "ready work" is queryable.
 - Prefer `--json` outputs in agent workflows.
 - For multi-agent work: always `claim` before making changes.
-- Do not commit derived artifacts like `workmesh/.index/` or `workmesh/.audit.log` (they are rebuildable).
+- Do not commit derived index artifacts like `workmesh/.index/` (they are rebuildable).
+- `.audit.log` is ignored by default; optionally commit it if you want a full, versioned PM history in the repo.
 
 ## Focus first (agent-scoping)
 `focus` is the lightweight, repo-local state that keeps an agent scoped to the right project/epic.
@@ -27,6 +28,14 @@ Commands:
 - `workmesh --root . focus show --json`
 - `workmesh --root . focus set --project-id <pid> [--epic-id task-123] [--objective "..."]`
 - `workmesh --root . focus clear`
+
+Focus auto-updates:
+- When focus exists, WorkMesh auto-updates `focus.working_set` on task mutations:
+  - `set-status "In Progress"` adds the task
+  - `set-status "To Do"` / `Done` removes the task
+  - `claim` adds the task (active lease implies active work)
+- When `focus.epic_id` is set and that epic becomes fully complete, WorkMesh auto-cleans focus by
+  clearing `epic_id` and `working_set` (project_id is preserved).
 
 ## Dependencies (optional, but recommended)
 - Dependencies are optional, but if you know a task is blocked, record it.
@@ -44,8 +53,13 @@ Example (MCP call shape):
 ## High-signal commands
 Ready work:
 - Use when: picking the next task or triaging "what is unblocked".
-- Workflow: `ready --json` -> pick smallest ID or highest priority -> claim -> set status.
+- Workflow: `ready_tasks --json` or `next_tasks --json` -> pick -> claim -> set status.
 - Command: `workmesh --root /path ready --json`
+
+Next tasks (recommended for agents):
+- Use when: you want candidates and let the agent decide.
+- Focus-aware: tasks in `focus.working_set` are recommended first.
+- MCP: `{"tool":"next_tasks","format":"json","limit":10}`
 
 Claim/release (leases):
 - Use when: multiple agents may pick the same task or work spans multiple sessions.
@@ -71,6 +85,11 @@ Global sessions:
 - Workflow: `session save` -> later `session resume`.
 - Commands: `workmesh --root /path session save --objective "..."` / `workmesh --root /path session resume`
 
+Epic completion rule:
+- When `kind: epic`, WorkMesh refuses to set status to `Done` unless:
+  - `dependencies` and `blocked_by` are Done
+  - all child tasks are Done (inferred via `relationships.parent`, and optional `relationships.child`)
+
 ## Workflow sequences (grammar-style)
 Notation:
 - `[]` optional, `{}` repeatable, `->` then
@@ -84,6 +103,14 @@ Daily execution:
 ```text
 focus_show -> ready -> claim -> set-status(In Progress) -> work -> note/set-section -> [set-status(Done)] -> release
 ```
+
+Rekey IDs (agent-assisted):
+```text
+rekey-prompt -> agent produces mapping.json -> rekey-apply (dry-run) -> rekey-apply --apply
+```
+Notes:
+- Default behavior rewrites structured references and free-text body mentions.
+- Use `--strict` (or mapping `"strict": true`) for structured-only rewrites.
 
 Discovered work:
 ```text

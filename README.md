@@ -135,7 +135,7 @@ cargo build -p workmesh-mcp
 workmesh --root . quickstart workmesh --agents-snippet
 
 # optionally set focus (recommended for agents)
-workmesh --root . focus set --project-id workmesh --epic-id task-001 --objective "Ship v0.3"
+workmesh --root . focus set --project-id workmesh --epic-id task-<init>-001 --objective "Ship v0.3"
 
 # list tasks
 workmesh --root . list --status "To Do"
@@ -144,13 +144,13 @@ workmesh --root . list --status "To Do"
 workmesh --root . next
 
 # start work
-workmesh --root . set-status task-001 "In Progress"
+workmesh --root . set-status task-<init>-001 "In Progress"
 
 # add a note
-workmesh --root . note task-001 "Found missing edge case"
+workmesh --root . note task-<init>-001 "Found missing edge case"
 
 # mark done
-workmesh --root . set-status task-001 Done
+workmesh --root . set-status task-<init>-001 Done
 ```
 
 What gets created:
@@ -163,7 +163,7 @@ docs/
       updates/
 workmesh/
   tasks/
-    task-001 - seed task.md
+    task-<init>-001 - seed task.md
 ```
 
 ## Focus (keep agents scoped)
@@ -175,7 +175,7 @@ It lives at: `workmesh/focus.json` (inside your repo, versionable if you want).
 Common workflow:
 ```bash
 # set focus explicitly (best for agents)
-workmesh --root . focus set --project-id workmesh --epic-id task-001 --objective "Ship v0.3"
+workmesh --root . focus set --project-id workmesh --epic-id task-<init>-001 --objective "Ship v0.3"
 
 # inspect current focus
 workmesh --root . focus show
@@ -187,6 +187,18 @@ workmesh --root . focus clear
 Integration points:
 - `session save` captures `epic_id` from `focus` (or best-effort from git branch like `task-123`).
 - `session resume` prints a resume script that includes `focus show` as the first step.
+- `next` (CLI) and `next_task` / `next_tasks` (MCP) are focus-aware. If `focus.working_set` contains task ids,
+  those tasks are recommended first.
+
+Auto-updates (DX):
+- When focus exists, mutating commands keep `focus.working_set` in sync:
+  - `set-status "In Progress"` adds the task
+  - `set-status "To Do"` / `Done` removes the task
+  - `claim` adds the task (active lease implies active work)
+- When `focus.epic_id` is set and that epic becomes fully complete, WorkMesh auto-cleans focus by clearing
+  `epic_id` and `working_set` (project_id is preserved).
+- Focus changes are recorded in `.audit.log` (ignored by default; you can commit it if you want a full,
+  versioned PM history inside the repo).
 
 ## Task file format (plain text)
 Each task is a Markdown file with front matter and sections:
@@ -240,11 +252,14 @@ workmesh --root . rekey-prompt > rekey-prompt.txt
 
 # 2) ask your agent to return JSON in the required schema, save it as mapping.json
 
-# 3) dry-run
+# 3) dry-run (default: rewrites structured fields + body mentions)
 workmesh --root . rekey-apply --mapping mapping.json
 
 # 4) apply
 workmesh --root . rekey-apply --mapping mapping.json --apply
+
+# Optional: structured-only mode (no body edits)
+workmesh --root . rekey-apply --mapping mapping.json --strict --apply
 ```
 
 MCP tools:
@@ -273,6 +288,13 @@ Filtering (CLI):
 workmesh --root . list --kind bug
 workmesh --root . list --kind epic --sort kind
 ```
+
+Epic completion rule:
+- When `kind: epic`, WorkMesh refuses to set status to `Done` until:
+  - `dependencies` are `Done`
+  - `relationships.blocked_by` are `Done`
+  - all inferred children (tasks with `relationships.parent` pointing to the epic) are `Done`
+  - plus any explicit `relationships.child` links are `Done`
 
 ## Session continuity
 WorkMesh provides two complementary continuity mechanisms:
@@ -357,9 +379,11 @@ workmesh --root . archive --before 2024-12-31
 ## Derived files (git-friendly)
 WorkMesh generates derived artifacts for speed and continuity:
 - Task index: `workmesh/.index/tasks.jsonl` (derived, rebuildable; ignored by git)
+- Audit log: `workmesh/.audit.log` (append-only semantic history; ignored by default; optionally commit for full in-repo PM history)
 - Global sessions index: `WORKMESH_HOME/.index/sessions.jsonl` (derived, rebuildable)
 
-These files are intentionally safe to delete and should not be committed.
+The index files are intentionally safe to delete and should not be committed. The audit log is also
+safe to delete, but you may choose to commit it if you want a full, versioned history of PM actions.
 
 ## MCP usage
 If the MCP server is started inside a repo, `root` can be omitted. Otherwise pass `root`.
@@ -375,6 +399,11 @@ Bulk MCP examples:
 {"tool": "bulk_add_label", "root": "/path/to/repo", "tasks": ["task-001","task-002"], "label": "docs"}
 {"tool": "bulk_add_dependency", "root": "/path/to/repo", "tasks": ["task-001","task-002"], "dependency": "task-010"}
 {"tool": "bulk_add_note", "root": "/path/to/repo", "tasks": ["task-001","task-002"], "note": "checkpointed", "section": "notes"}
+```
+
+Choosing work (agent-friendly):
+```json
+{"tool": "next_tasks", "format": "json", "limit": 10}
 ```
 
 ## MCP client setup (examples)

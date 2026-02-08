@@ -58,16 +58,16 @@
   "quickstart": {
     "commands": [
       "workmesh --root . quickstart <project-id> --agents-snippet",
-      "workmesh --root . focus set --project-id <project-id> --epic-id task-001 --objective \"Ship v0.3\" (recommended)",
+      "workmesh --root . focus set --project-id <project-id> --epic-id task-<init>-001 --objective \"Ship v0.3\" (recommended)",
       "workmesh --root . list --status \"To Do\"",
       "workmesh --root . next",
-      "workmesh --root . set-status task-001 \"In Progress\"",
-      "workmesh --root . note task-001 \"Found missing edge case\"",
-      "workmesh --root . set-status task-001 Done"
+      "workmesh --root . set-status task-<init>-001 \"In Progress\"",
+      "workmesh --root . note task-<init>-001 \"Found missing edge case\"",
+      "workmesh --root . set-status task-<init>-001 Done"
     ],
     "creates": {
       "docs": ["docs/projects/<project-id>/README.md", "docs/projects/<project-id>/prds/", "docs/projects/<project-id>/updates/"],
-      "workmesh": ["workmesh/tasks/task-001 - seed task.md"]
+      "workmesh": ["workmesh/tasks/task-<init>-001 - seed task.md"]
     }
   },
   "concepts": {
@@ -84,11 +84,12 @@
       "collision_behavior": "If the desired 4-letter initiative key is already used, WorkMesh deterministically chooses another 4-letter key (still length 4).",
       "override_env": "WORKMESH_BRANCH",
       "rekey_flow": {
-        "purpose": "Agent-assisted migration from legacy ids (task-001) to initiative-key ids (task-logi-001) while rewriting structured references.",
+        "purpose": "Agent-assisted migration from legacy ids (task-001) to initiative-key ids (task-logi-001) while rewriting structured references and (by default) body mentions.",
         "cli": [
           "workmesh --root . rekey-prompt > rekey-prompt.txt",
-          "workmesh --root . rekey-apply --mapping mapping.json (dry-run)",
-          "workmesh --root . rekey-apply --mapping mapping.json --apply"
+          "workmesh --root . rekey-apply --mapping mapping.json (dry-run; default rewrites structured fields + body mentions)",
+          "workmesh --root . rekey-apply --mapping mapping.json --apply",
+          "workmesh --root . rekey-apply --mapping mapping.json --strict --apply (structured-only; no body edits)"
         ],
         "mcp_tools": ["rekey_prompt", "rekey_apply"]
       },
@@ -100,7 +101,8 @@
     },
     "kind": {
       "note": "Jira-friendly. WorkMesh does not enforce a taxonomy; use any string.",
-      "recommended": ["epic", "story", "task", "bug", "subtask", "incident", "spike"]
+      "recommended": ["epic", "story", "task", "bug", "subtask", "incident", "spike"],
+      "epic_done_rule": "When kind=epic, WorkMesh refuses to set status Done unless dependencies, blocked_by, and all children (inferred via relationships.parent and explicit relationships.child) are Done."
     },
     "focus": {
       "path": "workmesh/focus.json",
@@ -110,9 +112,15 @@
         "workmesh --root . focus set --project-id <pid> [--epic-id task-123] [--objective \"...\"]",
         "workmesh --root . focus clear"
       ],
+      "auto_updates": [
+        "When focus exists, mutating commands keep focus.working_set in sync: set-status(In Progress) adds; set-status(To Do/Done) removes; claim adds.",
+        "When focus.epic_id is set and that epic becomes fully complete, WorkMesh auto-cleans focus by clearing epic_id and working_set (project_id is preserved).",
+        "Focus changes (manual and auto) are recorded in .audit.log (ignored by default; optionally commit for a full repo-local PM history)."
+      ],
       "integration": [
         "session save captures epic_id from focus (fallback: parse task-123 from git branch).",
-        "session resume resume-script includes focus show."
+        "session resume resume-script includes focus show.",
+        "next/next_task/next_tasks are focus-aware: focus.working_set tasks are recommended first."
       ]
     },
     "index": {
@@ -153,6 +161,7 @@
     "root_behavior": "If started inside a repo, root can be omitted; otherwise pass root explicitly in calls.",
     "examples": [
       { "tool": "ready_tasks", "format": "json" },
+      { "tool": "next_tasks", "format": "json", "limit": 10 },
       { "tool": "list_tasks", "root": "/path/to/repo", "status": ["To Do"] }
     ],
     "note": "All CLI commands are mirrored as MCP tools (parity tests cover the mapping)."
@@ -165,7 +174,8 @@
     "crates": "crates/ (workmesh-core, workmesh-cli, workmesh-mcp)"
   },
   "derived_files_policy": {
-    "do_not_commit": ["workmesh/.index/", "workmesh/.audit.log", "WORKMESH_HOME/.index/"],
+    "do_not_commit": ["workmesh/.index/", "WORKMESH_HOME/.index/"],
+    "optional_to_commit": ["workmesh/.audit.log"],
     "safe_to_delete": true
   },
   "roadmap": {
