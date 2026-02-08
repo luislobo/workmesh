@@ -31,7 +31,10 @@ use workmesh_core::session::{
     append_session_journal, diff_since_checkpoint, render_diff, render_resume, resolve_project_id,
     resume_summary, task_summary, write_checkpoint, write_working_set, CheckpointOptions,
 };
-use workmesh_core::skills::{install_embedded_skill, load_skill_content, SkillAgent, SkillScope};
+use workmesh_core::skills::{
+    detect_user_agents, install_embedded_skill, install_embedded_skill_global_auto,
+    load_skill_content, SkillAgent, SkillScope,
+};
 use workmesh_core::task::{load_tasks, load_tasks_with_archive, Lease, Task};
 use workmesh_core::task_ops::{
     append_note, create_task_file, filter_tasks, graph_export, is_lease_active, next_task,
@@ -577,6 +580,19 @@ enum SkillCommand {
         /// Which agent(s) to install for
         #[arg(long, value_enum, default_value_t = SkillAgentArg::All)]
         agent: SkillAgentArg,
+        /// Overwrite existing SKILL.md files
+        #[arg(long, action = ArgAction::SetTrue)]
+        force: bool,
+        #[arg(long, action = ArgAction::SetTrue)]
+        json: bool,
+    },
+    /// Install the embedded skill globally for detected agents under your home directory
+    ///
+    /// This only installs for agents that already have a home folder (e.g. ~/.codex, ~/.claude, ~/.cursor).
+    InstallGlobal {
+        /// Skill name (defaults to workmesh)
+        #[arg(long)]
+        name: Option<String>,
         /// Overwrite existing SKILL.md files
         #[arg(long, action = ArgAction::SetTrue)]
         force: bool,
@@ -1740,6 +1756,41 @@ fn main() -> Result<()> {
                     } else {
                         for path in written {
                             println!("{}", path.display());
+                        }
+                    }
+                }
+                SkillCommand::InstallGlobal { name, force, json } => {
+                    let skill_name = name
+                        .as_deref()
+                        .map(|value| value.trim())
+                        .filter(|value| !value.is_empty())
+                        .unwrap_or("workmesh");
+                    let agents = detect_user_agents().unwrap_or_default();
+                    let written = install_embedded_skill_global_auto(skill_name, force)?;
+                    if json {
+                        println!(
+                            "{}",
+                            serde_json::to_string_pretty(&serde_json::json!({
+                                "ok": true,
+                                "detected_agents": agents,
+                                "written": written
+                            }))?
+                        );
+                    } else {
+                        println!(
+                            "Detected agents: {}",
+                            agents
+                                .iter()
+                                .map(|a| format!("{:?}", a))
+                                .collect::<Vec<_>>()
+                                .join(", ")
+                        );
+                        if written.is_empty() {
+                            println!("(no files written)");
+                        } else {
+                            for path in written {
+                                println!("{}", path.display());
+                            }
                         }
                     }
                 }

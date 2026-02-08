@@ -116,6 +116,49 @@ pub fn install_embedded_skill(
     Ok(written)
 }
 
+pub fn detect_user_agents() -> Result<Vec<SkillAgent>> {
+    let home =
+        home_dir().ok_or_else(|| anyhow!("Unable to resolve home dir; set HOME/USERPROFILE"))?;
+    Ok(detect_user_agents_in_home(&home))
+}
+
+pub fn detect_user_agents_in_home(home: &Path) -> Vec<SkillAgent> {
+    let mut found = Vec::new();
+    if home.join(".codex").exists() || home.join(".codex").join("skills").exists() {
+        found.push(SkillAgent::Codex);
+    }
+    if home.join(".claude").exists() || home.join(".claude").join("skills").exists() {
+        found.push(SkillAgent::Claude);
+    }
+    if home.join(".cursor").exists() || home.join(".cursor").join("skills").exists() {
+        found.push(SkillAgent::Cursor);
+    }
+    found
+}
+
+pub fn install_embedded_skill_global_auto(name: &str, force: bool) -> Result<Vec<PathBuf>> {
+    let home =
+        home_dir().ok_or_else(|| anyhow!("Unable to resolve home dir; set HOME/USERPROFILE"))?;
+    let agents = detect_user_agents_in_home(&home);
+    if agents.is_empty() {
+        return Err(anyhow!(
+            "No agents detected under {} (expected ~/.codex, ~/.claude, and/or ~/.cursor)",
+            home.display()
+        ));
+    }
+    let mut written = Vec::new();
+    for agent in agents {
+        written.extend(install_embedded_skill(
+            None,
+            SkillScope::User,
+            agent,
+            name,
+            force,
+        )?);
+    }
+    Ok(written)
+}
+
 fn install_targets(repo_root: Option<&Path>, scope: SkillScope, agent: SkillAgent) -> Result<Vec<PathBuf>> {
     let agents = match agent {
         SkillAgent::All => vec![SkillAgent::Codex, SkillAgent::Claude, SkillAgent::Cursor],
@@ -224,5 +267,33 @@ mod tests {
             .ends_with(".codex/skills/workmesh/SKILL.md"));
         assert!(fs::read_to_string(&written[0]).unwrap().contains("# WorkMesh skill"));
     }
-}
 
+    #[test]
+    fn detect_user_agents_only_returns_existing_dirs() {
+        let temp = TempDir::new().expect("tempdir");
+        let home = temp.path();
+        fs::create_dir_all(home.join(".codex")).expect("codex dir");
+        fs::create_dir_all(home.join(".cursor").join("skills")).expect("cursor skills dir");
+
+        let found = detect_user_agents_in_home(home);
+        assert_eq!(found, vec![SkillAgent::Codex, SkillAgent::Cursor]);
+    }
+
+    #[test]
+    fn install_global_auto_writes_only_to_detected_agents() {
+        let temp = TempDir::new().expect("tempdir");
+        std::env::set_var("HOME", temp.path());
+        std::env::remove_var("USERPROFILE");
+
+        // Detect only Codex.
+        fs::create_dir_all(temp.path().join(".codex")).expect("codex dir");
+
+        let written = install_embedded_skill_global_auto("workmesh", true).expect("install");
+        assert_eq!(written.len(), 1);
+        assert!(written[0]
+            .to_string_lossy()
+            .ends_with(".codex/skills/workmesh/SKILL.md"));
+        assert!(!temp.path().join(".claude").exists());
+        assert!(!temp.path().join(".cursor").exists());
+    }
+}
