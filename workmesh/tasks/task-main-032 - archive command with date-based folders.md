@@ -1,23 +1,20 @@
 ---
-id: task-main-001
-uid: 01KGZ9PGCQH95WPANBBWQ9M4ZF
-title: Implement rekey prompt + apply (id migration)
-kind: task
+id: task-main-032
+uid: 01KGR5CNDAFMQ4M9S88Z28P0KS
+title: Archive command with date-based folders
 status: Done
-priority: P1
-phase: Phase2
+priority: P2
+phase: Phase4
 dependencies: []
 labels:
-- rekey
-- ids
-- agent-ux
+- archive
 assignee: []
 relationships:
   blocked_by: []
   parent: []
   child: []
   discovered_from: []
-updated_date: 2026-02-08 13:01
+updated_date: 2026-02-05 18:41
 ---
 
 Description:

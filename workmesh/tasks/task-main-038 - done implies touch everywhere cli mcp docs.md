@@ -1,25 +1,23 @@
 ---
-id: task-main-001
-uid: 01KGZ9PGCQH95WPANBBWQ9M4ZF
-title: Implement rekey prompt + apply (id migration)
+id: task-main-038
+uid: 01KGT95HTQT10QDRY4G0PK3PS4
+title: Done implies touch everywhere (CLI + MCP docs)
 kind: task
 status: Done
 priority: P1
-phase: Phase2
+phase: Phase4
 dependencies: []
 labels:
-- rekey
-- ids
-- agent-ux
+- behavior
+- dx
 assignee: []
 relationships:
   blocked_by: []
   parent: []
   child: []
   discovered_from: []
-updated_date: 2026-02-08 13:01
+updated_date: 2026-02-06 21:58
 ---
-
 Description:
 --------------------------------------------------
 - 
@@ -32,3 +30,6 @@ Definition of Done:
 --------------------------------------------------
 - Code/config committed.
 - Docs updated if needed.
+
+Notes:
+- Updated all mutating CLI/MCP commands to touch updated_date by default; added --no-touch (CLI) and touch:false (MCP) to suppress.

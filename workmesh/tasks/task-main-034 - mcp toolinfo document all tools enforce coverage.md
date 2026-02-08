@@ -1,23 +1,23 @@
 ---
-id: task-main-001
-uid: 01KGZ9PGCQH95WPANBBWQ9M4ZF
-title: Implement rekey prompt + apply (id migration)
 kind: task
-status: Done
-priority: P1
-phase: Phase2
-dependencies: []
-labels:
-- rekey
-- ids
-- agent-ux
+phase: Phase4
+uid: 01KGSBCEH4R36SBBKJXPP5JQGH
+parent: []
+priority: P2
 assignee: []
-relationships:
-  blocked_by: []
-  parent: []
-  child: []
-  discovered_from: []
-updated_date: 2026-02-08 13:01
+relationships: []
+child: []
+title: 'MCP tool_info: document all tools + enforce coverage'
+labels:
+- docs
+- mcp
+- dx
+blocked_by: []
+updated_date: 2026-02-06 05:32
+status: Done
+discovered_from: []
+dependencies: []
+id: task-main-034
 ---
 
 Description:

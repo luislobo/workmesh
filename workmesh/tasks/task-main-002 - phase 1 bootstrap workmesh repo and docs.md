@@ -1,23 +1,16 @@
 ---
-id: task-main-001
-uid: 01KGZ9PGCQH95WPANBBWQ9M4ZF
-title: Implement rekey prompt + apply (id migration)
-kind: task
-status: Done
-priority: P1
-phase: Phase2
-dependencies: []
+title: 'Phase 1: Bootstrap WorkMesh repo and docs'
+id: task-main-002
+phase: Phase1
 labels:
-- rekey
-- ids
-- agent-ux
+- phase1
+- bootstrap
+priority: P1
+status: Done
+dependencies: []
+prd: docs/projects/workmesh/prds/phase-1-conversion.md
+updated_date: 2026-02-01 17:59
 assignee: []
-relationships:
-  blocked_by: []
-  parent: []
-  child: []
-  discovered_from: []
-updated_date: 2026-02-08 13:01
 ---
 
 Description:

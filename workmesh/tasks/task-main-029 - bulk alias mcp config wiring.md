@@ -1,25 +1,22 @@
 ---
-id: task-main-001
-uid: 01KGZ9PGCQH95WPANBBWQ9M4ZF
-title: Implement rekey prompt + apply (id migration)
-kind: task
+id: task-main-029
+uid: 01KGP0PZAYWKGPS5YE772YRSHY
+title: Bulk alias + MCP config wiring
 status: Done
-priority: P1
-phase: Phase2
+priority: P2
+phase: Phase4
 dependencies: []
 labels:
-- rekey
-- ids
-- agent-ux
+- feature
+- bulk
+- docs
 assignee: []
 relationships:
   blocked_by: []
   parent: []
   child: []
   discovered_from: []
-updated_date: 2026-02-08 13:01
 ---
-
 Description:
 --------------------------------------------------
 - 
@@ -32,3 +29,6 @@ Definition of Done:
 --------------------------------------------------
 - Code/config committed.
 - Docs updated if needed.
+
+Notes:
+- Add bulk alias subcommand group, update README MCP examples, wire WorkMesh MCP into Codex config from dotfiles, and validate tool calls.
