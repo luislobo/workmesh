@@ -31,6 +31,7 @@
         "Download the release archive (with gh or browser).",
         "Extract it.",
         "Install workmesh and workmesh-mcp onto PATH (e.g. /usr/local/bin).",
+        "Optional: install the embedded skill into detected agent folders: workmesh --root . skill install-global --force.",
         "Verify: workmesh --version; workmesh-mcp --version."
       ],
       "windows_steps": [
