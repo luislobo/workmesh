@@ -154,7 +154,10 @@ enum Command {
         /// Include archived tasks under `workmesh/archive/` (recursively)
         #[arg(long, action = ArgAction::SetTrue)]
         all: bool,
-        /// Disable strict mode (also rewrites free-text mentions of task IDs in task bodies).
+        /// Strict mode: only rewrites structured fields (id + dependencies + relationships), no task body edits.
+        #[arg(long, action = ArgAction::SetTrue)]
+        strict: bool,
+        /// Non-strict mode (default): also rewrites free-text mentions of task IDs in task bodies.
         #[arg(long, action = ArgAction::SetTrue)]
         non_strict: bool,
         #[arg(long, action = ArgAction::SetTrue)]
@@ -1357,11 +1360,18 @@ fn main() -> Result<()> {
             mapping,
             apply,
             all,
+            strict,
             non_strict,
             json,
         } => {
             let mapping_text = read_content(None, mapping.as_deref())?;
             let mut request = parse_rekey_request(&mapping_text)?;
+            if strict && non_strict {
+                die("Invalid flags: use either --strict or --non-strict (or neither).");
+            }
+            if strict {
+                request.strict = true;
+            }
             if non_strict {
                 request.strict = false;
             }

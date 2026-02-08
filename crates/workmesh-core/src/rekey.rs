@@ -50,7 +50,7 @@ pub struct RekeyRequest {
 }
 
 fn default_strict() -> bool {
-    true
+    false
 }
 
 pub fn parse_rekey_request(input: &str) -> Result<RekeyRequest, TaskParseError> {
@@ -72,7 +72,7 @@ pub fn parse_rekey_request(input: &str) -> Result<RekeyRequest, TaskParseError> 
         .map_err(|err| TaskParseError::Invalid(format!("Invalid mapping: {}", err)))?;
     Ok(RekeyRequest {
         mapping,
-        strict: true,
+        strict: false,
     })
 }
 
@@ -127,7 +127,7 @@ pub fn render_rekey_prompt(backlog_dir: &Path, options: RekeyPromptOptions) -> S
         "backlog_dir": backlog_dir,
         "tasks": tasks_payload,
         "graph": graph,
-        "strict_mode": true,
+        "strict_mode": false,
     });
 
     // This prompt is intentionally explicit about reference rewrites.
@@ -139,15 +139,17 @@ HARD RULES\n\
 - Return JSON only (no markdown).\n\
 - Do not invent new tasks.\n\
 - Every reference must be renumbered via the mapping.\n\
-- STRICT MODE: only structured fields are rewritten (no free-text editing).\n\n\
+- Default behavior rewrites structured fields AND updates free-text mentions in task bodies.\n\
+- If you want structured-only rewrites, set `strict: true`.\n\n\
 WHAT MUST BE UPDATED (by WorkMesh after you provide the mapping)\n\
 - Each task's front matter `id`.\n\
 - References in `dependencies`.\n\
 - References in `relationships.blocked_by`, `relationships.parent`, `relationships.child`, `relationships.discovered_from`.\n\n\
+- Free-text mentions of task IDs in task bodies (unless `strict: true`).\n\n\
 OUTPUT JSON SCHEMA\n\
 {{\n\
   \"mapping\": {{ \"<old_id>\": \"<new_id>\", \"...\": \"...\" }},\n\
-  \"strict\": true\n\
+  \"strict\": false\n\
 }}\n\n\
 NEW ID FORMAT\n\
 - Use `task-<init>-NNN` where `<init>` is exactly 4 lowercase letters and `NNN` is 3 digits.\n\n\
@@ -736,5 +738,12 @@ Body mentions task-001 and task-002.\n";
         assert!(updated.contains("Body mentions task-main-001 and task-main-002."));
         assert!(!updated.contains("task-001"));
         assert!(!updated.contains("task-002"));
+    }
+
+    #[test]
+    fn parse_rekey_request_defaults_to_non_strict_when_missing_strict_flag() {
+        let req =
+            parse_rekey_request("{\"mapping\": {\"task-001\": \"task-main-001\"}}").expect("parse");
+        assert!(!req.strict);
     }
 }
