@@ -22,6 +22,7 @@ use workmesh_core::backlog::{
 use workmesh_core::focus::{
     clear_focus, extract_task_id_from_branch, infer_project_id, load_focus, save_focus, FocusState,
     update_focus_for_task_mutation,
+    maybe_auto_clean_focus,
 };
 use workmesh_core::gantt::{plantuml_gantt, render_plantuml_svg, write_text_file};
 use workmesh_core::global_sessions::{
@@ -48,7 +49,7 @@ use workmesh_core::task_ops::{
     ready_tasks, recommend_next_tasks_with_focus, render_task_line, replace_section, set_list_field,
     sort_tasks, status_counts, task_to_json_value, tasks_to_jsonl, timestamp_plus_minutes,
     update_body, update_lease_fields, update_task_field, update_task_field_or_section,
-    validate_tasks, FieldValue,
+    validate_tasks, FieldValue, ensure_can_mark_done,
 };
 
 const ROOT_REQUIRED_ERROR: &str = "root is required for MCP calls unless the server is started within a repo containing tasks/ or backlog/tasks";
@@ -1266,6 +1267,17 @@ impl FocusSetTool {
         };
         let path = save_focus(&backlog_dir, state.clone())
             .map_err(|err| CallToolError::from_message(err.to_string()))?;
+        audit_event(
+            &backlog_dir,
+            "focus_set",
+            state.epic_id.as_deref(),
+            serde_json::json!({
+                "project_id": state.project_id.clone(),
+                "epic_id": state.epic_id.clone(),
+                "objective": state.objective.clone(),
+                "working_set": state.working_set.clone()
+            }),
+        )?;
         ok_json(serde_json::json!({"ok": true, "path": path, "focus": state}))
     }
 }
@@ -1278,6 +1290,9 @@ impl FocusClearTool {
         };
         let cleared = clear_focus(&backlog_dir)
             .map_err(|err| CallToolError::from_message(err.to_string()))?;
+        if cleared {
+            audit_event(&backlog_dir, "focus_clear", None, serde_json::json!({}))?;
+        }
         ok_json(serde_json::json!({"ok": true, "cleared": cleared}))
     }
 }
@@ -1518,6 +1533,11 @@ impl SetStatusTool {
                 serde_json::json!({"error": format!("Task not found: {}", self.task_id)}),
             );
         };
+        if is_done_status(&self.status) {
+            if let Err(err) = ensure_can_mark_done(&tasks, task) {
+                return ok_json(serde_json::json!({"error": err}));
+            }
+        }
         let path = task
             .file_path
             .as_ref()
@@ -1535,7 +1555,23 @@ impl SetStatusTool {
             serde_json::json!({ "status": self.status.clone() }),
         )?;
         refresh_index_best_effort(&backlog_dir);
-        let _ = update_focus_for_task_mutation(&backlog_dir, &task.id, Some(&self.status), None);
+        if update_focus_for_task_mutation(&backlog_dir, &task.id, Some(&self.status), None).unwrap_or(false) {
+            audit_event(
+                &backlog_dir,
+                "focus_auto_update",
+                Some(&task.id),
+                serde_json::json!({ "status": self.status.clone() }),
+            )?;
+        }
+        let tasks_after = load_tasks(&backlog_dir);
+        if maybe_auto_clean_focus(&backlog_dir, &tasks_after).unwrap_or(false) {
+            audit_event(
+                &backlog_dir,
+                "focus_auto_clean",
+                None,
+                serde_json::json!({ "reason": "focused epic completed" }),
+            )?;
+        }
         maybe_auto_checkpoint(&backlog_dir);
         ok_json(serde_json::json!({"ok": true, "id": task.id, "status": self.status.clone()}))
     }
@@ -1648,6 +1684,11 @@ impl BulkSetStatusTool {
         let (selected, missing) = select_tasks_with_missing(&tasks, &ids);
         let mut updated = Vec::new();
         for task in selected {
+            if is_done_status(&self.status) {
+                if let Err(err) = ensure_can_mark_done(&tasks, task) {
+                    return ok_json(serde_json::json!({"error": err}));
+                }
+            }
             let path = task
                 .file_path
                 .as_ref()
@@ -1664,11 +1705,26 @@ impl BulkSetStatusTool {
                 Some(&task.id),
                 serde_json::json!({ "status": self.status.clone() }),
             )?;
-            let _ =
-                update_focus_for_task_mutation(&backlog_dir, &task.id, Some(&self.status), None);
+            if update_focus_for_task_mutation(&backlog_dir, &task.id, Some(&self.status), None).unwrap_or(false) {
+                audit_event(
+                    &backlog_dir,
+                    "focus_auto_update",
+                    Some(&task.id),
+                    serde_json::json!({ "status": self.status.clone() }),
+                )?;
+            }
             updated.push(task.id.clone());
         }
         refresh_index_best_effort(&backlog_dir);
+        let tasks_after = load_tasks(&backlog_dir);
+        if maybe_auto_clean_focus(&backlog_dir, &tasks_after).unwrap_or(false) {
+            audit_event(
+                &backlog_dir,
+                "focus_auto_clean",
+                None,
+                serde_json::json!({ "reason": "focused epic completed" }),
+            )?;
+        }
         maybe_auto_checkpoint(&backlog_dir);
         ok_json(bulk_result(updated, missing))
     }
@@ -1998,8 +2054,14 @@ impl ClaimTaskTool {
             }),
         )?;
         refresh_index_best_effort(&backlog_dir);
-        let _ =
-            update_focus_for_task_mutation(&backlog_dir, &task.id, None, Some(&lease.owner));
+        if update_focus_for_task_mutation(&backlog_dir, &task.id, None, Some(&lease.owner)).unwrap_or(false) {
+            audit_event(
+                &backlog_dir,
+                "focus_auto_update",
+                Some(&task.id),
+                serde_json::json!({ "lease_owner": lease.owner.clone() }),
+            )?;
+        }
         maybe_auto_checkpoint(&backlog_dir);
         ok_json(serde_json::json!({"ok": true, "id": task.id, "owner": lease.owner.clone()}))
     }
@@ -2040,7 +2102,14 @@ impl ReleaseTaskTool {
             .as_ref()
             .and_then(|t| t.lease.as_ref())
             .map(|l| l.owner.as_str());
-        let _ = update_focus_for_task_mutation(&backlog_dir, &task.id, status_after, owner_after);
+        if update_focus_for_task_mutation(&backlog_dir, &task.id, status_after, owner_after).unwrap_or(false) {
+            audit_event(
+                &backlog_dir,
+                "focus_auto_update",
+                Some(&task.id),
+                serde_json::json!({ "event": "release" }),
+            )?;
+        }
         maybe_auto_checkpoint(&backlog_dir);
         ok_json(serde_json::json!({"ok": true, "id": task.id}))
     }
