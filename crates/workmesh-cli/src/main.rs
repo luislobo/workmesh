@@ -31,6 +31,7 @@ use workmesh_core::session::{
     append_session_journal, diff_since_checkpoint, render_diff, render_resume, resolve_project_id,
     resume_summary, task_summary, write_checkpoint, write_working_set, CheckpointOptions,
 };
+use workmesh_core::skills::{install_embedded_skill, load_skill_content, SkillAgent, SkillScope};
 use workmesh_core::task::{load_tasks, load_tasks_with_archive, Lease, Task};
 use workmesh_core::task_ops::{
     append_note, create_task_file, filter_tasks, graph_export, is_lease_active, next_task,
@@ -198,6 +199,11 @@ enum Command {
     Focus {
         #[command(subcommand)]
         command: FocusCommand,
+    },
+    /// Manage agent skills (export/install/show)
+    Skill {
+        #[command(subcommand)]
+        command: SkillCommand,
     },
     /// Show changes since a checkpoint
     CheckpointDiff {
@@ -548,6 +554,69 @@ enum Command {
         #[arg(long)]
         plantuml_jar: Option<PathBuf>,
     },
+}
+
+#[derive(Subcommand)]
+enum SkillCommand {
+    /// Show a skill's SKILL.md content (reads repo skill dirs, falls back to embedded default)
+    Show {
+        /// Skill name (defaults to workmesh)
+        #[arg(long)]
+        name: Option<String>,
+        #[arg(long, action = ArgAction::SetTrue)]
+        json: bool,
+    },
+    /// Install the embedded WorkMesh skill into agent skill directories
+    Install {
+        /// Skill name (defaults to workmesh)
+        #[arg(long)]
+        name: Option<String>,
+        /// Install to user-level (~/.codex/skills, ~/.claude/skills, ~/.cursor/skills) or project-level (<repo>/.codex/skills, etc.)
+        #[arg(long, value_enum, default_value_t = SkillScopeArg::User)]
+        scope: SkillScopeArg,
+        /// Which agent(s) to install for
+        #[arg(long, value_enum, default_value_t = SkillAgentArg::All)]
+        agent: SkillAgentArg,
+        /// Overwrite existing SKILL.md files
+        #[arg(long, action = ArgAction::SetTrue)]
+        force: bool,
+        #[arg(long, action = ArgAction::SetTrue)]
+        json: bool,
+    },
+}
+
+#[derive(Debug, Copy, Clone, ValueEnum)]
+enum SkillScopeArg {
+    User,
+    Project,
+}
+
+#[derive(Debug, Copy, Clone, ValueEnum)]
+enum SkillAgentArg {
+    Codex,
+    Claude,
+    Cursor,
+    All,
+}
+
+impl From<SkillScopeArg> for SkillScope {
+    fn from(value: SkillScopeArg) -> Self {
+        match value {
+            SkillScopeArg::User => SkillScope::User,
+            SkillScopeArg::Project => SkillScope::Project,
+        }
+    }
+}
+
+impl From<SkillAgentArg> for SkillAgent {
+    fn from(value: SkillAgentArg) -> Self {
+        match value {
+            SkillAgentArg::Codex => SkillAgent::Codex,
+            SkillAgentArg::Claude => SkillAgent::Claude,
+            SkillAgentArg::Cursor => SkillAgent::Cursor,
+            SkillAgentArg::All => SkillAgent::All,
+        }
+    }
 }
 
 #[derive(Subcommand)]
@@ -1616,6 +1685,62 @@ fn main() -> Result<()> {
                         println!("Focus cleared");
                     } else {
                         println!("(no focus to clear)");
+                    }
+                }
+            }
+        }
+        Command::Skill { command } => {
+            let repo_root = repo_root_from_backlog(&backlog_dir);
+            match command {
+                SkillCommand::Show { name, json } => {
+                    let skill_name = name
+                        .as_deref()
+                        .map(|value| value.trim())
+                        .filter(|value| !value.is_empty())
+                        .unwrap_or("workmesh");
+                    let skill = load_skill_content(Some(&repo_root), skill_name)
+                        .or_else(|| load_skill_content(None, skill_name));
+                    let Some(skill) = skill else {
+                        die(&format!("Skill not found: {}", skill_name));
+                    };
+                    if json {
+                        println!("{}", serde_json::to_string_pretty(&skill)?);
+                    } else {
+                        println!("{}", skill.content);
+                    }
+                }
+                SkillCommand::Install {
+                    name,
+                    scope,
+                    agent,
+                    force,
+                    json,
+                } => {
+                    let skill_name = name
+                        .as_deref()
+                        .map(|value| value.trim())
+                        .filter(|value| !value.is_empty())
+                        .unwrap_or("workmesh");
+                    let written = install_embedded_skill(
+                        Some(&repo_root),
+                        scope.into(),
+                        agent.into(),
+                        skill_name,
+                        force,
+                    )?;
+                    if json {
+                        println!(
+                            "{}",
+                            serde_json::to_string_pretty(
+                                &serde_json::json!({ "ok": true, "written": written })
+                            )?
+                        );
+                    } else if written.is_empty() {
+                        println!("(no files written)");
+                    } else {
+                        for path in written {
+                            println!("{}", path.display());
+                        }
                     }
                 }
             }

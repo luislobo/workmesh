@@ -12,6 +12,7 @@ pub mod migration;
 pub mod project;
 pub mod quickstart;
 pub mod session;
+pub mod skills;
 pub mod task;
 pub mod task_ops;
 
