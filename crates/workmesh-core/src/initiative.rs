@@ -2,6 +2,7 @@ use std::path::Path;
 use std::process::Command;
 
 use anyhow::{anyhow, Result};
+use sha2::{Digest, Sha256};
 
 use crate::config::{load_config, write_config, WorkmeshConfig};
 use crate::task::Task;
@@ -59,6 +60,82 @@ pub fn branch_to_initiative_slug(branch: &str) -> String {
     slugify(&s).unwrap_or_else(|| "work".to_string())
 }
 
+fn four_letter_key_from_slug(slug: &str) -> String {
+    // "4 letters" means ASCII a-z only. Non-letters are ignored.
+    // If the result is shorter than 4, pad with 'x' (stable + readable).
+    let mut out = String::new();
+    for ch in slug.to_lowercase().chars() {
+        if ch.is_ascii_lowercase() {
+            out.push(ch);
+            if out.len() == 4 {
+                break;
+            }
+        }
+    }
+    while out.len() < 4 {
+        out.push('x');
+    }
+    out
+}
+
+fn four_letter_key_candidates<'a>(
+    branch: &'a str,
+    desired: &'a str,
+) -> impl Iterator<Item = String> + 'a {
+    // Candidate order:
+    // 1. desired (usually derived from the branch name segment)
+    // 2. deterministic 4-letter keys derived from SHA256(branch), then SHA256(branch + ":<n>") if needed.
+    let mut emitted_desired = false;
+    std::iter::from_fn(move || {
+        if !emitted_desired {
+            emitted_desired = true;
+            return Some(desired.to_string());
+        }
+        None
+    })
+    .chain(FourLetterHashCandidates::new(branch))
+}
+
+struct FourLetterHashCandidates<'a> {
+    branch: &'a str,
+    salt: u32,
+    offset: usize,
+    bytes: [u8; 32],
+}
+
+impl<'a> FourLetterHashCandidates<'a> {
+    fn new(branch: &'a str) -> Self {
+        let bytes = sha256_bytes(branch);
+        Self {
+            branch,
+            salt: 0,
+            offset: 0,
+            bytes,
+        }
+    }
+}
+
+impl<'a> Iterator for FourLetterHashCandidates<'a> {
+    type Item = String;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        // Each 32-byte digest yields 8 candidates (4 bytes each).
+        if self.offset + 4 > self.bytes.len() {
+            self.salt = self.salt.saturating_add(1);
+            self.offset = 0;
+            self.bytes = sha256_bytes(&format!("{}:{}", self.branch, self.salt));
+        }
+        let chunk = &self.bytes[self.offset..self.offset + 4];
+        self.offset += 4;
+        let mut key = String::new();
+        for b in chunk {
+            let letter = (b % 26) as u8;
+            key.push((b'a' + letter) as char);
+        }
+        Some(key)
+    }
+}
+
 pub fn ensure_branch_initiative(repo_root: &Path, branch: &str) -> Result<String> {
     let mut config = load_config(repo_root).unwrap_or_default();
     if let Some(map) = config.branch_initiatives.as_ref() {
@@ -69,7 +146,8 @@ pub fn ensure_branch_initiative(repo_root: &Path, branch: &str) -> Result<String
         }
     }
 
-    let desired = branch_to_initiative_slug(branch);
+    let desired_slug = branch_to_initiative_slug(branch);
+    let desired = four_letter_key_from_slug(&desired_slug);
     let key = reserve_unique_initiative(&mut config, branch, &desired);
     write_config(repo_root, &config)?;
     Ok(key)
@@ -83,21 +161,21 @@ fn reserve_unique_initiative(config: &mut WorkmeshConfig, branch: &str, desired:
 
     let base = desired.trim();
     let base = if base.is_empty() { "work" } else { base };
-    let mut key = base.to_string();
 
-    // Ensure we don't reuse another branch's initiative slug.
+    // Ensure we don't reuse another branch's 4-letter initiative key.
     // If two branches intentionally share an initiative, the user can set `--id` explicitly.
-    if used.iter().any(|k| k == &key) {
-        let mut i = 2;
-        loop {
-            let candidate = format!("{}-{}", base, i);
-            if !used.iter().any(|k| k == &candidate) {
-                key = candidate;
-                break;
-            }
-            i += 1;
+    let mut key = None;
+    for candidate in four_letter_key_candidates(branch, base) {
+        let candidate = candidate.trim().to_string();
+        if candidate.len() != 4 || !candidate.chars().all(|c| c.is_ascii_lowercase()) {
+            continue;
+        }
+        if !used.iter().any(|k| k == &candidate) {
+            key = Some(candidate);
+            break;
         }
     }
+    let key = key.unwrap_or_else(|| "work".to_string());
 
     if !used.iter().any(|k| k == &key) {
         used.push(key.clone());
@@ -152,6 +230,15 @@ fn slugify(raw: &str) -> Option<String> {
     }
 }
 
+fn sha256_bytes(input: &str) -> [u8; 32] {
+    let mut hasher = Sha256::new();
+    hasher.update(input.as_bytes());
+    let digest = hasher.finalize();
+    let mut out = [0u8; 32];
+    out.copy_from_slice(&digest[..]);
+    out
+}
+
 pub fn resolve_initiative_or_error(repo_root: &Path) -> Result<(String, String)> {
     let branch = best_effort_git_branch(repo_root)
         .ok_or_else(|| anyhow!("Unable to infer git branch (set WORKMESH_BRANCH to override)"))?;
@@ -176,26 +263,29 @@ mod tests {
         let temp = TempDir::new().expect("tempdir");
         let repo = temp.path();
         let a = ensure_branch_initiative(repo, "feature/login").expect("a");
-        assert_eq!(a, "login");
+        assert_eq!(a, "logi");
         let b = ensure_branch_initiative(repo, "feature/login").expect("b");
         assert_eq!(a, b);
 
-        // Colliding desired slug from a different branch gets a numeric suffix.
+        // Colliding desired key from a different branch gets a different 4-letter key.
         let x = ensure_branch_initiative(repo, "feat/login").expect("x");
-        assert_eq!(x, "login-2");
+        assert_ne!(x, "logi");
+        assert_eq!(x.len(), 4);
+        assert!(x.chars().all(|c| c.is_ascii_lowercase()));
 
         // Another distinct slug is accepted as-is.
         let y = ensure_branch_initiative(repo, "feature/billing").expect("y");
-        assert_eq!(y, "billing");
+        assert_eq!(y, "bill");
     }
 
     #[test]
-    fn reserve_unique_initiative_appends_numeric_suffix() {
+    fn reserve_unique_initiative_dedup_keeps_length_4() {
         let mut config = WorkmeshConfig::default();
-        let a = reserve_unique_initiative(&mut config, "feature/login", "login");
-        assert_eq!(a, "login");
-        let b = reserve_unique_initiative(&mut config, "feature/login-2", "login");
-        assert_eq!(b, "login-2");
+        let a = reserve_unique_initiative(&mut config, "feature/login", "logi");
+        assert_eq!(a, "logi");
+        let b = reserve_unique_initiative(&mut config, "feature/login-2", "logi");
+        assert_ne!(b, "logi");
+        assert_eq!(b.len(), 4);
     }
 
     #[test]
