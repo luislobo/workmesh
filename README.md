@@ -232,6 +232,25 @@ workmesh --root . fix-ids
 workmesh --root . fix-ids --apply
 ```
 
+If you want to migrate an existing backlog from legacy ids like `task-001` to the initiative-key scheme,
+use the agent-assisted rekey flow:
+```bash
+# 1) generate a prompt that includes tasks + dependencies + graph
+workmesh --root . rekey-prompt > rekey-prompt.txt
+
+# 2) ask your agent to return JSON in the required schema, save it as mapping.json
+
+# 3) dry-run
+workmesh --root . rekey-apply --mapping mapping.json
+
+# 4) apply
+workmesh --root . rekey-apply --mapping mapping.json --apply
+```
+
+MCP tools:
+- `rekey_prompt`
+- `rekey_apply`
+
 Note on collisions:
 - `uid` is the true unique identity (ULID) and is required on new tasks.
 - Filenames include a short UID suffix so merges stay clean even if two branches create the same `task-###`.

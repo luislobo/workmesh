@@ -83,6 +83,15 @@
       "config_fields": ["branch_initiatives", "initiatives"],
       "collision_behavior": "If the desired 4-letter initiative key is already used, WorkMesh deterministically chooses another 4-letter key (still length 4).",
       "override_env": "WORKMESH_BRANCH",
+      "rekey_flow": {
+        "purpose": "Agent-assisted migration from legacy ids (task-001) to initiative-key ids (task-logi-001) while rewriting structured references.",
+        "cli": [
+          "workmesh --root . rekey-prompt > rekey-prompt.txt",
+          "workmesh --root . rekey-apply --mapping mapping.json (dry-run)",
+          "workmesh --root . rekey-apply --mapping mapping.json --apply"
+        ],
+        "mcp_tools": ["rekey_prompt", "rekey_apply"]
+      },
       "repair": {
         "purpose": "After merges, detect and rekey duplicate task ids.",
         "cli": ["workmesh --root . fix-ids (dry-run)", "workmesh --root . fix-ids --apply"],
