@@ -160,24 +160,14 @@ fn resolve_repo_root(context: &McpContext, root: Option<&str>) -> PathBuf {
     std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
 }
 
-fn read_skill_content(
-    repo_root: &Path,
-    name: &str,
-) -> Result<(PathBuf, String), serde_json::Value> {
-    let path = repo_root
-        .join(".codex")
-        .join("skills")
-        .join(name)
-        .join("SKILL.md");
-    if !path.exists() {
-        return Err(serde_json::json!({
+fn read_skill_content(repo_root: &Path, name: &str) -> Result<workmesh_core::skills::SkillContent, serde_json::Value> {
+    match workmesh_core::skills::load_skill_content(Some(repo_root), name) {
+        Some(skill) => Ok(skill),
+        None => Err(serde_json::json!({
             "error": format!("Skill not found: {}", name),
-            "path": path.to_string_lossy(),
-        }));
+            "available_embedded": workmesh_core::skills::embedded_skill_ids(),
+        })),
     }
-    let content = std::fs::read_to_string(&path)
-        .map_err(|err| serde_json::json!({"error": format!("Failed to read skill: {}", err)}))?;
-    Ok((path, content))
 }
 
 fn ok_text(content: String) -> Result<CallToolResult, CallToolError> {
@@ -2768,18 +2758,18 @@ impl SkillContentTool {
             .map(|value| value.trim())
             .filter(|value| !value.is_empty())
             .unwrap_or("workmesh");
-        let (path, content) = match read_skill_content(&repo_root, name) {
+        let skill = match read_skill_content(&repo_root, name) {
             Ok(result) => result,
             Err(err) => return ok_json(err),
         };
         if self.format == "json" {
             return ok_json(serde_json::json!({
                 "name": name,
-                "path": path,
-                "content": content,
+                "source": skill.source,
+                "content": skill.content,
             }));
         }
-        ok_text(content)
+        ok_text(skill.content)
     }
 }
 
@@ -3032,7 +3022,7 @@ impl ProjectManagementSkillTool {
     fn call(&self, context: &McpContext) -> Result<CallToolResult, CallToolError> {
         let repo_root = resolve_repo_root(context, self.root.as_deref());
         let skill_name = "workmesh";
-        let (path, content) = match read_skill_content(&repo_root, skill_name) {
+        let skill = match read_skill_content(&repo_root, skill_name) {
             Ok(result) => result,
             Err(err) => return ok_json(err),
         };
@@ -3040,11 +3030,11 @@ impl ProjectManagementSkillTool {
             return ok_json(serde_json::json!({
                 "summary": "workmesh project management skill",
                 "name": skill_name,
-                "path": path,
-                "content": content,
+                "source": skill.source,
+                "content": skill.content,
             }));
         }
-        ok_text(content)
+        ok_text(skill.content)
     }
 }
 
