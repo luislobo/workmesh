@@ -208,6 +208,10 @@ assignee: []
 - Start here
 ```
 
+Note on collisions:
+- `uid` is the true unique identity (ULID) and is required on new tasks.
+- Filenames include a short UID suffix so merges stay clean even if two branches create the same `task-###`.
+
 <details>
 <summary>Diagram: Task lifecycle</summary>
 
