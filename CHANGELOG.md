@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.13] - 2026-02-08
+
 ### Added
 - Focus automation: keep repo focus state updated as tasks move through statuses and leases.
 - Epic Done gating: prevent marking an epic Done until its dependencies/children are Done.
@@ -122,7 +124,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Gantt support and best-practices command.
   - Docs-first project model and initial PRDs.
 
-[Unreleased]: https://github.com/luislobo/workmesh/compare/v0.2.12...HEAD
+[Unreleased]: https://github.com/luislobo/workmesh/compare/v0.2.13...HEAD
+[0.2.13]: https://github.com/luislobo/workmesh/compare/v0.2.12...v0.2.13
 [0.2.12]: https://github.com/luislobo/workmesh/compare/v0.2.11...v0.2.12
 [0.2.11]: https://github.com/luislobo/workmesh/compare/v0.2.10...v0.2.11
 [0.2.10]: https://github.com/luislobo/workmesh/compare/v0.2.9...v0.2.10
@@ -136,4 +139,3 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 [0.2.2]: https://github.com/luislobo/workmesh/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/luislobo/workmesh/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/luislobo/workmesh/releases/tag/v0.2.0
-
