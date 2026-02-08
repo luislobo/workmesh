@@ -1,6 +1,10 @@
 {
   "name": "WorkMesh",
   "tagline": "Docs-first, MCP-ready tasks and project continuity stored as plain text alongside your code.",
+  "agent_readme": {
+    "file": "README.json",
+    "mcp_tool": "readme"
+  },
   "repo": {
     "language": "rust",
     "artifacts": ["workmesh (cli)", "workmesh-mcp (stdio mcp server)"]

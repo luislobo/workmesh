@@ -7,6 +7,7 @@ commands, dependency-aware planning, and restartable sessions.
 This repository contains the Rust implementation (CLI + core + MCP server).
 
 AI-friendly format: see `README.json` (keep it in sync with this file).
+Agents can also fetch it via MCP: tool `readme`.
 
 ## Why WorkMesh
 - Keep planning artifacts close to code and in git.

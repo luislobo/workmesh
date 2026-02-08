@@ -228,12 +228,14 @@ fn recommended_kinds() -> Vec<&'static str> {
 fn tool_catalog() -> Vec<serde_json::Value> {
     vec![
         serde_json::json!({"name": "version", "summary": "Return WorkMesh version information."}),
+        serde_json::json!({"name": "readme", "summary": "Return README.json (agent-friendly repo docs)."}),
         serde_json::json!({"name": "focus_show", "summary": "Show repo-local focus (project/epic/objective/working set)."}),
         serde_json::json!({"name": "focus_set", "summary": "Set repo-local focus (project/epic/objective/working set)."}),
         serde_json::json!({"name": "focus_clear", "summary": "Clear repo-local focus."}),
         serde_json::json!({"name": "list_tasks", "summary": "List tasks with filters and sorting."}),
         serde_json::json!({"name": "show_task", "summary": "Show a single task by id."}),
         serde_json::json!({"name": "next_task", "summary": "Get the next ready task (lowest id, deps satisfied)."}),
+        serde_json::json!({"name": "next_tasks", "summary": "Get a deterministic list of next-task candidates (focus-aware)."}),
         serde_json::json!({"name": "ready_tasks", "summary": "List tasks with deps satisfied (ready work)."}),
         serde_json::json!({"name": "export_tasks", "summary": "Export all tasks as JSON."}),
         serde_json::json!({"name": "set_status", "summary": "Update task status."}),
@@ -285,6 +287,17 @@ fn tool_catalog() -> Vec<serde_json::Value> {
 #[mcp_tool(name = "version", description = "Return WorkMesh version information.")]
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct VersionTool {
+    #[serde(default = "default_format")]
+    pub format: String,
+}
+
+#[mcp_tool(
+    name = "readme",
+    description = "Return the repo README in JSON form (README.json) for fast agent consumption."
+)]
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct ReadmeTool {
+    pub root: Option<String>,
     #[serde(default = "default_format")]
     pub format: String,
 }
@@ -1037,6 +1050,7 @@ tool_box!(
     WorkmeshTools,
     [
         VersionTool,
+        ReadmeTool,
         FocusShowTool,
         FocusSetTool,
         FocusClearTool,
@@ -1126,6 +1140,7 @@ impl ServerHandler for WorkmeshServerHandler {
         let tool = WorkmeshTools::try_from(params).map_err(CallToolError::new)?;
         match tool {
             WorkmeshTools::VersionTool(tool) => tool.call(&self.context),
+            WorkmeshTools::ReadmeTool(tool) => tool.call(&self.context),
             WorkmeshTools::FocusShowTool(tool) => tool.call(&self.context),
             WorkmeshTools::FocusSetTool(tool) => tool.call(&self.context),
             WorkmeshTools::FocusClearTool(tool) => tool.call(&self.context),
@@ -1213,6 +1228,26 @@ impl VersionTool {
         }
 
         ok_json(payload)
+    }
+}
+
+impl ReadmeTool {
+    fn call(&self, context: &McpContext) -> Result<CallToolResult, CallToolError> {
+        let repo_root = resolve_repo_root(context, self.root.as_deref());
+        let path = repo_root.join("README.json");
+        let raw = std::fs::read_to_string(&path)
+            .map_err(|err| CallToolError::from_message(err.to_string()))?;
+        let parsed: serde_json::Value =
+            serde_json::from_str(&raw).map_err(|err| CallToolError::from_message(err.to_string()))?;
+
+        if self.format == "text" {
+            return ok_text(raw);
+        }
+        ok_json(serde_json::json!({
+            "ok": true,
+            "path": path,
+            "readme": parsed
+        }))
     }
 }
 
@@ -3725,6 +3760,30 @@ Body\n",
             .collect();
         assert!(ids.contains(&"task-001".to_string()));
         assert!(ids.contains(&"task-002".to_string()));
+    }
+
+    #[test]
+    fn mcp_readme_returns_readme_json() {
+        let (temp, root_arg, context) = init_repo();
+        let repo_root = temp.path().to_path_buf();
+        let readme_path = repo_root.join("README.json");
+        std::fs::write(
+            &readme_path,
+            "{\"name\":\"WorkMesh\",\"tagline\":\"test\"}",
+        )
+        .expect("write readme");
+
+        let result = ReadmeTool {
+            root: Some(root_arg),
+            format: "json".to_string(),
+        }
+        .call(&context)
+        .expect("readme");
+
+        let parsed: serde_json::Value =
+            serde_json::from_str(&text_payload(result)).expect("json");
+        assert_eq!(parsed["ok"], true);
+        assert_eq!(parsed["readme"]["name"], "WorkMesh");
     }
 
     #[test]
