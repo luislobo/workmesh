@@ -9,5 +9,6 @@ All project documentation lives under `docs/`.
   - `updates/` - status updates (date-stamped).
   - `comments/` - comment history (append-only).
   - `events/` - normalized change events (append-only).
+- `docs/test-coverage.md` - how we measure and enforce test coverage.
 
 Tasks live in `workmesh/tasks/` (or `.workmesh/tasks/`) and should reference the relevant PRD.
