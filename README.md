@@ -47,7 +47,7 @@ Note: in Rust target triples the `unknown` segment is the historical "vendor" fi
 
 Pick a release version:
 ```bash
-workmesh_version="v0.2.8"
+workmesh_version="v0.2.9"
 ```
 
 #### macOS / Linux (tar.gz)
@@ -82,7 +82,7 @@ Optional checksum verification:
 #### Windows (zip)
 PowerShell (with `gh`):
 ```powershell
-$workmesh_version = "v0.2.8"
+$workmesh_version = "v0.2.9"
 gh release download $workmesh_version -R luislobo/workmesh `
   -p "workmesh-$workmesh_version-x86_64-pc-windows-msvc.zip"
 
