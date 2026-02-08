@@ -1,0 +1,4 @@
+initiatives = ["main"]
+
+[branch_initiatives]
+main = "main"
