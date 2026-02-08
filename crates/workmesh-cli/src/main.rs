@@ -14,6 +14,7 @@ use workmesh_core::backlog::{locate_backlog_dir, resolve_backlog, BacklogResolut
 use workmesh_core::config::update_do_not_migrate;
 use workmesh_core::focus::{
     clear_focus, extract_task_id_from_branch, infer_project_id, load_focus, save_focus, FocusState,
+    update_focus_for_task_mutation,
 };
 use workmesh_core::gantt::{
     plantuml_gantt, render_plantuml_svg, write_text_file, PlantumlRenderError,
@@ -2007,6 +2008,7 @@ fn main() -> Result<()> {
                 serde_json::json!({ "status": status.clone() }),
             )?;
             refresh_index_best_effort(&backlog_dir);
+            let _ = update_focus_for_task_mutation(&backlog_dir, &task.id, Some(&status), None);
             maybe_auto_checkpoint(&backlog_dir, auto_checkpoint, auto_session);
             println!("Updated {} status -> {}", task.id, status);
         }
@@ -2049,6 +2051,8 @@ fn main() -> Result<()> {
                 }),
             )?;
             refresh_index_best_effort(&backlog_dir);
+            let _ =
+                update_focus_for_task_mutation(&backlog_dir, &task.id, None, Some(&lease.owner));
             maybe_auto_checkpoint(&backlog_dir, auto_checkpoint, auto_session);
             println!("Claimed {} lease -> {}", task.id, lease.owner);
         }
@@ -2075,6 +2079,15 @@ fn main() -> Result<()> {
                 serde_json::json!({}),
             )?;
             refresh_index_best_effort(&backlog_dir);
+            // Release can imply "not actively working", but we only remove from focus when status
+            // is explicitly "To Do" or "Done" (or keep it if still leased).
+            let task_after = workmesh_core::task::parse_task_file(path).ok();
+            let status_after = task_after.as_ref().map(|t| t.status.as_str());
+            let owner_after = task_after
+                .as_ref()
+                .and_then(|t| t.lease.as_ref())
+                .map(|l| l.owner.as_str());
+            let _ = update_focus_for_task_mutation(&backlog_dir, &task.id, status_after, owner_after);
             maybe_auto_checkpoint(&backlog_dir, auto_checkpoint, auto_session);
             println!("Released {} lease", task.id);
         }
@@ -2964,6 +2977,7 @@ fn handle_bulk_set_status(
             Some(&task.id),
             serde_json::json!({ "status": status.clone() }),
         )?;
+        let _ = update_focus_for_task_mutation(backlog_dir, &task.id, Some(&status), None);
         updated.push(task.id.clone());
     }
     refresh_index_best_effort(backlog_dir);

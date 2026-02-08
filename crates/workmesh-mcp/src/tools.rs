@@ -21,6 +21,7 @@ use workmesh_core::backlog::{
 };
 use workmesh_core::focus::{
     clear_focus, extract_task_id_from_branch, infer_project_id, load_focus, save_focus, FocusState,
+    update_focus_for_task_mutation,
 };
 use workmesh_core::gantt::{plantuml_gantt, render_plantuml_svg, write_text_file};
 use workmesh_core::global_sessions::{
@@ -1534,6 +1535,7 @@ impl SetStatusTool {
             serde_json::json!({ "status": self.status.clone() }),
         )?;
         refresh_index_best_effort(&backlog_dir);
+        let _ = update_focus_for_task_mutation(&backlog_dir, &task.id, Some(&self.status), None);
         maybe_auto_checkpoint(&backlog_dir);
         ok_json(serde_json::json!({"ok": true, "id": task.id, "status": self.status.clone()}))
     }
@@ -1662,6 +1664,8 @@ impl BulkSetStatusTool {
                 Some(&task.id),
                 serde_json::json!({ "status": self.status.clone() }),
             )?;
+            let _ =
+                update_focus_for_task_mutation(&backlog_dir, &task.id, Some(&self.status), None);
             updated.push(task.id.clone());
         }
         refresh_index_best_effort(&backlog_dir);
@@ -1994,6 +1998,8 @@ impl ClaimTaskTool {
             }),
         )?;
         refresh_index_best_effort(&backlog_dir);
+        let _ =
+            update_focus_for_task_mutation(&backlog_dir, &task.id, None, Some(&lease.owner));
         maybe_auto_checkpoint(&backlog_dir);
         ok_json(serde_json::json!({"ok": true, "id": task.id, "owner": lease.owner.clone()}))
     }
@@ -2028,6 +2034,13 @@ impl ReleaseTaskTool {
             serde_json::json!({}),
         )?;
         refresh_index_best_effort(&backlog_dir);
+        let task_after = workmesh_core::task::parse_task_file(path).ok();
+        let status_after = task_after.as_ref().map(|t| t.status.as_str());
+        let owner_after = task_after
+            .as_ref()
+            .and_then(|t| t.lease.as_ref())
+            .map(|l| l.owner.as_str());
+        let _ = update_focus_for_task_mutation(&backlog_dir, &task.id, status_after, owner_after);
         maybe_auto_checkpoint(&backlog_dir);
         ok_json(serde_json::json!({"ok": true, "id": task.id}))
     }
