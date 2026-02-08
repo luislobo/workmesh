@@ -46,6 +46,17 @@ fn main() {
     if let Some(head) = git(&["rev-parse", "--git-path", "HEAD"]) {
         rerun_if_changed(&head);
     }
+    // HEAD often points at a symbolic ref (e.g. refs/heads/main). That ref file changes on commit,
+    // while .git/HEAD typically does not, so we need to watch it as well.
+    if let Some(head_ref) = git(&["symbolic-ref", "-q", "HEAD"]) {
+        if let Some(head_ref_path) = git(&["rev-parse", "--git-path", &head_ref]) {
+            rerun_if_changed(&head_ref_path);
+        }
+    }
+    // Some repos store refs in packed-refs instead of loose ref files.
+    if let Some(packed_refs) = git(&["rev-parse", "--git-path", "packed-refs"]) {
+        rerun_if_changed(&packed_refs);
+    }
     if let Some(index) = git(&["rev-parse", "--git-path", "index"]) {
         rerun_if_changed(&index);
     }
