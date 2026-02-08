@@ -29,4 +29,4 @@ Definition of Done:
 - Docs updated if needed.
 
 Notes:
-- Implemented MCP server with rust-mcp-sdk (list/show/next/stats/set-field/labels/deps/notes/add/validate/help), rootless resolution; gantt tools pending task-006.
+- Implemented MCP server with rust-mcp-sdk (list/show/next/stats/set-field/labels/deps/notes/add/validate/help), rootless resolution; gantt tools pending task-main-007.

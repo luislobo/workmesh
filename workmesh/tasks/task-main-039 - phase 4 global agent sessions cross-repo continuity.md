@@ -25,12 +25,12 @@ Description:
   repos after reboots/OS switches.
 - PRD: `docs/projects/workmesh/prds/phase-4-global-agent-sessions.md`
 - Deliverables:
-  - Core model + storage: task-040
-  - CLI commands: task-041
-  - MCP parity: task-042
-  - Optional sessions index: task-043
-  - Opt-in auto session save: task-044
-  - Docs: task-045
+  - Core model + storage: task-main-040
+  - CLI commands: task-main-041
+  - MCP parity: task-main-042
+  - Optional sessions index: task-main-043
+  - Opt-in auto session save: task-main-044
+  - Docs: task-main-045
 
 Acceptance Criteria:
 --------------------------------------------------
