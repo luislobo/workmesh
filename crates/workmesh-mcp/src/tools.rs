@@ -44,10 +44,10 @@ use workmesh_core::session::{
 use workmesh_core::task::{load_tasks, load_tasks_with_archive, Lease, Task};
 use workmesh_core::task_ops::{
     append_note, create_task_file, filter_tasks, graph_export, is_lease_active, next_task,
-    now_timestamp, ready_tasks, render_task_line, replace_section, set_list_field, sort_tasks,
-    status_counts, task_to_json_value, tasks_to_jsonl, timestamp_plus_minutes, update_body,
-    update_lease_fields, update_task_field, update_task_field_or_section, validate_tasks,
-    FieldValue,
+    now_timestamp, ready_tasks, recommend_next_tasks, render_task_line, replace_section,
+    set_list_field, sort_tasks, status_counts, task_to_json_value, tasks_to_jsonl,
+    timestamp_plus_minutes, update_body, update_lease_fields, update_task_field,
+    update_task_field_or_section, validate_tasks, FieldValue,
 };
 
 const ROOT_REQUIRED_ERROR: &str = "root is required for MCP calls unless the server is started within a repo containing tasks/ or backlog/tasks";
@@ -357,6 +357,18 @@ pub struct NextTaskTool {
     pub root: Option<String>,
     #[serde(default = "default_format")]
     pub format: String,
+}
+
+#[mcp_tool(
+    name = "next_tasks",
+    description = "Recommend next tasks (ready work), ordered by priority then phase then id. Use this when an agent should choose among candidates."
+)]
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct NextTasksTool {
+    pub root: Option<String>,
+    #[serde(default = "default_format")]
+    pub format: String,
+    pub limit: Option<u32>,
 }
 
 #[mcp_tool(
@@ -1029,6 +1041,7 @@ tool_box!(
         ListTasksTool,
         ShowTaskTool,
         NextTaskTool,
+        NextTasksTool,
         ReadyTasksTool,
         ExportTasksTool,
         StatsTool,
@@ -1117,6 +1130,7 @@ impl ServerHandler for WorkmeshServerHandler {
             WorkmeshTools::ListTasksTool(tool) => tool.call(&self.context),
             WorkmeshTools::ShowTaskTool(tool) => tool.call(&self.context),
             WorkmeshTools::NextTaskTool(tool) => tool.call(&self.context),
+            WorkmeshTools::NextTasksTool(tool) => tool.call(&self.context),
             WorkmeshTools::ReadyTasksTool(tool) => tool.call(&self.context),
             WorkmeshTools::ExportTasksTool(tool) => tool.call(&self.context),
             WorkmeshTools::StatsTool(tool) => tool.call(&self.context),
@@ -1387,6 +1401,36 @@ impl NextTaskTool {
             return ok_text(render_task_line(&task));
         }
         ok_json(task_to_json_value(&task, false))
+    }
+}
+
+impl NextTasksTool {
+    fn call(&self, context: &McpContext) -> Result<CallToolResult, CallToolError> {
+        let backlog_dir = match resolve_root(context, self.root.as_deref()) {
+            Ok(dir) => dir,
+            Err(err) => return ok_json(err),
+        };
+        let tasks = load_tasks(&backlog_dir);
+        let mut next_tasks = recommend_next_tasks(&tasks);
+        if next_tasks.is_empty() {
+            return ok_json(serde_json::json!({"error": "No ready tasks"}));
+        }
+        let limit = self.limit.unwrap_or(10);
+        next_tasks.truncate(limit as usize);
+
+        if self.format == "text" {
+            let body = next_tasks
+                .iter()
+                .map(|task| render_task_line(task))
+                .collect::<Vec<_>>()
+                .join("\n");
+            return ok_text(body);
+        }
+        let payload: Vec<serde_json::Value> = next_tasks
+            .iter()
+            .map(|task| task_to_json_value(task, false))
+            .collect();
+        ok_json(serde_json::Value::Array(payload))
     }
 }
 
@@ -3466,6 +3510,38 @@ Body\n",
         std::fs::write(path, content).expect("write task");
     }
 
+    fn write_task_with_meta(
+        tasks_dir: &Path,
+        id: &str,
+        title: &str,
+        status: &str,
+        priority: &str,
+        phase: &str,
+    ) {
+        let filename = format!("{} - {}.md", id, title.to_lowercase());
+        let path = tasks_dir.join(filename);
+        let content = format!(
+            "---\n\
+id: {id}\n\
+title: {title}\n\
+kind: task\n\
+status: {status}\n\
+priority: {priority}\n\
+phase: {phase}\n\
+dependencies: []\n\
+labels: []\n\
+assignee: []\n\
+---\n\n\
+Body\n",
+            id = id,
+            title = title,
+            status = status,
+            priority = priority,
+            phase = phase
+        );
+        std::fs::write(path, content).expect("write task");
+    }
+
     fn init_repo() -> (TempDir, String, McpContext) {
         let temp = TempDir::new().expect("tempdir");
         let repo_root = temp.path().to_path_buf();
@@ -3563,6 +3639,36 @@ Body\n",
             .collect();
         assert!(ids.contains(&"task-001".to_string()));
         assert!(ids.contains(&"task-002".to_string()));
+    }
+
+    #[test]
+    fn mcp_next_tasks_returns_ordered_candidates() {
+        let (temp, root_arg, context) = init_repo();
+        let tasks_dir = temp.path().join("workmesh").join("tasks");
+
+        write_task_with_meta(&tasks_dir, "task-010", "Low", "To Do", "P3", "Phase2");
+        write_task_with_meta(&tasks_dir, "task-002", "High", "To Do", "P1", "Phase2");
+        write_task_with_meta(&tasks_dir, "task-001", "HighPhase1", "To Do", "P1", "Phase1");
+
+        let result = NextTasksTool {
+            root: Some(root_arg),
+            format: "json".to_string(),
+            limit: None,
+        }
+        .call(&context)
+        .expect("next_tasks");
+
+        let parsed: serde_json::Value =
+            serde_json::from_str(&text_payload(result)).expect("json");
+        let ids: Vec<String> = parsed
+            .as_array()
+            .expect("array")
+            .iter()
+            .filter_map(|v| v.get("id").and_then(|x| x.as_str()).map(|s| s.to_string()))
+            .collect();
+        assert_eq!(ids[0], "task-001");
+        assert_eq!(ids[1], "task-002");
+        assert_eq!(ids[2], "task-010");
     }
 
     #[test]

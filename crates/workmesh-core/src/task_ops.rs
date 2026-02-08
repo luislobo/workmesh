@@ -476,6 +476,14 @@ pub fn next_task(tasks: &[Task]) -> Option<Task> {
     ready.first().map(|task| (*task).clone())
 }
 
+fn priority_rank(priority: &str) -> i32 {
+    let p = priority.trim();
+    let Some(rest) = p.strip_prefix('P').or_else(|| p.strip_prefix('p')) else {
+        return 99;
+    };
+    rest.parse::<i32>().unwrap_or(99)
+}
+
 pub fn ready_tasks<'a>(tasks: &'a [Task]) -> Vec<&'a Task> {
     let done_ids: HashSet<String> = tasks
         .iter()
@@ -488,6 +496,28 @@ pub fn ready_tasks<'a>(tasks: &'a [Task]) -> Vec<&'a Task> {
         .filter(|task| blockers_satisfied(task, &done_ids))
         .collect();
     ready.sort_by_key(|task| task.id_num());
+    ready
+}
+
+pub fn recommend_next_tasks<'a>(tasks: &'a [Task]) -> Vec<&'a Task> {
+    let done_ids: HashSet<String> = tasks
+        .iter()
+        .filter(|task| is_done(task))
+        .map(|task| task.id.to_lowercase())
+        .collect();
+    let mut ready: Vec<&Task> = tasks
+        .iter()
+        .filter(|task| task.status.eq_ignore_ascii_case("to do"))
+        .filter(|task| blockers_satisfied(task, &done_ids))
+        .collect();
+    // Deterministic ordering for agents. We bias toward urgency, but keep it predictable.
+    ready.sort_by_key(|task| {
+        (
+            priority_rank(&task.priority),
+            task.phase.to_lowercase(),
+            task.id_num(),
+        )
+    });
     ready
 }
 
@@ -1845,6 +1875,79 @@ mod tests {
         ];
         let next = next_task(&tasks).expect("next");
         assert_eq!(next.id, "task-002");
+    }
+
+    #[test]
+    fn recommend_next_tasks_orders_by_priority_then_phase_then_id() {
+        let tasks = vec![
+            Task {
+                id: "task-050".to_string(),
+                uid: None,
+                kind: "task".to_string(),
+                title: "low".to_string(),
+                status: "To Do".to_string(),
+                priority: "P3".to_string(),
+                phase: "Phase2".to_string(),
+                dependencies: vec![],
+                labels: vec![],
+                assignee: vec![],
+                relationships: Default::default(),
+                lease: None,
+                project: None,
+                initiative: None,
+                created_date: None,
+                updated_date: None,
+                extra: HashMap::new(),
+                file_path: None,
+                body: String::new(),
+            },
+            Task {
+                id: "task-002".to_string(),
+                uid: None,
+                kind: "task".to_string(),
+                title: "high".to_string(),
+                status: "To Do".to_string(),
+                priority: "P1".to_string(),
+                phase: "Phase2".to_string(),
+                dependencies: vec![],
+                labels: vec![],
+                assignee: vec![],
+                relationships: Default::default(),
+                lease: None,
+                project: None,
+                initiative: None,
+                created_date: None,
+                updated_date: None,
+                extra: HashMap::new(),
+                file_path: None,
+                body: String::new(),
+            },
+            Task {
+                id: "task-001".to_string(),
+                uid: None,
+                kind: "task".to_string(),
+                title: "high-other-phase".to_string(),
+                status: "To Do".to_string(),
+                priority: "P1".to_string(),
+                phase: "Phase1".to_string(),
+                dependencies: vec![],
+                labels: vec![],
+                assignee: vec![],
+                relationships: Default::default(),
+                lease: None,
+                project: None,
+                initiative: None,
+                created_date: None,
+                updated_date: None,
+                extra: HashMap::new(),
+                file_path: None,
+                body: String::new(),
+            },
+        ];
+        let ordered = recommend_next_tasks(&tasks);
+        assert_eq!(ordered[0].id, "task-001"); // P1 + Phase1 wins
+        assert_eq!(ordered[1].id, "task-002"); // P1 + Phase2
+        assert_eq!(ordered[2].id, "task-050"); // P3
     }
 
     #[test]
