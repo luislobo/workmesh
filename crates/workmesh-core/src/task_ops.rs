@@ -7,6 +7,7 @@ use regex::Regex;
 use serde::Serialize;
 use ulid::Ulid;
 
+use crate::focus::FocusState;
 use crate::project::{project_docs_dir, repo_root_from_backlog};
 use crate::task::{split_front_matter, Task, TaskParseError};
 
@@ -500,6 +501,13 @@ pub fn ready_tasks<'a>(tasks: &'a [Task]) -> Vec<&'a Task> {
 }
 
 pub fn recommend_next_tasks<'a>(tasks: &'a [Task]) -> Vec<&'a Task> {
+    recommend_next_tasks_with_focus(tasks, None)
+}
+
+pub fn recommend_next_tasks_with_focus<'a>(
+    tasks: &'a [Task],
+    focus: Option<&FocusState>,
+) -> Vec<&'a Task> {
     let done_ids: HashSet<String> = tasks
         .iter()
         .filter(|task| is_done(task))
@@ -510,9 +518,62 @@ pub fn recommend_next_tasks<'a>(tasks: &'a [Task]) -> Vec<&'a Task> {
         .filter(|task| task.status.eq_ignore_ascii_case("to do"))
         .filter(|task| blockers_satisfied(task, &done_ids))
         .collect();
-    // Deterministic ordering for agents. We bias toward urgency, but keep it predictable.
+
+    let focus_working_set: HashSet<String> = focus
+        .map(|f| {
+            f.working_set
+                .iter()
+                .map(|id| id.to_lowercase())
+                .collect::<HashSet<_>>()
+        })
+        .unwrap_or_default();
+    let focus_epic_id = focus.and_then(|f| f.epic_id.as_ref()).map(|s| s.to_lowercase());
+    let focus_project_id = focus
+        .and_then(|f| f.project_id.as_ref())
+        .map(|s| s.to_lowercase());
+
+    fn focus_bucket(
+        task: &Task,
+        working_set: &HashSet<String>,
+        epic_id: Option<&String>,
+        project_id: Option<&String>,
+    ) -> i32 {
+        let id_lc = task.id.to_lowercase();
+        if working_set.contains(&id_lc) {
+            return 0;
+        }
+        if let Some(epic_id) = epic_id {
+            if task
+                .relationships
+                .parent
+                .iter()
+                .any(|p| p.to_lowercase() == *epic_id)
+            {
+                return 1;
+            }
+        }
+        if let Some(project_id) = project_id {
+            if task
+                .project
+                .as_ref()
+                .map(|p| p.to_lowercase() == *project_id)
+                .unwrap_or(false)
+            {
+                return 2;
+            }
+        }
+        3
+    }
+
+    // Deterministic ordering for agents, but biased toward "current focus".
     ready.sort_by_key(|task| {
         (
+            focus_bucket(
+                task,
+                &focus_working_set,
+                focus_epic_id.as_ref(),
+                focus_project_id.as_ref(),
+            ),
             priority_rank(&task.priority),
             task.phase.to_lowercase(),
             task.id_num(),
@@ -1948,6 +2009,64 @@ mod tests {
         assert_eq!(ordered[0].id, "task-001"); // P1 + Phase1 wins
         assert_eq!(ordered[1].id, "task-002"); // P1 + Phase2
         assert_eq!(ordered[2].id, "task-050"); // P3
+    }
+
+    #[test]
+    fn recommend_next_tasks_with_focus_prefers_working_set_over_priority() {
+        let tasks = vec![
+            Task {
+                id: "task-001".to_string(),
+                uid: None,
+                kind: "task".to_string(),
+                title: "high".to_string(),
+                status: "To Do".to_string(),
+                priority: "P1".to_string(),
+                phase: "Phase1".to_string(),
+                dependencies: vec![],
+                labels: vec![],
+                assignee: vec![],
+                relationships: Default::default(),
+                lease: None,
+                project: None,
+                initiative: None,
+                created_date: None,
+                updated_date: None,
+                extra: HashMap::new(),
+                file_path: None,
+                body: String::new(),
+            },
+            Task {
+                id: "task-010".to_string(),
+                uid: None,
+                kind: "task".to_string(),
+                title: "low".to_string(),
+                status: "To Do".to_string(),
+                priority: "P3".to_string(),
+                phase: "Phase1".to_string(),
+                dependencies: vec![],
+                labels: vec![],
+                assignee: vec![],
+                relationships: Default::default(),
+                lease: None,
+                project: None,
+                initiative: None,
+                created_date: None,
+                updated_date: None,
+                extra: HashMap::new(),
+                file_path: None,
+                body: String::new(),
+            },
+        ];
+        let focus = FocusState {
+            project_id: None,
+            epic_id: None,
+            objective: None,
+            working_set: vec!["task-010".to_string()],
+            updated_at: None,
+        };
+        let ordered = recommend_next_tasks_with_focus(&tasks, Some(&focus));
+        assert_eq!(ordered[0].id, "task-010");
+        assert_eq!(ordered[1].id, "task-001");
     }
 
     #[test]

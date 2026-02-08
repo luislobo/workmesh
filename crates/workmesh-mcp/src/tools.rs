@@ -43,11 +43,11 @@ use workmesh_core::session::{
 };
 use workmesh_core::task::{load_tasks, load_tasks_with_archive, Lease, Task};
 use workmesh_core::task_ops::{
-    append_note, create_task_file, filter_tasks, graph_export, is_lease_active, next_task,
-    now_timestamp, ready_tasks, recommend_next_tasks, render_task_line, replace_section,
-    set_list_field, sort_tasks, status_counts, task_to_json_value, tasks_to_jsonl,
-    timestamp_plus_minutes, update_body, update_lease_fields, update_task_field,
-    update_task_field_or_section, validate_tasks, FieldValue,
+    append_note, create_task_file, filter_tasks, graph_export, is_lease_active, now_timestamp,
+    ready_tasks, recommend_next_tasks_with_focus, render_task_line, replace_section, set_list_field,
+    sort_tasks, status_counts, task_to_json_value, tasks_to_jsonl, timestamp_plus_minutes,
+    update_body, update_lease_fields, update_task_field, update_task_field_or_section,
+    validate_tasks, FieldValue,
 };
 
 const ROOT_REQUIRED_ERROR: &str = "root is required for MCP calls unless the server is started within a repo containing tasks/ or backlog/tasks";
@@ -1393,14 +1393,16 @@ impl NextTaskTool {
             Err(err) => return ok_json(err),
         };
         let tasks = load_tasks(&backlog_dir);
-        let task = next_task(&tasks);
-        let Some(task) = task else {
+        let focus =
+            load_focus(&backlog_dir).map_err(|err| CallToolError::from_message(err.to_string()))?;
+        let recommended = recommend_next_tasks_with_focus(&tasks, focus.as_ref());
+        let Some(task) = recommended.first() else {
             return ok_json(serde_json::json!({"error": "No ready tasks"}));
         };
         if self.format == "text" {
-            return ok_text(render_task_line(&task));
+            return ok_text(render_task_line(task));
         }
-        ok_json(task_to_json_value(&task, false))
+        ok_json(task_to_json_value(task, false))
     }
 }
 
@@ -1411,7 +1413,9 @@ impl NextTasksTool {
             Err(err) => return ok_json(err),
         };
         let tasks = load_tasks(&backlog_dir);
-        let mut next_tasks = recommend_next_tasks(&tasks);
+        let focus =
+            load_focus(&backlog_dir).map_err(|err| CallToolError::from_message(err.to_string()))?;
+        let mut next_tasks = recommend_next_tasks_with_focus(&tasks, focus.as_ref());
         if next_tasks.is_empty() {
             return ok_json(serde_json::json!({"error": "No ready tasks"}));
         }
@@ -3649,6 +3653,17 @@ Body\n",
         write_task_with_meta(&tasks_dir, "task-010", "Low", "To Do", "P3", "Phase2");
         write_task_with_meta(&tasks_dir, "task-002", "High", "To Do", "P1", "Phase2");
         write_task_with_meta(&tasks_dir, "task-001", "HighPhase1", "To Do", "P1", "Phase1");
+        // Focus: working set should win even if the task is otherwise lower priority.
+        let focus_path = temp.path().join("workmesh").join("focus.json");
+        let focus = FocusState {
+            project_id: None,
+            epic_id: None,
+            objective: None,
+            working_set: vec!["task-010".to_string()],
+            updated_at: None,
+        };
+        std::fs::write(&focus_path, serde_json::to_string_pretty(&focus).expect("focus json"))
+            .expect("write focus");
 
         let result = NextTasksTool {
             root: Some(root_arg),
@@ -3666,9 +3681,9 @@ Body\n",
             .iter()
             .filter_map(|v| v.get("id").and_then(|x| x.as_str()).map(|s| s.to_string()))
             .collect();
-        assert_eq!(ids[0], "task-001");
-        assert_eq!(ids[1], "task-002");
-        assert_eq!(ids[2], "task-010");
+        assert_eq!(ids[0], "task-010");
+        assert_eq!(ids[1], "task-001");
+        assert_eq!(ids[2], "task-002");
     }
 
     #[test]

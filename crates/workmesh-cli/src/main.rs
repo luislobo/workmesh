@@ -42,11 +42,11 @@ use workmesh_core::skills::{
 };
 use workmesh_core::task::{load_tasks, load_tasks_with_archive, Lease, Task};
 use workmesh_core::task_ops::{
-    append_note, create_task_file, filter_tasks, graph_export, is_lease_active, next_task,
-    now_timestamp, ready_tasks, render_task_line, replace_section, set_list_field, sort_tasks,
-    status_counts, task_to_json_value, tasks_to_json, tasks_to_jsonl, timestamp_plus_minutes,
-    update_body, update_lease_fields, update_task_field, update_task_field_or_section,
-    validate_tasks, FieldValue,
+    append_note, create_task_file, filter_tasks, graph_export, is_lease_active, now_timestamp,
+    ready_tasks, recommend_next_tasks_with_focus, render_task_line, replace_section, set_list_field,
+    sort_tasks, status_counts, task_to_json_value, tasks_to_json, tasks_to_jsonl,
+    timestamp_plus_minutes, update_body, update_lease_fields, update_task_field,
+    update_task_field_or_section, validate_tasks, FieldValue,
 };
 
 #[derive(Parser)]
@@ -1225,7 +1225,9 @@ fn main() -> Result<()> {
             }
         }
         Command::Next { json } => {
-            let task = next_task(&tasks);
+            let focus = load_focus(&backlog_dir).ok().flatten();
+            let recommended = recommend_next_tasks_with_focus(&tasks, focus.as_ref());
+            let task = recommended.first().map(|t| (*t).clone());
             if json {
                 if let Some(task) = task {
                     let value = task_to_json_value(&task, false);
