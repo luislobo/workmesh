@@ -221,7 +221,35 @@ fn home_dir() -> Option<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::{Mutex, OnceLock};
     use tempfile::TempDir;
+
+    static ENV_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+
+    fn with_env_lock<T>(f: impl FnOnce() -> T) -> T {
+        let lock = ENV_LOCK.get_or_init(|| Mutex::new(()));
+        let _guard = lock.lock().expect("env lock");
+        f()
+    }
+
+    fn with_home<T>(home: &Path, f: impl FnOnce() -> T) -> T {
+        with_env_lock(|| {
+            let old_home = std::env::var("HOME").ok();
+            let old_profile = std::env::var("USERPROFILE").ok();
+            std::env::set_var("HOME", home);
+            std::env::remove_var("USERPROFILE");
+            let out = f();
+            match old_home {
+                Some(v) => std::env::set_var("HOME", v),
+                None => std::env::remove_var("HOME"),
+            }
+            match old_profile {
+                Some(v) => std::env::set_var("USERPROFILE", v),
+                None => std::env::remove_var("USERPROFILE"),
+            }
+            out
+        })
+    }
 
     #[test]
     fn embedded_skill_is_available() {
@@ -255,19 +283,18 @@ mod tests {
     #[test]
     fn install_embedded_writes_to_user_dirs() {
         let temp = TempDir::new().expect("tempdir");
-        std::env::set_var("HOME", temp.path());
-        std::env::remove_var("USERPROFILE");
-
-        let written =
-            install_embedded_skill(None, SkillScope::User, SkillAgent::Codex, "workmesh", true)
-                .expect("install");
-        assert_eq!(written.len(), 1);
-        let suffix = Path::new(".codex")
-            .join("skills")
-            .join("workmesh")
-            .join("SKILL.md");
-        assert!(written[0].ends_with(&suffix));
-        assert!(fs::read_to_string(&written[0]).unwrap().contains("# WorkMesh skill"));
+        with_home(temp.path(), || {
+            let written =
+                install_embedded_skill(None, SkillScope::User, SkillAgent::Codex, "workmesh", true)
+                    .expect("install");
+            assert_eq!(written.len(), 1);
+            let suffix = Path::new(".codex")
+                .join("skills")
+                .join("workmesh")
+                .join("SKILL.md");
+            assert!(written[0].ends_with(&suffix));
+            assert!(fs::read_to_string(&written[0]).unwrap().contains("# WorkMesh skill"));
+        });
     }
 
     #[test]
@@ -284,20 +311,104 @@ mod tests {
     #[test]
     fn install_global_auto_writes_only_to_detected_agents() {
         let temp = TempDir::new().expect("tempdir");
-        std::env::set_var("HOME", temp.path());
-        std::env::remove_var("USERPROFILE");
+        with_home(temp.path(), || {
+            // Detect only Codex.
+            fs::create_dir_all(temp.path().join(".codex")).expect("codex dir");
 
-        // Detect only Codex.
-        fs::create_dir_all(temp.path().join(".codex")).expect("codex dir");
+            let written = install_embedded_skill_global_auto("workmesh", true).expect("install");
+            assert_eq!(written.len(), 1);
+            let suffix = Path::new(".codex")
+                .join("skills")
+                .join("workmesh")
+                .join("SKILL.md");
+            assert!(written[0].ends_with(&suffix));
+            assert!(!temp.path().join(".claude").exists());
+            assert!(!temp.path().join(".cursor").exists());
+        });
+    }
 
-        let written = install_embedded_skill_global_auto("workmesh", true).expect("install");
-        assert_eq!(written.len(), 1);
-        let suffix = Path::new(".codex")
-            .join("skills")
-            .join("workmesh")
-            .join("SKILL.md");
-        assert!(written[0].ends_with(&suffix));
-        assert!(!temp.path().join(".claude").exists());
-        assert!(!temp.path().join(".cursor").exists());
+    #[test]
+    fn load_skill_content_returns_none_when_name_is_blank() {
+        assert_eq!(load_skill_content(None, ""), None);
+        assert_eq!(load_skill_content(None, "   \n\t"), None);
+    }
+
+    #[test]
+    fn load_skill_content_falls_back_to_embedded_when_disk_missing() {
+        let temp = TempDir::new().expect("tempdir");
+        let repo = temp.path();
+        let skill = load_skill_content(Some(repo), "workmesh").expect("skill");
+        assert!(matches!(skill.source, SkillSource::Embedded { .. }));
+    }
+
+    #[test]
+    fn embedded_skill_lookup_is_case_insensitive() {
+        let skill = load_skill_content(None, "WORKMESH").expect("skill");
+        assert!(matches!(skill.source, SkillSource::Embedded { .. }));
+    }
+
+    #[test]
+    fn install_embedded_skill_errors_for_unknown_skill() {
+        let err = install_embedded_skill(None, SkillScope::User, SkillAgent::Codex, "nope", true)
+            .unwrap_err();
+        assert!(format!("{err:#}").contains("No embedded skill"));
+    }
+
+    #[test]
+    fn install_embedded_skill_project_scope_requires_repo_root() {
+        let err = install_embedded_skill(None, SkillScope::Project, SkillAgent::Codex, "workmesh", true)
+            .unwrap_err();
+        assert!(format!("{err:#}").contains("Project scope requires a repo root"));
+    }
+
+    #[test]
+    fn install_embedded_skill_force_false_skips_existing_file() {
+        let temp = TempDir::new().expect("tempdir");
+        with_home(temp.path(), || {
+            // First write (force=true), then ensure the second pass (force=false) doesn't overwrite.
+            let written1 =
+                install_embedded_skill(None, SkillScope::User, SkillAgent::Codex, "workmesh", true)
+                    .expect("install 1");
+            assert_eq!(written1.len(), 1);
+            let path = &written1[0];
+            fs::write(path, "do not overwrite").expect("overwrite with sentinel");
+
+            let written2 =
+                install_embedded_skill(None, SkillScope::User, SkillAgent::Codex, "workmesh", false)
+                    .expect("install 2");
+            assert!(written2.is_empty());
+            assert_eq!(fs::read_to_string(path).expect("read"), "do not overwrite");
+        });
+    }
+
+    #[test]
+    fn install_global_auto_errors_when_no_agents_detected() {
+        let temp = TempDir::new().expect("tempdir");
+        with_home(temp.path(), || {
+            let err = install_embedded_skill_global_auto("workmesh", true).unwrap_err();
+            assert!(format!("{err:#}").contains("No agents detected"));
+        });
+    }
+
+    #[test]
+    fn detect_user_agents_errors_when_home_is_unset() {
+        with_env_lock(|| {
+            let old_home = std::env::var("HOME").ok();
+            let old_profile = std::env::var("USERPROFILE").ok();
+            std::env::remove_var("HOME");
+            std::env::remove_var("USERPROFILE");
+
+            let err = detect_user_agents().unwrap_err();
+            assert!(format!("{err:#}").contains("Unable to resolve home dir"));
+
+            match old_home {
+                Some(v) => std::env::set_var("HOME", v),
+                None => std::env::remove_var("HOME"),
+            }
+            match old_profile {
+                Some(v) => std::env::set_var("USERPROFILE", v),
+                None => std::env::remove_var("USERPROFILE"),
+            }
+        });
     }
 }
