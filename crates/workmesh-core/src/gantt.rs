@@ -42,7 +42,7 @@ fn status_color_map() -> HashMap<&'static str, &'static str> {
 
 #[derive(Debug, Error)]
 pub enum PlantumlRenderError {
-    #[error("PlantUML not found. Set XH_TASKS_PLANTUML_CMD or XH_TASKS_PLANTUML_JAR, or install the plantuml CLI.")]
+    #[error("PlantUML not found. Set WORKMESH_PLANTUML_CMD or WORKMESH_PLANTUML_JAR, or install the plantuml CLI.")]
     MissingPlantuml,
     #[error("PlantUML render failed: {0}")]
     RenderFailed(String),
@@ -196,7 +196,7 @@ fn resolve_plantuml_command(
 
     let env_map = env_map.cloned().unwrap_or_else(|| env::vars().collect());
     if let Some(env_cmd) = env_map
-        .get("XH_TASKS_PLANTUML_CMD")
+        .get("WORKMESH_PLANTUML_CMD")
         .or_else(|| env_map.get("PLANTUML_CMD"))
     {
         let parts =
@@ -205,7 +205,7 @@ fn resolve_plantuml_command(
     }
 
     let jar_env = env_map
-        .get("XH_TASKS_PLANTUML_JAR")
+        .get("WORKMESH_PLANTUML_JAR")
         .or_else(|| env_map.get("PLANTUML_JAR"))
         .cloned();
     if let Some(jar) = jar_path
@@ -512,7 +512,10 @@ mod tests {
     #[test]
     fn resolve_plantuml_command_prefers_explicit_env_cmd() {
         let mut env_map: HashMap<String, String> = HashMap::new();
-        env_map.insert("XH_TASKS_PLANTUML_CMD".to_string(), "plantuml -pipe".to_string());
+        env_map.insert(
+            "WORKMESH_PLANTUML_CMD".to_string(),
+            "plantuml -pipe".to_string(),
+        );
         let resolved = resolve_plantuml_command(None, None, Some(&env_map)).expect("resolve");
         assert_eq!(resolved[0], "plantuml");
         assert!(resolved.iter().any(|a| a == "-pipe"));
