@@ -597,10 +597,17 @@ pub fn recommend_next_tasks_with_focus<'a>(
         .filter(|task| is_done(task))
         .map(|task| task.id.to_lowercase())
         .collect();
-    let mut ready: Vec<&Task> = tasks
+    // "Next work" is not only "ready To Do".
+    //
+    // In practice, agents need to continue active work (In Progress / leased) within the current
+    // focus before they pick up unrelated ready tasks.
+    let mut candidates: Vec<&Task> = tasks
         .iter()
-        .filter(|task| task.status.eq_ignore_ascii_case("to do"))
-        .filter(|task| blockers_satisfied(task, &done_ids))
+        .filter(|task| {
+            task.status.eq_ignore_ascii_case("in progress")
+                || is_lease_active(task)
+                || (task.status.eq_ignore_ascii_case("to do") && blockers_satisfied(task, &done_ids))
+        })
         .collect();
 
     let focus_working_set: HashSet<String> = focus
@@ -650,7 +657,17 @@ pub fn recommend_next_tasks_with_focus<'a>(
     }
 
     // Deterministic ordering for agents, but biased toward "current focus".
-    ready.sort_by_key(|task| {
+    fn status_bucket(task: &Task) -> i32 {
+        if is_lease_active(task) || task.status.eq_ignore_ascii_case("in progress") {
+            return 0;
+        }
+        if task.status.eq_ignore_ascii_case("to do") {
+            return 1;
+        }
+        2
+    }
+
+    candidates.sort_by_key(|task| {
         (
             focus_bucket(
                 task,
@@ -658,12 +675,13 @@ pub fn recommend_next_tasks_with_focus<'a>(
                 focus_epic_id.as_ref(),
                 focus_project_id.as_ref(),
             ),
+            status_bucket(task),
             priority_rank(&task.priority),
             task.phase.to_lowercase(),
             task.id_num(),
         )
     });
-    ready
+    candidates
 }
 
 pub fn is_lease_active(task: &Task) -> bool {
@@ -2151,6 +2169,64 @@ mod tests {
         let ordered = recommend_next_tasks_with_focus(&tasks, Some(&focus));
         assert_eq!(ordered[0].id, "task-010");
         assert_eq!(ordered[1].id, "task-001");
+    }
+
+    #[test]
+    fn recommend_next_tasks_with_focus_returns_active_work_in_working_set_first() {
+        let tasks = vec![
+            Task {
+                id: "task-013".to_string(),
+                uid: None,
+                kind: "task".to_string(),
+                title: "unrelated-ready".to_string(),
+                status: "To Do".to_string(),
+                priority: "P1".to_string(),
+                phase: "Phase1".to_string(),
+                dependencies: vec![],
+                labels: vec![],
+                assignee: vec![],
+                relationships: Default::default(),
+                lease: None,
+                project: None,
+                initiative: None,
+                created_date: None,
+                updated_date: None,
+                extra: HashMap::new(),
+                file_path: None,
+                body: String::new(),
+            },
+            Task {
+                id: "task-031".to_string(),
+                uid: None,
+                kind: "task".to_string(),
+                title: "focused-active".to_string(),
+                status: "In Progress".to_string(),
+                priority: "P3".to_string(),
+                phase: "Phase1".to_string(),
+                dependencies: vec![],
+                labels: vec![],
+                assignee: vec![],
+                relationships: Default::default(),
+                lease: None,
+                project: None,
+                initiative: None,
+                created_date: None,
+                updated_date: None,
+                extra: HashMap::new(),
+                file_path: None,
+                body: String::new(),
+            },
+        ];
+        let focus = FocusState {
+            project_id: None,
+            epic_id: None,
+            objective: None,
+            working_set: vec!["task-031".to_string()],
+            updated_at: None,
+        };
+        let ordered = recommend_next_tasks_with_focus(&tasks, Some(&focus));
+        assert_eq!(ordered[0].id, "task-031");
+        assert_eq!(ordered[1].id, "task-013");
     }
 
     #[test]

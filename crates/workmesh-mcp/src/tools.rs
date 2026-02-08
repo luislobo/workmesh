@@ -234,8 +234,8 @@ fn tool_catalog() -> Vec<serde_json::Value> {
         serde_json::json!({"name": "focus_clear", "summary": "Clear repo-local focus."}),
         serde_json::json!({"name": "list_tasks", "summary": "List tasks with filters and sorting."}),
         serde_json::json!({"name": "show_task", "summary": "Show a single task by id."}),
-        serde_json::json!({"name": "next_task", "summary": "Get the next ready task (lowest id, deps satisfied)."}),
-        serde_json::json!({"name": "next_tasks", "summary": "Get a deterministic list of next-task candidates (focus-aware)."}),
+        serde_json::json!({"name": "next_task", "summary": "Get the next focus-relevant task (active/leased first, else next ready To Do)."}),
+        serde_json::json!({"name": "next_tasks", "summary": "Get a deterministic list of next-task candidates (includes active work; focus-aware)."}),
         serde_json::json!({"name": "ready_tasks", "summary": "List tasks with deps satisfied (ready work)."}),
         serde_json::json!({"name": "export_tasks", "summary": "Export all tasks as JSON."}),
         serde_json::json!({"name": "set_status", "summary": "Update task status."}),
@@ -366,7 +366,10 @@ pub struct ShowTaskTool {
     pub include_body: bool,
 }
 
-#[mcp_tool(name = "next_task", description = "Return the next ready task.")]
+#[mcp_tool(
+    name = "next_task",
+    description = "Return the next focus-relevant task (active/leased first, else next ready To Do)."
+)]
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct NextTaskTool {
     pub root: Option<String>,
@@ -376,7 +379,7 @@ pub struct NextTaskTool {
 
 #[mcp_tool(
     name = "next_tasks",
-    description = "Recommend next tasks (ready work), ordered by priority then phase then id. Use this when an agent should choose among candidates."
+    description = "Recommend next work items (active/leased first, then ready To Do), ordered deterministically and biased by focus. Use this when an agent should choose among candidates."
 )]
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct NextTasksTool {

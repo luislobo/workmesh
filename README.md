@@ -189,7 +189,8 @@ Integration points:
 - `session save` captures `epic_id` from `focus` (or best-effort from git branch like `task-123`).
 - `session resume` prints a resume script that includes `focus show` as the first step.
 - `next` (CLI) and `next_task` / `next_tasks` (MCP) are focus-aware. If `focus.working_set` contains task ids,
-  those tasks are recommended first.
+  those tasks are recommended first. Active work (`In Progress` / leased) in the working set is prioritized
+  before unrelated ready `To Do` tasks.
 
 Auto-updates (DX):
 - When focus exists, mutating commands keep `focus.working_set` in sync:

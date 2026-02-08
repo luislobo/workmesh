@@ -124,7 +124,7 @@
       "integration": [
         "session save captures epic_id from focus (fallback: parse task-123 from git branch).",
         "session resume resume-script includes focus show.",
-        "next/next_task/next_tasks are focus-aware: focus.working_set tasks are recommended first."
+        "next/next_task/next_tasks are focus-aware: focus.working_set tasks are recommended first; active work (In Progress / leased) in the working set is prioritized before unrelated ready To Do tasks."
       ]
     },
     "index": {
