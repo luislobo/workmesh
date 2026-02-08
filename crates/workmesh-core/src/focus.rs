@@ -51,6 +51,81 @@ pub fn clear_focus(backlog_dir: &Path) -> Result<bool> {
     Ok(true)
 }
 
+fn normalize_task_id(task_id: &str) -> String {
+    task_id.trim().to_lowercase()
+}
+
+fn dedup_preserve_order(values: &mut Vec<String>) {
+    let mut seen = std::collections::HashSet::new();
+    values.retain(|v| {
+        let k = v.to_lowercase();
+        if seen.contains(&k) {
+            return false;
+        }
+        seen.insert(k);
+        true
+    });
+}
+
+/// Update focus.working_set based on a task mutation.
+///
+/// Rules (conservative, deterministic):
+/// - If no focus is set, do nothing.
+/// - If status becomes "In Progress", add task id.
+/// - If status becomes "Done" or "To Do", remove task id.
+/// - If a lease is active (owner non-empty), add task id.
+/// - Otherwise, leave working_set unchanged.
+///
+/// Returns true if focus.json was modified.
+pub fn update_focus_for_task_mutation(
+    backlog_dir: &Path,
+    task_id: &str,
+    new_status: Option<&str>,
+    lease_owner: Option<&str>,
+) -> Result<bool> {
+    let Some(mut focus) = load_focus(backlog_dir)? else {
+        return Ok(false);
+    };
+    let id_norm = normalize_task_id(task_id);
+    let mut changed = false;
+
+    let status_lc = new_status.map(|s| s.trim().to_lowercase());
+    let lease_active = lease_owner
+        .map(|o| !o.trim().is_empty())
+        .unwrap_or(false);
+
+    let mut has_id = focus
+        .working_set
+        .iter()
+        .any(|id| id.to_lowercase() == id_norm);
+
+    if status_lc.as_deref() == Some("in progress") {
+        if !has_id {
+            focus.working_set.push(task_id.trim().to_string());
+            has_id = true;
+            changed = true;
+        }
+    } else if status_lc.as_deref() == Some("done") || status_lc.as_deref() == Some("to do") {
+        let before = focus.working_set.len();
+        focus.working_set.retain(|id| id.to_lowercase() != id_norm);
+        if focus.working_set.len() != before {
+            has_id = false;
+            changed = true;
+        }
+    }
+
+    if lease_active && !has_id {
+        focus.working_set.push(task_id.trim().to_string());
+        changed = true;
+    }
+
+    if changed {
+        dedup_preserve_order(&mut focus.working_set);
+        save_focus(backlog_dir, focus)?;
+    }
+    Ok(changed)
+}
+
 pub fn now_rfc3339() -> String {
     let now: DateTime<Utc> = Utc::now();
     now.to_rfc3339()
@@ -97,4 +172,61 @@ pub fn extract_task_id_from_branch(branch: &str) -> Option<String> {
         i += 1;
     }
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::TempDir;
+
+    #[test]
+    fn update_focus_adds_on_in_progress_and_removes_on_done_and_dedups() {
+        let temp = TempDir::new().expect("tempdir");
+        let backlog_dir = temp.path();
+        let focus = FocusState {
+            project_id: None,
+            epic_id: None,
+            objective: None,
+            working_set: vec!["task-001".to_string(), "TASK-001".to_string()],
+            updated_at: None,
+        };
+        save_focus(backlog_dir, focus).expect("save");
+
+        // In Progress should add if missing.
+        update_focus_for_task_mutation(backlog_dir, "task-002", Some("In Progress"), None)
+            .expect("update");
+        let focus = load_focus(backlog_dir).expect("load").expect("present");
+        assert!(focus.working_set.iter().any(|id| id == "task-002"));
+        // Dedupe should have removed duplicates (case-insensitive).
+        assert_eq!(
+            focus.working_set
+                .iter()
+                .filter(|id| id.to_lowercase() == "task-001")
+                .count(),
+            1
+        );
+
+        // Done should remove.
+        update_focus_for_task_mutation(backlog_dir, "task-002", Some("Done"), None).expect("rm");
+        let focus = load_focus(backlog_dir).expect("load").expect("present");
+        assert!(!focus.working_set.iter().any(|id| id.to_lowercase() == "task-002"));
+    }
+
+    #[test]
+    fn update_focus_adds_on_active_lease() {
+        let temp = TempDir::new().expect("tempdir");
+        let backlog_dir = temp.path();
+        let focus = FocusState {
+            project_id: None,
+            epic_id: None,
+            objective: None,
+            working_set: vec![],
+            updated_at: None,
+        };
+        save_focus(backlog_dir, focus).expect("save");
+
+        update_focus_for_task_mutation(backlog_dir, "task-123", None, Some("me")).expect("add");
+        let focus = load_focus(backlog_dir).expect("load").expect("present");
+        assert_eq!(focus.working_set, vec!["task-123".to_string()]);
+    }
 }
