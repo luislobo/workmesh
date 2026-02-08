@@ -208,6 +208,30 @@ assignee: []
 - Start here
 ```
 
+## Initiative-slug task IDs (avoid collisions across branches)
+By default, WorkMesh generates task IDs in a namespaced form:
+- `task-<initiative>-NNN` (example: `task-login-001`)
+
+The `<initiative>` slug is derived from your current git branch name and then frozen in `.workmesh.toml`
+so multiple agents/terminals in the same repo avoid reusing the same initiative slug.
+
+Details:
+- Branch name to slug: `feature/login-ui` becomes `login-ui` (best-effort slugify, uses last path segment).
+- Freeze mapping: `.workmesh.toml` stores `branch_initiatives.{branch} = "<initiative>"`.
+- Collision avoidance: if a desired slug is already used by another branch, WorkMesh appends `-2`, `-3`, ...
+  (example: `login` then `login-2`).
+- Override (non-git / tests): set `WORKMESH_BRANCH=feature/login` to make the behavior deterministic.
+- Manual override: pass `--id` to `add`/`add-discovered` if you want an explicit id.
+
+If you merge branches and end up with duplicate task IDs, use:
+```bash
+# dry-run (default)
+workmesh --root . fix-ids
+
+# apply changes (renames the duplicate tasks)
+workmesh --root . fix-ids --apply
+```
+
 Note on collisions:
 - `uid` is the true unique identity (ULID) and is required on new tasks.
 - Filenames include a short UID suffix so merges stay clean even if two branches create the same `task-###`.

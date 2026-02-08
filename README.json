@@ -76,6 +76,19 @@
       "fields": ["id", "uid", "title", "kind", "status", "priority", "phase", "dependencies", "labels", "assignee"],
       "note": "Dependencies are optional, but recommended when a task is blocked."
     },
+    "task_ids": {
+      "default_format": "task-<initiative>-NNN",
+      "examples": ["task-login-001", "task-billing-014"],
+      "initiative_source": "Derived from git branch name (last path segment, slugified), then frozen in .workmesh.toml",
+      "config_fields": ["branch_initiatives", "initiatives"],
+      "collision_behavior": "If the desired initiative slug is already used, WorkMesh appends -2, -3, ...",
+      "override_env": "WORKMESH_BRANCH",
+      "repair": {
+        "purpose": "After merges, detect and rekey duplicate task ids.",
+        "cli": ["workmesh --root . fix-ids (dry-run)", "workmesh --root . fix-ids --apply"],
+        "mcp_tool": "fix_ids"
+      }
+    },
     "kind": {
       "note": "Jira-friendly. WorkMesh does not enforce a taxonomy; use any string.",
       "recommended": ["epic", "story", "task", "bug", "subtask", "incident", "spike"]
