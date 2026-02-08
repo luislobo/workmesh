@@ -385,6 +385,9 @@ Install from the embedded skill (recommended for release binaries):
 # user-level install for all supported agent folders
 workmesh --root . skill install --scope user --agent all --force
 
+# auto-detect installed agents under your home directory and install only for those
+workmesh --root . skill install-global --force
+
 # project-level install (writes into the repo)
 workmesh --root . skill install --scope project --agent all
 ```
