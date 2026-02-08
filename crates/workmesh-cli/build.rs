@@ -10,20 +10,19 @@ fn git(args: &[&str]) -> Option<String> {
 }
 
 fn rerun_if_changed(path: &str) {
-    // cargo:rerun-if-changed paths are interpreted relative to the crate manifest dir.
-    // Git paths are relative to the repo root, so we normalize them to absolute paths.
-    let Some(toplevel) = git(&["rev-parse", "--show-toplevel"]) else {
-        return;
-    };
     let p = std::path::Path::new(path);
-    if p.is_absolute() {
-        println!("cargo:rerun-if-changed={}", p.display());
+    // `git rev-parse --git-path <x>` returns a path relative to the *current working directory*,
+    // which for Cargo build scripts is typically the crate dir (not the repo root).
+    //
+    // Cargo expects rerun-if-changed paths relative to the crate dir as well, but we emit absolute
+    // paths to avoid any ambiguity.
+    let abs = if p.is_absolute() {
+        p.to_path_buf()
     } else {
-        println!(
-            "cargo:rerun-if-changed={}",
-            std::path::Path::new(&toplevel).join(p).display()
-        );
-    }
+        // If current_dir fails, fall back to the raw path (still works relative to the crate dir).
+        std::env::current_dir().map(|cwd| cwd.join(p)).unwrap_or_else(|_| p.to_path_buf())
+    };
+    println!("cargo:rerun-if-changed={}", abs.display());
 }
 
 fn main() {
