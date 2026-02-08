@@ -75,6 +75,90 @@ pub fn is_done(task: &Task) -> bool {
     task.status.trim().eq_ignore_ascii_case("done")
 }
 
+pub fn ensure_can_mark_done(tasks: &[Task], task: &Task) -> Result<(), String> {
+    if !task.kind.trim().eq_ignore_ascii_case("epic") {
+        return Ok(());
+    }
+    let epic_id = task.id.to_lowercase();
+    let mut refs: HashSet<String> = HashSet::new();
+
+    // Explicit deps/blockers.
+    for dep in &task.dependencies {
+        let id = dep.trim();
+        if !id.is_empty() {
+            refs.insert(id.to_lowercase());
+        }
+    }
+    for dep in &task.relationships.blocked_by {
+        let id = dep.trim();
+        if !id.is_empty() {
+            refs.insert(id.to_lowercase());
+        }
+    }
+
+    // Explicit child links from the epic file (optional).
+    for child in &task.relationships.child {
+        let id = child.trim();
+        if !id.is_empty() {
+            refs.insert(id.to_lowercase());
+        }
+    }
+
+    // Inferred children: any task that declares this epic as a parent.
+    for t in tasks {
+        if t.relationships
+            .parent
+            .iter()
+            .any(|p| p.to_lowercase() == epic_id)
+        {
+            refs.insert(t.id.to_lowercase());
+        }
+    }
+
+    // Epic should not block on itself if it appears in lists.
+    refs.remove(&epic_id);
+
+    if refs.is_empty() {
+        return Ok(());
+    }
+
+    let mut missing: Vec<String> = Vec::new();
+    let mut not_done: Vec<String> = Vec::new();
+    for id in refs {
+        let dep = tasks.iter().find(|t| t.id.to_lowercase() == id);
+        let Some(dep) = dep else {
+            missing.push(id);
+            continue;
+        };
+        if !is_done(dep) {
+            not_done.push(dep.id.clone());
+        }
+    }
+    missing.sort();
+    not_done.sort_by_key(|id| {
+        tasks
+            .iter()
+            .find(|t| t.id.eq_ignore_ascii_case(id))
+            .map(|t| t.id_num())
+            .unwrap_or(999_999)
+    });
+
+    if missing.is_empty() && not_done.is_empty() {
+        return Ok(());
+    }
+    let mut parts: Vec<String> = Vec::new();
+    if !not_done.is_empty() {
+        parts.push(format!("not done: {}", not_done.join(", ")));
+    }
+    if !missing.is_empty() {
+        parts.push(format!("missing refs: {}", missing.join(", ")));
+    }
+    Err(format!(
+        "Refusing to mark epic Done until blockers are resolved ({})",
+        parts.join("; ")
+    ))
+}
+
 pub fn deps_satisfied(task: &Task, done_ids: &HashSet<String>) -> bool {
     task.dependencies
         .iter()
@@ -2067,6 +2151,113 @@ mod tests {
         let ordered = recommend_next_tasks_with_focus(&tasks, Some(&focus));
         assert_eq!(ordered[0].id, "task-010");
         assert_eq!(ordered[1].id, "task-001");
+    }
+
+    #[test]
+    fn ensure_can_mark_done_blocks_epic_when_child_not_done() {
+        let epic = Task {
+            id: "task-main-100".to_string(),
+            uid: None,
+            kind: "epic".to_string(),
+            title: "Epic".to_string(),
+            status: "In Progress".to_string(),
+            priority: "P2".to_string(),
+            phase: "Phase1".to_string(),
+            dependencies: vec![],
+            labels: vec![],
+            assignee: vec![],
+            relationships: Default::default(),
+            lease: None,
+            project: None,
+            initiative: None,
+            created_date: None,
+            updated_date: None,
+            extra: HashMap::new(),
+            file_path: None,
+            body: String::new(),
+        };
+        let child = Task {
+            id: "task-main-101".to_string(),
+            uid: None,
+            kind: "task".to_string(),
+            title: "Child".to_string(),
+            status: "To Do".to_string(),
+            priority: "P2".to_string(),
+            phase: "Phase1".to_string(),
+            dependencies: vec![],
+            labels: vec![],
+            assignee: vec![],
+            relationships: crate::task::Relationships {
+                blocked_by: vec![],
+                parent: vec!["task-main-100".to_string()],
+                child: vec![],
+                discovered_from: vec![],
+            },
+            lease: None,
+            project: None,
+            initiative: None,
+            created_date: None,
+            updated_date: None,
+            extra: HashMap::new(),
+            file_path: None,
+            body: String::new(),
+        };
+        let tasks = vec![epic.clone(), child];
+        let err = ensure_can_mark_done(&tasks, &epic).expect_err("should block");
+        assert!(err.contains("not done"));
+    }
+
+    #[test]
+    fn ensure_can_mark_done_allows_epic_when_children_done() {
+        let epic = Task {
+            id: "task-main-200".to_string(),
+            uid: None,
+            kind: "epic".to_string(),
+            title: "Epic".to_string(),
+            status: "In Progress".to_string(),
+            priority: "P2".to_string(),
+            phase: "Phase1".to_string(),
+            dependencies: vec![],
+            labels: vec![],
+            assignee: vec![],
+            relationships: Default::default(),
+            lease: None,
+            project: None,
+            initiative: None,
+            created_date: None,
+            updated_date: None,
+            extra: HashMap::new(),
+            file_path: None,
+            body: String::new(),
+        };
+        let child = Task {
+            id: "task-main-201".to_string(),
+            uid: None,
+            kind: "task".to_string(),
+            title: "Child".to_string(),
+            status: "Done".to_string(),
+            priority: "P2".to_string(),
+            phase: "Phase1".to_string(),
+            dependencies: vec![],
+            labels: vec![],
+            assignee: vec![],
+            relationships: crate::task::Relationships {
+                blocked_by: vec![],
+                parent: vec!["task-main-200".to_string()],
+                child: vec![],
+                discovered_from: vec![],
+            },
+            lease: None,
+            project: None,
+            initiative: None,
+            created_date: None,
+            updated_date: None,
+            extra: HashMap::new(),
+            file_path: None,
+            body: String::new(),
+        };
+        let tasks = vec![epic.clone(), child];
+        ensure_can_mark_done(&tasks, &epic).expect("ok");
     }
 
     #[test]
