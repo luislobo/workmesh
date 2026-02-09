@@ -2,6 +2,11 @@
   "name": "WorkMesh",
   "tagline": "Docs-first, MCP-ready tasks and project continuity stored as plain text alongside your code.",
   "start_here": "docs/getting-started.md",
+  "docs": {
+    "index": "docs/README.md",
+    "getting_started": "docs/getting-started.md",
+    "commands_reference": "docs/reference/commands.md"
+  },
   "agent_readme": {
     "file": "README.json",
     "mcp_tool": "readme"

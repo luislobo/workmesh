@@ -10,6 +10,7 @@ AI-friendly format: see `README.json` (keep it in sync with this file).
 Agents can also fetch it via MCP: tool `readme`.
 
 Start here: `docs/getting-started.md`
+Command reference (CLI + MCP): `docs/reference/commands.md`
 
 ## Why WorkMesh
 - Keep planning artifacts close to code and in git.

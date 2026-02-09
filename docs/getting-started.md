@@ -176,3 +176,6 @@ Common issues:
 - Task not found: run `workmesh --root . list --all` (if you want archive included) and confirm task IDs.
 - "next task" feels wrong: check `focus show --json`, dependencies/leases, and run `workmesh --root . blockers`.
 - Want a quick visual snapshot: run `workmesh --root . board` or `workmesh --root . board --focus`.
+
+Next:
+- Full command reference (CLI + MCP): `docs/reference/commands.md`

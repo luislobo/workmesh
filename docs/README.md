@@ -6,6 +6,7 @@ Start here: `docs/getting-started.md`
 
 ## Structure
 - `docs/getting-started.md` - the guided path to install + quickstart + daily loop.
+- `docs/reference/commands.md` - CLI + MCP command reference (names, intent, examples).
 - `docs/projects/<project-id>/` - project-level docs.
   - `prds/` - product requirement documents.
   - `decisions/` - ADRs and decision logs.
