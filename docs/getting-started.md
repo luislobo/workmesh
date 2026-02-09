@@ -165,6 +165,17 @@ For agent-friendly docs:
 - `README.json` (kept in sync with `README.md`)
 - MCP tool: `readme` (returns the JSON version)
 
+## Parallel work (branches, worktrees, multiple terminals)
+If you work on multiple initiatives in parallel (multiple terminals/agents, multiple branches, or
+git worktrees), the minimal loop that keeps you sane is:
+
+1. Set focus in each workspace (repo-local): `workmesh --root . focus set ...`
+2. Claim before changing tasks: `workmesh --root . claim <task-id> <owner>`
+3. When context switching (reboot, OS switch, or "come back later"): `workmesh --root . session save --objective "..."`
+4. When returning: `workmesh --root . session resume` and then `focus show`
+
+This keeps "what we were doing" recorded on disk, so a fresh agent session can pick up reliably.
+
 ## Troubleshooting
 Start with:
 ```bash
