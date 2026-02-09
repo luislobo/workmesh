@@ -1,8 +1,11 @@
 # WorkMesh Docs
 
-All project documentation lives under `docs/`.
+These docs explain how to use WorkMesh, both as a human tool and as an agent-facing system.
+
+Start here: `docs/getting-started.md`
 
 ## Structure
+- `docs/getting-started.md` - the guided path to install + quickstart + daily loop.
 - `docs/projects/<project-id>/` - project-level docs.
   - `prds/` - product requirement documents.
   - `decisions/` - ADRs and decision logs.
@@ -11,4 +14,13 @@ All project documentation lives under `docs/`.
   - `events/` - normalized change events (append-only).
 - `docs/test-coverage.md` - how we measure and enforce test coverage.
 
-Tasks live in `workmesh/tasks/` (or `.workmesh/tasks/`) and should reference the relevant PRD.
+## Concepts
+- Tasks: `workmesh/tasks/` (or `.workmesh/tasks/`) Markdown files with front matter.
+- Focus: `workmesh/focus.json` (repo-local scope for humans + agents).
+- Sessions: cross-repo continuity and resume scripts.
+- Index: JSONL index under `workmesh/.index/` (derived, rebuildable).
+- Graph: relationships + dependencies export for analysis.
+
+## Reference
+- CLI: see `README.md` for the canonical command list and examples.
+- Agent docs: `README.json` (kept in sync with `README.md`) and MCP tool `readme`.

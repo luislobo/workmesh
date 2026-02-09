@@ -9,6 +9,8 @@ This repository contains the Rust implementation (CLI + core + MCP server).
 AI-friendly format: see `README.json` (keep it in sync with this file).
 Agents can also fetch it via MCP: tool `readme`.
 
+Start here: `docs/getting-started.md`
+
 ## Why WorkMesh
 - Keep planning artifacts close to code and in git.
 - Make dependencies explicit so "ready work" is queryable.
@@ -35,6 +37,8 @@ Related diagrams (kept close to the sections they document):
 Prerequisites:
 - None if you use prebuilt releases
 - Rust toolchain (stable) if you build from source
+
+Full guided install + quickstart: `docs/getting-started.md`
 
 ### Prebuilt binaries (recommended)
 Each release publishes archives named like:
