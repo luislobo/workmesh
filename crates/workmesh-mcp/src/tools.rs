@@ -19,6 +19,7 @@ use workmesh_core::audit::{append_audit_event, AuditEvent};
 use workmesh_core::backlog::{
     locate_backlog_dir, resolve_backlog, resolve_backlog_dir, BacklogError,
 };
+use workmesh_core::doctor::doctor_report;
 use workmesh_core::focus::{
     clear_focus, extract_task_id_from_branch, infer_project_id, load_focus, save_focus, FocusState,
     update_focus_for_task_mutation,
@@ -229,6 +230,7 @@ fn tool_catalog() -> Vec<serde_json::Value> {
     vec![
         serde_json::json!({"name": "version", "summary": "Return WorkMesh version information."}),
         serde_json::json!({"name": "readme", "summary": "Return README.json (agent-friendly repo docs)."}),
+        serde_json::json!({"name": "doctor", "summary": "Diagnostics report for repo layout, focus, index, skills, and versions."}),
         serde_json::json!({"name": "focus_show", "summary": "Show repo-local focus (project/epic/objective/working set)."}),
         serde_json::json!({"name": "focus_set", "summary": "Set repo-local focus (project/epic/objective/working set)."}),
         serde_json::json!({"name": "focus_clear", "summary": "Clear repo-local focus."}),
@@ -297,6 +299,17 @@ pub struct VersionTool {
 )]
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct ReadmeTool {
+    pub root: Option<String>,
+    #[serde(default = "default_format")]
+    pub format: String,
+}
+
+#[mcp_tool(
+    name = "doctor",
+    description = "Return a diagnostics report for repo layout, focus, index, skills, and versions."
+)]
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct DoctorTool {
     pub root: Option<String>,
     #[serde(default = "default_format")]
     pub format: String,
@@ -1054,6 +1067,7 @@ tool_box!(
     [
         VersionTool,
         ReadmeTool,
+        DoctorTool,
         FocusShowTool,
         FocusSetTool,
         FocusClearTool,
@@ -1144,6 +1158,7 @@ impl ServerHandler for WorkmeshServerHandler {
         match tool {
             WorkmeshTools::VersionTool(tool) => tool.call(&self.context),
             WorkmeshTools::ReadmeTool(tool) => tool.call(&self.context),
+            WorkmeshTools::DoctorTool(tool) => tool.call(&self.context),
             WorkmeshTools::FocusShowTool(tool) => tool.call(&self.context),
             WorkmeshTools::FocusSetTool(tool) => tool.call(&self.context),
             WorkmeshTools::FocusClearTool(tool) => tool.call(&self.context),
@@ -1251,6 +1266,19 @@ impl ReadmeTool {
             "path": path,
             "readme": parsed
         }))
+    }
+}
+
+impl DoctorTool {
+    fn call(&self, context: &McpContext) -> Result<CallToolResult, CallToolError> {
+        let repo_root = resolve_repo_root(context, self.root.as_deref());
+        let report = doctor_report(&repo_root, "workmesh-mcp");
+        if self.format == "text" {
+            return ok_text(
+                serde_json::to_string_pretty(&report).unwrap_or_else(|_| "{}".to_string()),
+            );
+        }
+        ok_json(report)
     }
 }
 
@@ -3915,5 +3943,40 @@ Body\n",
         .expect("list");
         let parsed: serde_json::Value = serde_json::from_str(&text_payload(listed)).expect("json");
         assert!(!parsed.as_array().unwrap().is_empty());
+    }
+
+    #[test]
+    fn mcp_doctor_returns_layout_and_focus() {
+        let (temp, root_arg, context) = init_repo();
+        let tasks_dir = temp.path().join("workmesh").join("tasks");
+        write_task(&tasks_dir, "task-001", "Seed", "To Do");
+
+        // Focus.
+        let focus_path = temp.path().join("workmesh").join("focus.json");
+        let focus = FocusState {
+            project_id: Some("demo".to_string()),
+            epic_id: Some("task-001".to_string()),
+            objective: Some("Ship".to_string()),
+            working_set: vec!["task-001".to_string()],
+            updated_at: None,
+        };
+        std::fs::write(&focus_path, serde_json::to_string_pretty(&focus).expect("focus"))
+            .expect("write focus");
+
+        // Derived index file.
+        let index_dir = temp.path().join("workmesh").join(".index");
+        std::fs::create_dir_all(&index_dir).expect("mkdir index");
+        std::fs::write(index_dir.join("tasks.jsonl"), "{\"id\":\"task-001\"}\n").expect("index");
+
+        let tool = DoctorTool {
+            root: Some(root_arg),
+            format: "json".to_string(),
+        };
+        let result = tool.call(&context).expect("doctor");
+        let parsed: serde_json::Value = serde_json::from_str(&text_payload(result)).expect("json");
+        assert_eq!(parsed["layout"].as_str(), Some("workmesh"));
+        assert_eq!(parsed["focus"]["project_id"].as_str(), Some("demo"));
+        assert_eq!(parsed["index"]["present"].as_bool(), Some(true));
+        assert_eq!(parsed["index"]["entries"].as_i64(), Some(1));
     }
 }

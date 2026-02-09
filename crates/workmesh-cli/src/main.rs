@@ -12,6 +12,7 @@ use workmesh_core::archive::{archive_tasks, ArchiveOptions};
 use workmesh_core::audit::{append_audit_event, AuditEvent};
 use workmesh_core::backlog::{locate_backlog_dir, resolve_backlog, BacklogResolution};
 use workmesh_core::config::update_do_not_migrate;
+use workmesh_core::doctor::doctor_report;
 use workmesh_core::focus::{
     clear_focus, extract_task_id_from_branch, infer_project_id, load_focus, save_focus, FocusState,
     update_focus_for_task_mutation,
@@ -69,6 +70,11 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
+    /// Diagnostics for repo layout, focus, index, and skill installation
+    Doctor {
+        #[arg(long, action = ArgAction::SetTrue)]
+        json: bool,
+    },
     /// List tasks
     List {
         /// Include archived tasks under `workmesh/archive/` (recursively)
@@ -1163,6 +1169,38 @@ fn main() -> Result<()> {
             if result.agents_snippet_written {
                 println!("AGENTS.md updated");
             }
+        }
+        return Ok(());
+    }
+
+    if let Command::Doctor { json } = &cli.command {
+        let report = doctor_report(&cli.root, "workmesh");
+        if *json {
+            println!("{}", serde_json::to_string_pretty(&report)?);
+        } else {
+            println!("root: {}", report["root"].as_str().unwrap_or(""));
+            println!("repo_root: {}", report["repo_root"].as_str().unwrap_or(""));
+            println!("backlog_dir: {}", report["backlog_dir"].as_str().unwrap_or(""));
+            println!("layout: {}", report["layout"].as_str().unwrap_or(""));
+            if !report["focus"].is_null() {
+                let epic = report["focus"]["epic_id"].as_str().unwrap_or("");
+                let project = report["focus"]["project_id"].as_str().unwrap_or("");
+                let ws = report["focus"]["working_set_count"].as_i64().unwrap_or(0);
+                println!(
+                    "focus: project_id={} epic_id={} working_set_count={}",
+                    project, epic, ws
+                );
+            } else {
+                println!("focus: (none)");
+            }
+            let present = report["index"]["present"].as_bool().unwrap_or(false);
+            let entries = report["index"]["entries"].as_i64().unwrap_or(0);
+            println!("index: present={} entries={}", present, entries);
+            println!(
+                "versions: workmesh={} workmesh-mcp={}",
+                report["versions"]["workmesh"].as_str().unwrap_or(""),
+                report["versions"]["workmesh_mcp"].as_str().unwrap_or("")
+            );
         }
         return Ok(());
     }
@@ -2772,6 +2810,9 @@ fn main() -> Result<()> {
         }
         Command::Quickstart { .. } => {
             unreachable!("quickstart handled before backlog resolution");
+        }
+        Command::Doctor { .. } => {
+            unreachable!("doctor handled before backlog resolution");
         }
         Command::Migrate { .. } => {
             unreachable!("migrate handled before backlog resolution");
