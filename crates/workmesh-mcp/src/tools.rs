@@ -52,6 +52,7 @@ use workmesh_core::task_ops::{
     update_body, update_lease_fields, update_task_field, update_task_field_or_section,
     validate_tasks, FieldValue, ensure_can_mark_done,
 };
+use workmesh_core::views::{board_lanes, blockers_report, scope_ids_from_focus, BoardBy};
 
 const ROOT_REQUIRED_ERROR: &str = "root is required for MCP calls unless the server is started within a repo containing tasks/ or backlog/tasks";
 
@@ -239,6 +240,8 @@ fn tool_catalog() -> Vec<serde_json::Value> {
         serde_json::json!({"name": "next_task", "summary": "Get the next focus-relevant task (active/leased first, else next ready To Do)."}),
         serde_json::json!({"name": "next_tasks", "summary": "Get a deterministic list of next-task candidates (includes active work; focus-aware)."}),
         serde_json::json!({"name": "ready_tasks", "summary": "List tasks with deps satisfied (ready work)."}),
+        serde_json::json!({"name": "board", "summary": "Board (swimlanes) grouped by status/phase/priority (optionally focus-scoped)."}),
+        serde_json::json!({"name": "blockers", "summary": "Blocked work and top blockers (scoped to focus epic by default)."}),
         serde_json::json!({"name": "export_tasks", "summary": "Export all tasks as JSON."}),
         serde_json::json!({"name": "set_status", "summary": "Update task status."}),
         serde_json::json!({"name": "set_field", "summary": "Update a front matter field."}),
@@ -412,6 +415,42 @@ pub struct ReadyTasksTool {
     #[serde(default = "default_format")]
     pub format: String,
     pub limit: Option<u32>,
+}
+
+#[mcp_tool(
+    name = "board",
+    description = "Board (swimlanes) grouped by status/phase/priority. Use --focus to scope to current focus."
+)]
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct BoardTool {
+    pub root: Option<String>,
+    /// Include archived tasks under `workmesh/archive/` (recursively).
+    #[serde(default)]
+    pub all: bool,
+    /// Group lanes by: status|phase|priority
+    #[serde(default = "default_board_by")]
+    pub by: String,
+    /// Scope to focus epic subtree or focus working set.
+    #[serde(default)]
+    pub focus: bool,
+    #[serde(default = "default_format")]
+    pub format: String,
+}
+
+#[mcp_tool(
+    name = "blockers",
+    description = "Show blocked work and top blockers (scoped to focus epic by default)."
+)]
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct BlockersTool {
+    pub root: Option<String>,
+    /// Include archived tasks under `workmesh/archive/` (recursively).
+    #[serde(default)]
+    pub all: bool,
+    /// Override focus epic id for scoping.
+    pub epic_id: Option<String>,
+    #[serde(default = "default_format")]
+    pub format: String,
 }
 
 #[mcp_tool(name = "export_tasks", description = "Export all tasks as JSON.")]
@@ -1017,6 +1056,10 @@ fn default_sort() -> String {
     "id".to_string()
 }
 
+fn default_board_by() -> String {
+    "status".to_string()
+}
+
 fn default_format() -> String {
     "json".to_string()
 }
@@ -1076,6 +1119,8 @@ tool_box!(
         NextTaskTool,
         NextTasksTool,
         ReadyTasksTool,
+        BoardTool,
+        BlockersTool,
         ExportTasksTool,
         StatsTool,
         SetStatusTool,
@@ -1167,6 +1212,8 @@ impl ServerHandler for WorkmeshServerHandler {
             WorkmeshTools::NextTaskTool(tool) => tool.call(&self.context),
             WorkmeshTools::NextTasksTool(tool) => tool.call(&self.context),
             WorkmeshTools::ReadyTasksTool(tool) => tool.call(&self.context),
+            WorkmeshTools::BoardTool(tool) => tool.call(&self.context),
+            WorkmeshTools::BlockersTool(tool) => tool.call(&self.context),
             WorkmeshTools::ExportTasksTool(tool) => tool.call(&self.context),
             WorkmeshTools::StatsTool(tool) => tool.call(&self.context),
             WorkmeshTools::SetStatusTool(tool) => tool.call(&self.context),
@@ -1544,6 +1591,129 @@ impl ReadyTasksTool {
             .map(|task| task_to_json_value(task, false))
             .collect();
         ok_json(serde_json::Value::Array(payload))
+    }
+}
+
+impl BoardTool {
+    fn call(&self, context: &McpContext) -> Result<CallToolResult, CallToolError> {
+        let backlog_dir = match resolve_root(context, self.root.as_deref()) {
+            Ok(dir) => dir,
+            Err(err) => return ok_json(err),
+        };
+        let tasks = if self.all {
+            load_tasks_with_archive(&backlog_dir)
+        } else {
+            load_tasks(&backlog_dir)
+        };
+
+        let by = match self.by.trim().to_lowercase().as_str() {
+            "status" => BoardBy::Status,
+            "phase" => BoardBy::Phase,
+            "priority" => BoardBy::Priority,
+            other => {
+                return ok_json(serde_json::json!({
+                    "error": format!("Invalid board by: {}", other),
+                    "allowed": ["status","phase","priority"]
+                }));
+            }
+        };
+
+        let focus = if self.focus {
+            load_focus(&backlog_dir).map_err(|err| CallToolError::from_message(err.to_string()))?
+        } else {
+            None
+        };
+        let scope_ids = focus.as_ref().and_then(|f| scope_ids_from_focus(&tasks, f));
+        let lanes = board_lanes(&tasks, by, scope_ids.as_ref());
+
+        if self.format == "text" {
+            let mut out = String::new();
+            for (key, lane_tasks) in lanes {
+                out.push_str(&format!("## {} ({})\n", key, lane_tasks.len()));
+                for task in lane_tasks {
+                    out.push_str(&render_task_line(task));
+                    out.push('\n');
+                }
+                out.push('\n');
+            }
+            return ok_text(out.trim_end().to_string());
+        }
+
+        let payload: Vec<serde_json::Value> = lanes
+            .into_iter()
+            .map(|(key, lane_tasks)| {
+                let tasks_json: Vec<serde_json::Value> = lane_tasks
+                    .into_iter()
+                    .map(|t| task_to_json_value(t, false))
+                    .collect();
+                serde_json::json!({
+                    "lane": key,
+                    "count": tasks_json.len(),
+                    "tasks": tasks_json,
+                })
+            })
+            .collect();
+        ok_json(serde_json::Value::Array(payload))
+    }
+}
+
+impl BlockersTool {
+    fn call(&self, context: &McpContext) -> Result<CallToolResult, CallToolError> {
+        let backlog_dir = match resolve_root(context, self.root.as_deref()) {
+            Ok(dir) => dir,
+            Err(err) => return ok_json(err),
+        };
+        let tasks = if self.all {
+            load_tasks_with_archive(&backlog_dir)
+        } else {
+            load_tasks(&backlog_dir)
+        };
+        let focus =
+            load_focus(&backlog_dir).map_err(|err| CallToolError::from_message(err.to_string()))?;
+        let report = blockers_report(&tasks, focus.as_ref(), self.epic_id.as_deref());
+
+        if self.format == "text" {
+            let mut out = String::new();
+            out.push_str(&format!("Scope: {}\n", report.scope));
+            if !report.warnings.is_empty() {
+                out.push_str("Warnings:\n");
+                for w in report.warnings.iter() {
+                    out.push_str(&format!("- {}\n", w));
+                }
+            }
+            if report.blocked_tasks.is_empty() {
+                out.push_str("Blocked tasks: (none)\n");
+            } else {
+                out.push_str("Blocked tasks:\n");
+                for entry in report.blocked_tasks.iter() {
+                    let mut parts = Vec::new();
+                    if !entry.blockers.is_empty() {
+                        parts.push(format!("blocked_by=[{}]", entry.blockers.join(", ")));
+                    }
+                    if !entry.missing_refs.is_empty() {
+                        parts.push(format!("missing_refs=[{}]", entry.missing_refs.join(", ")));
+                    }
+                    out.push_str(&format!(
+                        "- {}: {} ({}) {}\n",
+                        entry.id,
+                        entry.title,
+                        entry.status,
+                        parts.join(" ")
+                    ));
+                }
+            }
+            if report.top_blockers.is_empty() {
+                out.push_str("Top blockers: (none)\n");
+            } else {
+                out.push_str("Top blockers:\n");
+                for b in report.top_blockers.iter().take(10) {
+                    out.push_str(&format!("- {} blocks {}\n", b.id, b.blocked_count));
+                }
+            }
+            return ok_text(out.trim_end().to_string());
+        }
+
+        ok_json(serde_json::to_value(&report).unwrap_or_else(|_| serde_json::json!({})))
     }
 }
 
@@ -3978,5 +4148,159 @@ Body\n",
         assert_eq!(parsed["focus"]["project_id"].as_str(), Some("demo"));
         assert_eq!(parsed["index"]["present"].as_bool(), Some(true));
         assert_eq!(parsed["index"]["entries"].as_i64(), Some(1));
+    }
+
+    #[test]
+    fn mcp_board_can_scope_to_focus_working_set() {
+        let (temp, root_arg, context) = init_repo();
+        let tasks_dir = temp.path().join("workmesh").join("tasks");
+        write_task(&tasks_dir, "task-001", "A", "To Do");
+        write_task(&tasks_dir, "task-002", "B", "To Do");
+        write_task(&tasks_dir, "task-003", "C", "In Progress");
+
+        // Focus: scope to task-003 only (no epic_id set).
+        let focus_path = temp.path().join("workmesh").join("focus.json");
+        let focus = FocusState {
+            project_id: Some("demo".to_string()),
+            epic_id: None,
+            objective: None,
+            working_set: vec!["task-003".to_string()],
+            updated_at: None,
+        };
+        std::fs::write(&focus_path, serde_json::to_string_pretty(&focus).expect("focus"))
+            .expect("write focus");
+
+        let tool = BoardTool {
+            root: Some(root_arg),
+            all: false,
+            by: "status".to_string(),
+            focus: true,
+            format: "json".to_string(),
+        };
+        let result = tool.call(&context).expect("board");
+        let parsed: serde_json::Value = serde_json::from_str(&text_payload(result)).expect("json");
+        let mut all_ids: Vec<String> = Vec::new();
+        for lane in parsed.as_array().unwrap().iter() {
+            let Some(tasks) = lane.get("tasks").and_then(|t| t.as_array()) else {
+                continue;
+            };
+            for task in tasks.iter() {
+                if let Some(id) = task.get("id").and_then(|v| v.as_str()) {
+                    all_ids.push(id.to_string());
+                }
+            }
+        }
+        assert_eq!(all_ids, vec!["task-003".to_string()]);
+    }
+
+    #[test]
+    fn mcp_blockers_scopes_to_focus_epic() {
+        let (temp, root_arg, context) = init_repo();
+        let tasks_dir = temp.path().join("workmesh").join("tasks");
+
+        // Write an epic, a blocker, and a child blocked by the blocker.
+        std::fs::write(
+            tasks_dir.join("task-100 - epic.md"),
+            "---\n\
+id: task-100\n\
+title: Epic\n\
+kind: epic\n\
+status: In Progress\n\
+priority: P2\n\
+phase: Phase1\n\
+dependencies: []\n\
+labels: []\n\
+assignee: []\n\
+relationships:\n\
+  parent: []\n\
+  blocked_by: []\n\
+  child: []\n\
+  discovered_from: []\n\
+---\n\n",
+        )
+        .expect("epic");
+        std::fs::write(
+            tasks_dir.join("task-101 - child.md"),
+            "---\n\
+id: task-101\n\
+title: Child\n\
+kind: task\n\
+status: To Do\n\
+priority: P2\n\
+phase: Phase1\n\
+dependencies: [task-102]\n\
+labels: []\n\
+assignee: []\n\
+relationships:\n\
+  parent: [task-100]\n\
+  blocked_by: [task-102]\n\
+  child: []\n\
+  discovered_from: []\n\
+---\n\n",
+        )
+        .expect("child");
+        std::fs::write(
+            tasks_dir.join("task-102 - blocker.md"),
+            "---\n\
+id: task-102\n\
+title: Blocker\n\
+kind: task\n\
+status: To Do\n\
+priority: P2\n\
+phase: Phase1\n\
+dependencies: []\n\
+labels: []\n\
+assignee: []\n\
+relationships:\n\
+  parent: [task-100]\n\
+  blocked_by: []\n\
+  child: []\n\
+  discovered_from: []\n\
+---\n\n",
+        )
+        .expect("blocker");
+        // Another task outside the epic, also blocked by task-102; should be excluded when scoped.
+        std::fs::write(
+            tasks_dir.join("task-200 - other.md"),
+            "---\n\
+id: task-200\n\
+title: Other\n\
+kind: task\n\
+status: To Do\n\
+priority: P2\n\
+phase: Phase1\n\
+dependencies: [task-102]\n\
+labels: []\n\
+assignee: []\n\
+---\n\n",
+        )
+        .expect("other");
+
+        // Focus epic.
+        let focus_path = temp.path().join("workmesh").join("focus.json");
+        let focus = FocusState {
+            project_id: Some("demo".to_string()),
+            epic_id: Some("task-100".to_string()),
+            objective: None,
+            working_set: vec![],
+            updated_at: None,
+        };
+        std::fs::write(&focus_path, serde_json::to_string_pretty(&focus).expect("focus"))
+            .expect("write focus");
+
+        let tool = BlockersTool {
+            root: Some(root_arg),
+            all: false,
+            epic_id: None,
+            format: "json".to_string(),
+        };
+        let result = tool.call(&context).expect("blockers");
+        let parsed: serde_json::Value = serde_json::from_str(&text_payload(result)).expect("json");
+        let blocked = parsed
+            .get("blocked_tasks")
+            .and_then(|v| v.as_array())
+            .unwrap();
+        assert_eq!(blocked.len(), 1);
+        assert_eq!(blocked[0].get("id").and_then(|v| v.as_str()), Some("task-101"));
     }
 }

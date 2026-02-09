@@ -148,7 +148,7 @@ session save -> stop working -> session resume -> focus_show -> next_tasks -> cl
 
 Phase D: hygiene (occasional)
 ```text
-validate -> index-refresh -> graph-export -> archive
+validate -> blockers -> board -> index-refresh -> graph-export -> archive
 ```
 
 ## Agent setup (MCP)
@@ -174,5 +174,5 @@ workmesh --root . doctor --json
 Common issues:
 - `root is required`: pass `--root .` in CLI; for MCP, either start the server inside the repo or provide `root`.
 - Task not found: run `workmesh --root . list --all` (if you want archive included) and confirm task IDs.
-- "next task" feels wrong: check `focus show --json` and dependencies/leases.
-
+- "next task" feels wrong: check `focus show --json`, dependencies/leases, and run `workmesh --root . blockers`.
+- Want a quick visual snapshot: run `workmesh --root . board` or `workmesh --root . board --focus`.

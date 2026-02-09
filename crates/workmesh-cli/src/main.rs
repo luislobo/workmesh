@@ -51,6 +51,7 @@ use workmesh_core::task_ops::{
     timestamp_plus_minutes, update_body, update_lease_fields, update_task_field,
     update_task_field_or_section, validate_tasks, FieldValue, ensure_can_mark_done,
 };
+use workmesh_core::views::{board_lanes, blockers_report, scope_ids_from_focus, BoardBy};
 
 #[derive(Parser)]
 #[command(name = "workmesh", version = version::FULL, about = "WorkMesh CLI (WIP)")]
@@ -72,6 +73,31 @@ struct Cli {
 enum Command {
     /// Diagnostics for repo layout, focus, index, and skill installation
     Doctor {
+        #[arg(long, action = ArgAction::SetTrue)]
+        json: bool,
+    },
+    /// Show a simple board view (swimlanes) grouped by status/phase/priority
+    Board {
+        /// Include archived tasks under `workmesh/archive/` (recursively)
+        #[arg(long, action = ArgAction::SetTrue)]
+        all: bool,
+        /// Group lanes by this field
+        #[arg(long, value_enum, default_value_t = BoardByArg::Status)]
+        by: BoardByArg,
+        /// Scope to the current focus (epic subtree or working set)
+        #[arg(long, action = ArgAction::SetTrue)]
+        focus: bool,
+        #[arg(long, action = ArgAction::SetTrue)]
+        json: bool,
+    },
+    /// Show blocked work and the top blockers (scoped to focus epic by default)
+    Blockers {
+        /// Include archived tasks under `workmesh/archive/` (recursively)
+        #[arg(long, action = ArgAction::SetTrue)]
+        all: bool,
+        /// Override focus epic id for scoping
+        #[arg(long)]
+        epic_id: Option<String>,
         #[arg(long, action = ArgAction::SetTrue)]
         json: bool,
     },
@@ -901,6 +927,23 @@ impl SortKey {
 }
 
 #[derive(Clone, Copy, Debug, ValueEnum)]
+enum BoardByArg {
+    Status,
+    Phase,
+    Priority,
+}
+
+impl BoardByArg {
+    fn to_core(self) -> BoardBy {
+        match self {
+            BoardByArg::Status => BoardBy::Status,
+            BoardByArg::Phase => BoardBy::Phase,
+            BoardByArg::Priority => BoardBy::Priority,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, ValueEnum)]
 enum NoteSection {
     Notes,
     Impl,
@@ -1219,6 +1262,95 @@ fn main() -> Result<()> {
     let auto_session = auto_session_enabled(&cli);
 
     match cli.command {
+        Command::Board {
+            all,
+            by,
+            focus,
+            json,
+        } => {
+            let tasks = if all {
+                load_tasks_with_archive(&backlog_dir)
+            } else {
+                load_tasks(&backlog_dir)
+            };
+            let focus_state = if focus { load_focus(&backlog_dir).ok().flatten() } else { None };
+            let scope_ids = focus_state
+                .as_ref()
+                .and_then(|f| scope_ids_from_focus(&tasks, f));
+            let lanes = board_lanes(&tasks, by.to_core(), scope_ids.as_ref());
+
+            if json {
+                let payload: Vec<serde_json::Value> = lanes
+                    .into_iter()
+                    .map(|(key, lane_tasks)| {
+                        let tasks_json: Vec<serde_json::Value> = lane_tasks
+                            .into_iter()
+                            .map(|t| task_to_json_value(t, false))
+                            .collect();
+                        serde_json::json!({
+                            "lane": key,
+                            "count": tasks_json.len(),
+                            "tasks": tasks_json,
+                        })
+                    })
+                    .collect();
+                println!("{}", serde_json::to_string_pretty(&payload)?);
+                return Ok(());
+            }
+
+            for (key, lane_tasks) in lanes {
+                println!("## {} ({})", key, lane_tasks.len());
+                for task in lane_tasks {
+                    println!("{}", render_task_line(task));
+                }
+                println!();
+            }
+        }
+        Command::Blockers { all, epic_id, json } => {
+            let tasks = if all {
+                load_tasks_with_archive(&backlog_dir)
+            } else {
+                load_tasks(&backlog_dir)
+            };
+            let focus_state = load_focus(&backlog_dir).ok().flatten();
+            let report = blockers_report(&tasks, focus_state.as_ref(), epic_id.as_deref());
+
+            if json {
+                println!("{}", serde_json::to_string_pretty(&report)?);
+                return Ok(());
+            }
+
+            println!("Scope: {}", report.scope);
+            if !report.warnings.is_empty() {
+                println!("Warnings:");
+                for w in report.warnings.iter() {
+                    println!("- {}", w);
+                }
+            }
+            if report.blocked_tasks.is_empty() {
+                println!("Blocked tasks: (none)");
+            } else {
+                println!("Blocked tasks:");
+                for entry in report.blocked_tasks.iter() {
+                    let mut parts = Vec::new();
+                    if !entry.blockers.is_empty() {
+                        parts.push(format!("blocked_by=[{}]", entry.blockers.join(", ")));
+                    }
+                    if !entry.missing_refs.is_empty() {
+                        parts.push(format!("missing_refs=[{}]", entry.missing_refs.join(", ")));
+                    }
+                    println!("- {}: {} ({}) {}", entry.id, entry.title, entry.status, parts.join(" "));
+                }
+            }
+            if report.top_blockers.is_empty() {
+                println!("Top blockers: (none)");
+            } else {
+                println!("Top blockers:");
+                for b in report.top_blockers.iter().take(10) {
+                    println!("- {} blocks {}", b.id, b.blocked_count);
+                }
+            }
+        }
         Command::List {
             all,
             status,

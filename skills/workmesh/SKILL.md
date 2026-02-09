@@ -85,6 +85,21 @@ Global sessions:
 - Workflow: `session save` -> later `session resume`.
 - Commands: `workmesh --root /path session save --objective "..."` / `workmesh --root /path session resume`
 
+Diagnostics (recommended when things feel off):
+- Use when: you suspect root/layout/index/focus issues or want a one-shot sanity check.
+- Command: `workmesh --root /path doctor --json`
+- MCP: `{"tool":"doctor","format":"json"}`
+
+Board view (swimlanes):
+- Use when: you want a quick snapshot of work state without opening many files.
+- Commands: `workmesh --root /path board` / `workmesh --root /path board --by phase` / `workmesh --root /path board --focus`
+- MCP: `{"tool":"board","format":"json","by":"status","focus":true}`
+
+Blockers:
+- Use when: prioritizing unblocking work (scoped to focus epic by default).
+- Commands: `workmesh --root /path blockers` / `workmesh --root /path blockers --epic-id task-123`
+- MCP: `{"tool":"blockers","format":"json"}`
+
 Epic completion rule:
 - When `kind: epic`, WorkMesh refuses to set status to `Done` unless:
   - `dependencies` and `blocked_by` are Done

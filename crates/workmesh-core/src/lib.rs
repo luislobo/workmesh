@@ -19,6 +19,7 @@ pub mod session;
 pub mod skills;
 pub mod task;
 pub mod task_ops;
+pub mod views;
 
 pub fn version() -> &'static str {
     env!("CARGO_PKG_VERSION")

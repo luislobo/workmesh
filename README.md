@@ -206,6 +206,27 @@ Auto-updates (DX):
 - Focus changes are recorded in `.audit.log` (ignored by default; you can commit it if you want a full,
   versioned PM history inside the repo).
 
+## Views and diagnostics
+These commands are meant to be "high leverage" in human+agent workflows.
+
+Diagnostics:
+```bash
+workmesh --root . doctor --json
+```
+
+Board view (swimlanes):
+```bash
+workmesh --root . board
+workmesh --root . board --by phase
+workmesh --root . board --focus
+```
+
+Blocked work and top blockers (scoped to focus epic by default):
+```bash
+workmesh --root . blockers
+workmesh --root . blockers --epic-id task-<init>-001
+```
+
 ## Task file format (plain text)
 Each task is a Markdown file with front matter and sections:
 ```markdown

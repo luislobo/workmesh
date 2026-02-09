@@ -128,6 +128,23 @@
         "next/next_task/next_tasks are focus-aware: focus.working_set tasks are recommended first; active work (In Progress / leased) in the working set is prioritized before unrelated ready To Do tasks."
       ]
     },
+    "views_and_diagnostics": {
+      "doctor": {
+        "cli": "workmesh --root . doctor --json",
+        "mcp_tool": "doctor",
+        "purpose": "One-shot diagnostics for layout, focus, index, skills, and versions."
+      },
+      "board": {
+        "cli": ["workmesh --root . board", "workmesh --root . board --by phase", "workmesh --root . board --focus"],
+        "mcp_tool": "board",
+        "purpose": "Swimlanes grouped by status/phase/priority; stable ordering."
+      },
+      "blockers": {
+        "cli": ["workmesh --root . blockers", "workmesh --root . blockers --epic-id task-123"],
+        "mcp_tool": "blockers",
+        "purpose": "Show blocked work and top blockers (focus epic by default)."
+      }
+    },
     "index": {
       "path": "workmesh/.index/tasks.jsonl",
       "format": "jsonl",
@@ -165,6 +182,9 @@
     "transport": "stdio",
     "root_behavior": "If started inside a repo, root can be omitted; otherwise pass root explicitly in calls.",
     "examples": [
+      { "tool": "doctor", "format": "json" },
+      { "tool": "board", "format": "json", "by": "status", "focus": true },
+      { "tool": "blockers", "format": "json" },
       { "tool": "ready_tasks", "format": "json" },
       { "tool": "next_tasks", "format": "json", "limit": 10 },
       { "tool": "list_tasks", "root": "/path/to/repo", "status": ["To Do"] }
