@@ -117,6 +117,15 @@ Point your agent to the `workmesh-mcp` binary you installed (either from release
 
 </details>
 
+### Agent-first quickstart (via MCP)
+If you interact via an agent, the first verification loop is:
+1. Call MCP tool `version`
+2. Call MCP tool `readme`
+3. Call MCP tool `doctor`
+4. Quickstart a repo with MCP tool `quickstart`, then set focus via `focus_set`
+
+The guided, agent-first prompts are in: `docs/getting-started.md`
+
 From source:
 ```bash
 git clone git@github.com:luislobo/workmesh.git

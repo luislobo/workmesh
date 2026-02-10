@@ -66,14 +66,30 @@
     }
   },
   "quickstart": {
-    "commands": [
+    "agent_first": {
+      "verify": [
+        { "tool": "version", "format": "json" },
+        { "tool": "readme", "format": "json" },
+        { "tool": "doctor", "format": "json" }
+      ],
+      "bootstrap_repo": [
+        { "tool": "quickstart", "project_id": "<project-id>", "agents_snippet": true, "format": "json" },
+        { "tool": "focus_set", "project_id": "<project-id>", "epic_id": "task-<init>-001", "objective": "Ship v0.3", "format": "json" },
+        { "tool": "next_tasks", "format": "json", "limit": 10 }
+      ],
+      "daily_loop": [
+        { "tool": "focus_show", "format": "json" },
+        { "tool": "next_tasks", "format": "json", "limit": 10 },
+        { "tool": "claim_task", "task_id": "task-<init>-001", "owner": "me", "minutes": 60, "touch": true },
+        { "tool": "set_status", "task_id": "task-<init>-001", "status": "In Progress", "touch": true },
+        { "tool": "add_note", "task_id": "task-<init>-001", "note": "Plan: ...", "section": "notes", "touch": true }
+      ]
+    },
+    "cli_appendix": [
       "workmesh --root . quickstart <project-id> --agents-snippet",
-      "workmesh --root . focus set --project-id <project-id> --epic-id task-<init>-001 --objective \"Ship v0.3\" (recommended)",
+      "workmesh --root . focus set --project-id <project-id> --epic-id task-<init>-001 --objective \"Ship v0.3\"",
       "workmesh --root . list --status \"To Do\"",
-      "workmesh --root . next",
-      "workmesh --root . set-status task-<init>-001 \"In Progress\"",
-      "workmesh --root . note task-<init>-001 \"Found missing edge case\"",
-      "workmesh --root . set-status task-<init>-001 Done"
+      "workmesh --root . next"
     ],
     "creates": {
       "docs": ["docs/projects/<project-id>/README.md", "docs/projects/<project-id>/prds/", "docs/projects/<project-id>/updates/"],

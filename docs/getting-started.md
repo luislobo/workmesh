@@ -6,9 +6,10 @@ planning, and restartable sessions.
 
 If you are landing here from GitHub, start with:
 1. Install WorkMesh (prebuilt binaries recommended)
-2. Quickstart a repo (creates docs + a seed task)
-3. Set focus (keeps agents scoped)
-4. Use `next_tasks` (MCP) or `workmesh next` (CLI) to pick the next thing to do
+2. Configure your agent to run WorkMesh as MCP (`workmesh-mcp`)
+3. Quickstart a repo (creates docs + a seed task)
+4. Set focus (keeps agents scoped)
+5. Use `next_tasks` to get candidates and let the agent decide
 
 ## Install
 You have two install options:
@@ -90,8 +91,79 @@ cargo build -p workmesh-mcp
 # binary at target/debug/workmesh-mcp
 ```
 
-## Quickstart (60 seconds)
-From your repo root:
+## Agent-first setup (MCP)
+If you interact 100% via agents, the right order is:
+1. Install `workmesh-mcp`
+2. Wire your agent to run it via MCP (stdio)
+3. Verify from chat by calling `version` and `readme`
+
+Minimal verification (from agent chat):
+- "Call MCP tool `version`"
+- "Call MCP tool `readme`"
+- "Call MCP tool `doctor` with `format=json`"
+
+Optional: install the embedded skill so your agent can discover the workflow conventions:
+```bash
+workmesh --root . skill install --scope user
+workmesh --root . skill install-global-auto
+```
+
+For agent-friendly docs:
+- `README.json` (kept in sync with `README.md`)
+- MCP tool: `readme` (returns the JSON version)
+
+## Recommended workflows (phases, agent-first)
+WorkMesh commands are easiest to use when you treat them as a small number of repeatable loops.
+
+Each phase includes:
+- Example prompt(s) you can paste into chat
+- The MCP tools that should be invoked
+
+### Phase A: bootstrap a repo (run once)
+Example prompt:
+- "Initialize WorkMesh in this repo for project `<project-id>`. Use quickstart, set focus, then show me the next 10 candidate tasks."
+
+MCP tools:
+- `quickstart`
+- `focus_set`
+- `next_tasks`
+- `list_tasks` (optional verification)
+
+### Phase B: daily loop (repeat)
+Example prompt:
+- "Show current focus, then recommend next work items and claim the best one as `me` for 60 minutes. Mark it In Progress and add a short note about what you plan to do."
+
+MCP tools:
+- `focus_show`
+- `next_tasks`
+- `claim_task`
+- `set_status`
+- `add_note`
+
+### Phase C: continuity (restart / reboot / compaction)
+Example prompt:
+- "Save a global session with objective `<objective>`, then show me the resume script."
+- "Resume the latest session and then show focus + next tasks."
+
+MCP tools:
+- `session_save`
+- `session_resume`
+- `focus_show`
+- `next_tasks`
+
+### Phase D: hygiene (occasional)
+Example prompt:
+- "Run doctor, then show blockers for the focused epic, then show a status board scoped to focus."
+
+MCP tools:
+- `doctor`
+- `blockers`
+- `board`
+- `validate` (optional)
+- `index_refresh` (optional)
+
+## Quickstart (CLI appendix)
+If you ever need to run the same workflow without an agent:
 ```bash
 # create docs + workmesh + a seed task
 workmesh --root . quickstart <project-id> --agents-snippet
@@ -127,43 +199,6 @@ workmesh/
   tasks/
     task-<init>-001 - seed task.md
 ```
-
-## Recommended workflows (phases)
-WorkMesh commands are easiest to use when you treat them as a small number of repeatable loops.
-
-Phase A: bootstrap (once per repo)
-```text
-quickstart -> focus_set -> add -> ready/next
-```
-
-Phase B: daily loop (repeat)
-```text
-focus_show -> next_tasks -> claim -> set-status(In Progress) -> work -> note/set-section -> set-status(Done) -> release
-```
-
-Phase C: continuity (restart / reboot / compaction)
-```text
-session save -> stop working -> session resume -> focus_show -> next_tasks -> claim -> continue
-```
-
-Phase D: hygiene (occasional)
-```text
-validate -> blockers -> board -> index-refresh -> graph-export -> archive
-```
-
-## Agent setup (MCP)
-Point your agent to the `workmesh-mcp` binary you installed (from releases or built locally).
-
-If your agent supports skills directories, WorkMesh can install its embedded skill to common
-locations:
-```bash
-workmesh --root . skill install --scope user
-workmesh --root . skill install-global-auto
-```
-
-For agent-friendly docs:
-- `README.json` (kept in sync with `README.md`)
-- MCP tool: `readme` (returns the JSON version)
 
 ## Parallel work (branches, worktrees, multiple terminals)
 If you work on multiple initiatives in parallel (multiple terminals/agents, multiple branches, or
