@@ -41,7 +41,7 @@
         "Download the release archive (with gh or browser).",
         "Extract it.",
         "Install workmesh and workmesh-mcp onto PATH (e.g. /usr/local/bin).",
-        "Optional: install the embedded skill into detected agent folders: workmesh --root . skill install-global --force.",
+        "Optional: install embedded skill profiles: workmesh --root . install --skills --profile all --scope project.",
         "Verify: workmesh --version; workmesh-mcp --version."
       ],
       "windows_steps": [
@@ -73,6 +73,7 @@
         { "tool": "doctor", "format": "json" }
       ],
       "bootstrap_repo": [
+        { "tool": "skill_content", "name": "workmesh-mcp", "format": "text" },
         { "tool": "quickstart", "project_id": "<project-id>", "agents_snippet": true, "format": "json" },
         { "tool": "focus_set", "project_id": "<project-id>", "epic_id": "task-<init>-001", "objective": "Ship v0.3", "format": "json" },
         { "tool": "next_tasks", "format": "json", "limit": 10 }
@@ -211,6 +212,29 @@
       { "tool": "list_tasks", "root": "/path/to/repo", "status": ["To Do"] }
     ],
     "note": "All CLI commands are mirrored as MCP tools (parity tests cover the mapping)."
+  },
+  "skills": {
+    "profiles": {
+      "workmesh": "Router profile that selects CLI or MCP mode.",
+      "workmesh-cli": "CLI-first workflows (shell command oriented).",
+      "workmesh-mcp": "MCP-first workflows (tool call oriented)."
+    },
+    "install": {
+      "playwright_style": "workmesh --root . install --skills --profile all --scope project",
+      "profile_examples": [
+        "workmesh --root . install --skills --profile cli --scope project",
+        "workmesh --root . install --skills --profile mcp --scope project",
+        "workmesh --root . install --skills --profile hybrid --scope project"
+      ],
+      "explicit": [
+        "workmesh --root . skill install --name workmesh-cli --scope project --agent all --force",
+        "workmesh --root . skill install --name workmesh-mcp --scope project --agent all --force"
+      ]
+    },
+    "mcp_tools": {
+      "skill_content": "Returns SKILL.md for a specific name.",
+      "project_management_skill": "Defaults to workmesh-mcp and can take an explicit name."
+    }
   },
   "repo_layout": {
     "docs": "docs/ (PRDs, decisions, updates)",

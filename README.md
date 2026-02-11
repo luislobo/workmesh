@@ -477,36 +477,38 @@ VS Code example (`.vscode/mcp.json`):
   ```
 
 ## Skills (Codex/Claude)
-WorkMesh ships with an embedded `workmesh` skill and can also read/write on-disk skills in
-agent-standard locations.
+WorkMesh ships with three embedded skill profiles:
+- `workmesh-mcp` (MCP-first workflows)
+- `workmesh-cli` (CLI-first workflows)
+- `workmesh` (router profile that selects mode)
 
-Where agents discover skills (project-level):
-- `.codex/skills/workmesh/SKILL.md`
-- `.claude/skills/workmesh/SKILL.md`
-- `.cursor/skills/workmesh/SKILL.md`
-
-User-level locations:
-- `~/.codex/skills/workmesh/SKILL.md`
-- `~/.claude/skills/workmesh/SKILL.md`
-- `~/.cursor/skills/workmesh/SKILL.md`
-
-Canonical source in this repo:
-- `skills/workmesh/SKILL.md`
-
-Install from the embedded skill (recommended for release binaries):
+Playwright-style convenience install:
 ```bash
-# user-level install for all supported agent folders
-workmesh --root . skill install --scope user --agent all --force
+# install all profiles (router + cli + mcp) for this project
+workmesh --root . install --skills --profile all --scope project
 
-# auto-detect installed agents under your home directory and install only for those
-workmesh --root . skill install-global --force
+# install only MCP profile
+workmesh --root . install --skills --profile mcp --scope project
 
-# project-level install (writes into the repo)
-workmesh --root . skill install --scope project --agent all
+# install only CLI profile
+workmesh --root . install --skills --profile cli --scope project
 ```
 
+You can still use the explicit skill subcommands:
+```bash
+workmesh --root . skill install --name workmesh-mcp --scope project --agent all --force
+workmesh --root . skill install --name workmesh-cli --scope project --agent all --force
+workmesh --root . skill install-global --name workmesh --force
+```
+
+Where agents discover skills:
+- Project-level: `.codex/skills/<name>/SKILL.md`, `.claude/skills/<name>/SKILL.md`, `.cursor/skills/<name>/SKILL.md`
+- User-level: `~/.codex/skills/<name>/SKILL.md`, `~/.claude/skills/<name>/SKILL.md`, `~/.cursor/skills/<name>/SKILL.md`
+- Canonical source in this repo: `skills/workmesh/SKILL.md`, `skills/workmesh-cli/SKILL.md`, `skills/workmesh-mcp/SKILL.md`
+
 Serving skill content via MCP:
-- MCP tools: `skill_content` and `project_management_skill`
+- `skill_content` (any named skill)
+- `project_management_skill` (defaults to `workmesh-mcp`; accepts `name`)
 - Resolution order: `.codex/skills` -> `.claude/skills` -> `.cursor/skills` -> `skills/` -> embedded fallback
 
 ## Command reference (CLI)

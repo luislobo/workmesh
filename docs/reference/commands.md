@@ -168,10 +168,16 @@ MCP:
 
 ## Skills (Agent Skills standard)
 CLI:
+- `install --skills [--profile hybrid|cli|mcp|all] [--scope project|user] [--agent codex|claude|cursor|all] [--force] [--json]`
 - `skill show [--name workmesh] [--json]`
 - `skill install [--scope user|project] [--agent codex|claude|cursor|all] [--force] [--json]`
 - `skill install-global [--force] [--json]`
 - `skill install-global-auto [--force] [--json]`
+
+Skill names:
+- `workmesh` (router)
+- `workmesh-cli` (CLI-first)
+- `workmesh-mcp` (MCP-first)
 
 MCP:
 - `skill_content`
@@ -183,4 +189,3 @@ MCP:
 - `tool_info`
 - `version`
 - `readme`
-

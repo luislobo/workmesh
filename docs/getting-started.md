@@ -104,13 +104,22 @@ Minimal verification (from agent chat):
 
 Optional: install the embedded skill so your agent can discover the workflow conventions:
 ```bash
-workmesh --root . skill install --scope user
-workmesh --root . skill install-global-auto
+workmesh --root . install --skills --profile mcp --scope project
 ```
 
 For agent-friendly docs:
 - `README.json` (kept in sync with `README.md`)
 - MCP tool: `readme` (returns the JSON version)
+
+Skill profiles:
+- `workmesh-mcp`: MCP-first workflow guidance
+- `workmesh-cli`: CLI-first workflow guidance
+- `workmesh`: router skill (selects the right mode)
+
+If you prefer CLI-only agent operation (no MCP tool calls), install:
+```bash
+workmesh --root . install --skills --profile cli --scope project
+```
 
 ## Recommended workflows (phases, agent-first)
 WorkMesh commands are easiest to use when you treat them as a small number of repeatable loops.
