@@ -285,7 +285,7 @@ fn tool_catalog() -> Vec<serde_json::Value> {
         serde_json::json!({"name": "help", "summary": "Show available tools and best practices."}),
         serde_json::json!({"name": "tool_info", "summary": "Show detailed usage for a specific tool."}),
         serde_json::json!({"name": "skill_content", "summary": "Return SKILL.md content for a repo skill."}),
-        serde_json::json!({"name": "project_management_skill", "summary": "Return project management guide."}),
+        serde_json::json!({"name": "project_management_skill", "summary": "Return project management skill content (default: workmesh-mcp)."}),
     ]
 }
 
@@ -1048,6 +1048,8 @@ pub struct ToolInfoTool {
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct ProjectManagementSkillTool {
     pub root: Option<String>,
+    /// Skill name to fetch (defaults to workmesh-mcp)
+    pub name: Option<String>,
     #[serde(default = "default_text_format")]
     pub format: String,
 }
@@ -3555,7 +3557,12 @@ impl ToolInfoTool {
 impl ProjectManagementSkillTool {
     fn call(&self, context: &McpContext) -> Result<CallToolResult, CallToolError> {
         let repo_root = resolve_repo_root(context, self.root.as_deref());
-        let skill_name = "workmesh";
+        let skill_name = self
+            .name
+            .as_deref()
+            .map(|value| value.trim())
+            .filter(|value| !value.is_empty())
+            .unwrap_or("workmesh-mcp");
         let skill = match read_skill_content(&repo_root, skill_name) {
             Ok(result) => result,
             Err(err) => return ok_json(err),

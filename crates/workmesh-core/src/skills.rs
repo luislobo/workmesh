@@ -35,11 +35,21 @@ pub enum SkillAgent {
 }
 
 const WORKMESH_SKILL_ID: &str = "workmesh";
+const WORKMESH_CLI_SKILL_ID: &str = "workmesh-cli";
+const WORKMESH_MCP_SKILL_ID: &str = "workmesh-mcp";
 const WORKMESH_SKILL_MARKDOWN: &str =
     include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../skills/workmesh/SKILL.md"));
+const WORKMESH_CLI_SKILL_MARKDOWN: &str =
+    include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../skills/workmesh-cli/SKILL.md"));
+const WORKMESH_MCP_SKILL_MARKDOWN: &str =
+    include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../skills/workmesh-mcp/SKILL.md"));
 
 pub fn embedded_skill_ids() -> Vec<&'static str> {
-    vec![WORKMESH_SKILL_ID]
+    vec![
+        WORKMESH_SKILL_ID,
+        WORKMESH_CLI_SKILL_ID,
+        WORKMESH_MCP_SKILL_ID,
+    ]
 }
 
 pub fn load_skill_content(repo_root: Option<&Path>, name: &str) -> Option<SkillContent> {
@@ -63,6 +73,24 @@ fn embedded_skill_content(name: &str) -> Option<SkillContent> {
                 id: "skills/workmesh/SKILL.md".to_string(),
             },
             content: WORKMESH_SKILL_MARKDOWN.to_string(),
+        });
+    }
+    if name.eq_ignore_ascii_case(WORKMESH_CLI_SKILL_ID) {
+        return Some(SkillContent {
+            name: WORKMESH_CLI_SKILL_ID.to_string(),
+            source: SkillSource::Embedded {
+                id: "skills/workmesh-cli/SKILL.md".to_string(),
+            },
+            content: WORKMESH_CLI_SKILL_MARKDOWN.to_string(),
+        });
+    }
+    if name.eq_ignore_ascii_case(WORKMESH_MCP_SKILL_ID) {
+        return Some(SkillContent {
+            name: WORKMESH_MCP_SKILL_ID.to_string(),
+            source: SkillSource::Embedded {
+                id: "skills/workmesh-mcp/SKILL.md".to_string(),
+            },
+            content: WORKMESH_MCP_SKILL_MARKDOWN.to_string(),
         });
     }
     None
@@ -254,13 +282,21 @@ mod tests {
     #[test]
     fn embedded_skill_is_available() {
         let skill = load_skill_content(None, "workmesh").expect("skill");
-        assert!(skill.content.contains("# WorkMesh skill"));
+        assert!(skill.content.contains("# WorkMesh Router Skill"));
         assert_eq!(
             skill.source,
             SkillSource::Embedded {
                 id: "skills/workmesh/SKILL.md".to_string()
             }
         );
+    }
+
+    #[test]
+    fn embedded_skill_catalog_includes_cli_and_mcp_profiles() {
+        let ids = embedded_skill_ids();
+        assert!(ids.contains(&"workmesh"));
+        assert!(ids.contains(&"workmesh-cli"));
+        assert!(ids.contains(&"workmesh-mcp"));
     }
 
     #[test]
@@ -293,7 +329,57 @@ mod tests {
                 .join("workmesh")
                 .join("SKILL.md");
             assert!(written[0].ends_with(&suffix));
-            assert!(fs::read_to_string(&written[0]).unwrap().contains("# WorkMesh skill"));
+            assert!(fs::read_to_string(&written[0])
+                .unwrap()
+                .contains("# WorkMesh Router Skill"));
+        });
+    }
+
+    #[test]
+    fn install_embedded_cli_profile_writes_to_user_dirs() {
+        let temp = TempDir::new().expect("tempdir");
+        with_home(temp.path(), || {
+            let written = install_embedded_skill(
+                None,
+                SkillScope::User,
+                SkillAgent::Codex,
+                "workmesh-cli",
+                true,
+            )
+            .expect("install");
+            assert_eq!(written.len(), 1);
+            let suffix = Path::new(".codex")
+                .join("skills")
+                .join("workmesh-cli")
+                .join("SKILL.md");
+            assert!(written[0].ends_with(&suffix));
+            assert!(fs::read_to_string(&written[0])
+                .unwrap()
+                .contains("# WorkMesh CLI Skill"));
+        });
+    }
+
+    #[test]
+    fn install_embedded_mcp_profile_writes_to_user_dirs() {
+        let temp = TempDir::new().expect("tempdir");
+        with_home(temp.path(), || {
+            let written = install_embedded_skill(
+                None,
+                SkillScope::User,
+                SkillAgent::Codex,
+                "workmesh-mcp",
+                true,
+            )
+            .expect("install");
+            assert_eq!(written.len(), 1);
+            let suffix = Path::new(".codex")
+                .join("skills")
+                .join("workmesh-mcp")
+                .join("SKILL.md");
+            assert!(written[0].ends_with(&suffix));
+            assert!(fs::read_to_string(&written[0])
+                .unwrap()
+                .contains("# WorkMesh MCP Skill"));
         });
     }
 

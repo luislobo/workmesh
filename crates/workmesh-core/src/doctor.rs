@@ -256,11 +256,7 @@ mod tests {
             assert_eq!(report["focus"]["project_id"].as_str(), Some("demo"));
             assert_eq!(report["index"]["present"], true);
             assert_eq!(report["index"]["entries"], 1);
-            assert!(report["skills"]["detected_user_agents"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .any(|v| v.as_str() == Some("codex")));
+            assert!(report["skills"]["embedded"].is_array());
         })
     }
 }

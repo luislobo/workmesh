@@ -1365,7 +1365,7 @@ async fn cli_and_mcp_write_and_session_parity() {
         serde_json::json!({"root": temp.path().display().to_string(), "format": "text"}),
     )
     .await;
-    assert!(pm_skill.contains("WorkMesh skill"));
+    assert!(pm_skill.contains("WorkMesh MCP Skill"));
 
     client.shut_down().await.expect("shutdown");
 

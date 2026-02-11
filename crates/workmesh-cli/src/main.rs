@@ -40,7 +40,7 @@ use workmesh_core::session::{
     resume_summary, task_summary, write_checkpoint, write_working_set, CheckpointOptions,
 };
 use workmesh_core::skills::{
-    detect_user_agents, install_embedded_skill, install_embedded_skill_global_auto,
+    detect_user_agents, embedded_skill_ids, install_embedded_skill, install_embedded_skill_global_auto,
     load_skill_content, SkillAgent, SkillScope,
 };
 use workmesh_core::task::{load_tasks, load_tasks_with_archive, Lease, Task};
@@ -73,6 +73,26 @@ struct Cli {
 enum Command {
     /// Diagnostics for repo layout, focus, index, and skill installation
     Doctor {
+        #[arg(long, action = ArgAction::SetTrue)]
+        json: bool,
+    },
+    /// Install bundled WorkMesh skill packs (playwright-style convenience command)
+    Install {
+        /// Install skill packs into agent skill directories
+        #[arg(long, action = ArgAction::SetTrue)]
+        skills: bool,
+        /// Skill profile to install
+        #[arg(long, value_enum, default_value_t = SkillProfileArg::All)]
+        profile: SkillProfileArg,
+        /// Install scope: project (default) or user
+        #[arg(long, value_enum, default_value_t = SkillScopeArg::Project)]
+        scope: SkillScopeArg,
+        /// Which agent(s) to install for
+        #[arg(long, value_enum, default_value_t = SkillAgentArg::All)]
+        agent: SkillAgentArg,
+        /// Overwrite existing SKILL.md files
+        #[arg(long, action = ArgAction::SetTrue)]
+        force: bool,
         #[arg(long, action = ArgAction::SetTrue)]
         json: bool,
     },
@@ -695,12 +715,33 @@ enum SkillAgentArg {
     All,
 }
 
+#[derive(Debug, Copy, Clone, ValueEnum)]
+enum SkillProfileArg {
+    /// Hybrid router skill (auto-select CLI or MCP mode)
+    Hybrid,
+    /// CLI-only profile
+    Cli,
+    /// MCP-only profile
+    Mcp,
+    /// Install all profiles (hybrid + cli + mcp)
+    All,
+}
+
 impl From<SkillScopeArg> for SkillScope {
     fn from(value: SkillScopeArg) -> Self {
         match value {
             SkillScopeArg::User => SkillScope::User,
             SkillScopeArg::Project => SkillScope::Project,
         }
+    }
+}
+
+fn skill_names_for_profile(profile: SkillProfileArg) -> Vec<&'static str> {
+    match profile {
+        SkillProfileArg::Hybrid => vec!["workmesh"],
+        SkillProfileArg::Cli => vec!["workmesh-cli"],
+        SkillProfileArg::Mcp => vec!["workmesh-mcp"],
+        SkillProfileArg::All => embedded_skill_ids(),
     }
 }
 
@@ -1211,6 +1252,62 @@ fn main() -> Result<()> {
             }
             if result.agents_snippet_written {
                 println!("AGENTS.md updated");
+            }
+        }
+        return Ok(());
+    }
+
+    if let Command::Install {
+        skills,
+        profile,
+        scope,
+        agent,
+        force,
+        json,
+    } = &cli.command
+    {
+        if !skills {
+            die("install currently supports only --skills");
+        }
+        let repo_root = repo_root_from_backlog(&cli.root);
+        let mut written = Vec::new();
+        let names = skill_names_for_profile(*profile);
+        for name in names.iter() {
+            let paths = install_embedded_skill(
+                Some(&repo_root),
+                (*scope).into(),
+                (*agent).into(),
+                name,
+                *force,
+            )?;
+            written.extend(paths);
+        }
+        if *json {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&serde_json::json!({
+                    "ok": true,
+                    "profile": format!("{:?}", profile).to_lowercase(),
+                    "scope": format!("{:?}", scope).to_lowercase(),
+                    "agent": format!("{:?}", agent).to_lowercase(),
+                    "skills": names,
+                    "written": written
+                }))?
+            );
+        } else {
+            println!(
+                "Installed profile={} scope={} agent={} skills={}",
+                format!("{:?}", profile).to_lowercase(),
+                format!("{:?}", scope).to_lowercase(),
+                format!("{:?}", agent).to_lowercase(),
+                names.join(", ")
+            );
+            if written.is_empty() {
+                println!("(no files written)");
+            } else {
+                for path in written {
+                    println!("{}", path.display());
+                }
             }
         }
         return Ok(());
@@ -2942,6 +3039,9 @@ fn main() -> Result<()> {
         }
         Command::Quickstart { .. } => {
             unreachable!("quickstart handled before backlog resolution");
+        }
+        Command::Install { .. } => {
+            unreachable!("install handled before backlog resolution");
         }
         Command::Doctor { .. } => {
             unreachable!("doctor handled before backlog resolution");
