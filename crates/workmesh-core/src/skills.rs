@@ -20,6 +20,18 @@ pub struct SkillContent {
     pub content: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+pub struct SkillInstallReport {
+    pub written: Vec<PathBuf>,
+    pub skipped: Vec<PathBuf>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+pub struct SkillUninstallReport {
+    pub removed: Vec<PathBuf>,
+    pub missing: Vec<PathBuf>,
+}
+
 #[derive(Debug, Copy, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum SkillScope {
     User,
@@ -37,12 +49,18 @@ pub enum SkillAgent {
 const WORKMESH_SKILL_ID: &str = "workmesh";
 const WORKMESH_CLI_SKILL_ID: &str = "workmesh-cli";
 const WORKMESH_MCP_SKILL_ID: &str = "workmesh-mcp";
-const WORKMESH_SKILL_MARKDOWN: &str =
-    include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../skills/workmesh/SKILL.md"));
-const WORKMESH_CLI_SKILL_MARKDOWN: &str =
-    include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../skills/workmesh-cli/SKILL.md"));
-const WORKMESH_MCP_SKILL_MARKDOWN: &str =
-    include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../skills/workmesh-mcp/SKILL.md"));
+const WORKMESH_SKILL_MARKDOWN: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../skills/workmesh/SKILL.md"
+));
+const WORKMESH_CLI_SKILL_MARKDOWN: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../skills/workmesh-cli/SKILL.md"
+));
+const WORKMESH_MCP_SKILL_MARKDOWN: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../skills/workmesh-mcp/SKILL.md"
+));
 
 pub fn embedded_skill_ids() -> Vec<&'static str> {
     vec![
@@ -99,9 +117,21 @@ fn embedded_skill_content(name: &str) -> Option<SkillContent> {
 fn find_skill_content_on_disk(repo_root: &Path, name: &str) -> Option<SkillContent> {
     // Prefer agent-standard locations first (project-level), then fall back to `skills/` at repo root.
     let candidates = [
-        repo_root.join(".codex").join("skills").join(name).join("SKILL.md"),
-        repo_root.join(".claude").join("skills").join(name).join("SKILL.md"),
-        repo_root.join(".cursor").join("skills").join(name).join("SKILL.md"),
+        repo_root
+            .join(".codex")
+            .join("skills")
+            .join(name)
+            .join("SKILL.md"),
+        repo_root
+            .join(".claude")
+            .join("skills")
+            .join(name)
+            .join("SKILL.md"),
+        repo_root
+            .join(".cursor")
+            .join("skills")
+            .join(name)
+            .join("SKILL.md"),
         repo_root.join("skills").join(name).join("SKILL.md"),
     ];
     for path in candidates {
@@ -125,23 +155,34 @@ pub fn install_embedded_skill(
     name: &str,
     force: bool,
 ) -> Result<Vec<PathBuf>> {
+    Ok(install_embedded_skill_report(repo_root, scope, agent, name, force)?.written)
+}
+
+pub fn install_embedded_skill_report(
+    repo_root: Option<&Path>,
+    scope: SkillScope,
+    agent: SkillAgent,
+    name: &str,
+    force: bool,
+) -> Result<SkillInstallReport> {
     let skill = embedded_skill_content(name)
         .ok_or_else(|| anyhow!("No embedded skill found with name: {}", name))?;
 
     let targets = install_targets(repo_root, scope, agent)?;
-    let mut written = Vec::new();
+    let mut report = SkillInstallReport::default();
     for dir in targets {
         let path = dir.join(&skill.name).join("SKILL.md");
         if path.exists() && !force {
+            report.skipped.push(path);
             continue;
         }
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent)?;
         }
         fs::write(&path, &skill.content)?;
-        written.push(path);
+        report.written.push(path);
     }
-    Ok(written)
+    Ok(report)
 }
 
 pub fn detect_user_agents() -> Result<Vec<SkillAgent>> {
@@ -165,6 +206,13 @@ pub fn detect_user_agents_in_home(home: &Path) -> Vec<SkillAgent> {
 }
 
 pub fn install_embedded_skill_global_auto(name: &str, force: bool) -> Result<Vec<PathBuf>> {
+    Ok(install_embedded_skill_global_auto_report(name, force)?.written)
+}
+
+pub fn install_embedded_skill_global_auto_report(
+    name: &str,
+    force: bool,
+) -> Result<SkillInstallReport> {
     let home =
         home_dir().ok_or_else(|| anyhow!("Unable to resolve home dir; set HOME/USERPROFILE"))?;
     let agents = detect_user_agents_in_home(&home);
@@ -174,20 +222,80 @@ pub fn install_embedded_skill_global_auto(name: &str, force: bool) -> Result<Vec
             home.display()
         ));
     }
-    let mut written = Vec::new();
+    let mut report = SkillInstallReport::default();
     for agent in agents {
-        written.extend(install_embedded_skill(
-            None,
-            SkillScope::User,
-            agent,
-            name,
-            force,
-        )?);
+        let partial = install_embedded_skill_report(None, SkillScope::User, agent, name, force)?;
+        report.written.extend(partial.written);
+        report.skipped.extend(partial.skipped);
     }
-    Ok(written)
+    Ok(report)
 }
 
-fn install_targets(repo_root: Option<&Path>, scope: SkillScope, agent: SkillAgent) -> Result<Vec<PathBuf>> {
+pub fn uninstall_embedded_skill(
+    repo_root: Option<&Path>,
+    scope: SkillScope,
+    agent: SkillAgent,
+    name: &str,
+) -> Result<Vec<PathBuf>> {
+    Ok(uninstall_embedded_skill_report(repo_root, scope, agent, name)?.removed)
+}
+
+pub fn uninstall_embedded_skill_report(
+    repo_root: Option<&Path>,
+    scope: SkillScope,
+    agent: SkillAgent,
+    name: &str,
+) -> Result<SkillUninstallReport> {
+    let skill = embedded_skill_content(name)
+        .ok_or_else(|| anyhow!("No embedded skill found with name: {}", name))?;
+
+    let targets = install_targets(repo_root, scope, agent)?;
+    let mut report = SkillUninstallReport::default();
+    for dir in targets {
+        let path = dir.join(&skill.name).join("SKILL.md");
+        if path.exists() {
+            fs::remove_file(&path)?;
+            if let Some(skill_dir) = path.parent() {
+                if skill_dir.read_dir()?.next().is_none() {
+                    let _ = fs::remove_dir(skill_dir);
+                }
+            }
+            report.removed.push(path);
+        } else {
+            report.missing.push(path);
+        }
+    }
+    Ok(report)
+}
+
+pub fn uninstall_embedded_skill_global_auto(name: &str) -> Result<Vec<PathBuf>> {
+    Ok(uninstall_embedded_skill_global_auto_report(name)?.removed)
+}
+
+pub fn uninstall_embedded_skill_global_auto_report(name: &str) -> Result<SkillUninstallReport> {
+    let home =
+        home_dir().ok_or_else(|| anyhow!("Unable to resolve home dir; set HOME/USERPROFILE"))?;
+    let agents = detect_user_agents_in_home(&home);
+    if agents.is_empty() {
+        return Err(anyhow!(
+            "No agents detected under {} (expected ~/.codex, ~/.claude, and/or ~/.cursor)",
+            home.display()
+        ));
+    }
+    let mut report = SkillUninstallReport::default();
+    for agent in agents {
+        let partial = uninstall_embedded_skill_report(None, SkillScope::User, agent, name)?;
+        report.removed.extend(partial.removed);
+        report.missing.extend(partial.missing);
+    }
+    Ok(report)
+}
+
+fn install_targets(
+    repo_root: Option<&Path>,
+    scope: SkillScope,
+    agent: SkillAgent,
+) -> Result<Vec<PathBuf>> {
     let agents = match agent {
         SkillAgent::All => vec![SkillAgent::Codex, SkillAgent::Claude, SkillAgent::Cursor],
         other => vec![other],
@@ -231,13 +339,17 @@ fn project_skill_root(repo_root: &Path, agent: SkillAgent) -> PathBuf {
 }
 
 fn home_dir() -> Option<PathBuf> {
-    let home = std::env::var("HOME").ok().map(|value| value.trim().to_string());
+    let home = std::env::var("HOME")
+        .ok()
+        .map(|value| value.trim().to_string());
     if let Some(home) = home {
         if !home.is_empty() {
             return Some(PathBuf::from(home));
         }
     }
-    let profile = std::env::var("USERPROFILE").ok().map(|value| value.trim().to_string());
+    let profile = std::env::var("USERPROFILE")
+        .ok()
+        .map(|value| value.trim().to_string());
     if let Some(profile) = profile {
         if !profile.is_empty() {
             return Some(PathBuf::from(profile));
@@ -309,7 +421,11 @@ mod tests {
             .join("workmesh")
             .join("SKILL.md");
         fs::create_dir_all(path.parent().unwrap()).expect("mkdir");
-        fs::write(&path, "---\nname: workmesh\ndescription: test\n---\n# from disk\n").expect("write");
+        fs::write(
+            &path,
+            "---\nname: workmesh\ndescription: test\n---\n# from disk\n",
+        )
+        .expect("write");
 
         let skill = load_skill_content(Some(repo), "workmesh").expect("skill");
         assert!(skill.content.contains("# from disk"));
@@ -442,8 +558,14 @@ mod tests {
 
     #[test]
     fn install_embedded_skill_project_scope_requires_repo_root() {
-        let err = install_embedded_skill(None, SkillScope::Project, SkillAgent::Codex, "workmesh", true)
-            .unwrap_err();
+        let err = install_embedded_skill(
+            None,
+            SkillScope::Project,
+            SkillAgent::Codex,
+            "workmesh",
+            true,
+        )
+        .unwrap_err();
         assert!(format!("{err:#}").contains("Project scope requires a repo root"));
     }
 
@@ -456,14 +578,20 @@ mod tests {
                 install_embedded_skill(None, SkillScope::User, SkillAgent::Codex, "workmesh", true)
                     .expect("install 1");
             assert_eq!(written1.len(), 1);
-            let path = &written1[0];
-            fs::write(path, "do not overwrite").expect("overwrite with sentinel");
+            let path = written1[0].clone();
+            fs::write(&path, "do not overwrite").expect("overwrite with sentinel");
 
-            let written2 =
-                install_embedded_skill(None, SkillScope::User, SkillAgent::Codex, "workmesh", false)
-                    .expect("install 2");
-            assert!(written2.is_empty());
-            assert_eq!(fs::read_to_string(path).expect("read"), "do not overwrite");
+            let report = install_embedded_skill_report(
+                None,
+                SkillScope::User,
+                SkillAgent::Codex,
+                "workmesh",
+                false,
+            )
+            .expect("install 2");
+            assert!(report.written.is_empty());
+            assert_eq!(report.skipped, vec![path.clone()]);
+            assert_eq!(fs::read_to_string(&path).expect("read"), "do not overwrite");
         });
     }
 
@@ -473,6 +601,68 @@ mod tests {
         with_home(temp.path(), || {
             let err = install_embedded_skill_global_auto("workmesh", true).unwrap_err();
             assert!(format!("{err:#}").contains("No agents detected"));
+        });
+    }
+
+    #[test]
+    fn uninstall_embedded_skill_removes_installed_file() {
+        let temp = TempDir::new().expect("tempdir");
+        with_home(temp.path(), || {
+            let written =
+                install_embedded_skill(None, SkillScope::User, SkillAgent::Codex, "workmesh", true)
+                    .expect("install");
+            assert_eq!(written.len(), 1);
+            let path = &written[0];
+            assert!(path.exists());
+
+            let report = uninstall_embedded_skill_report(
+                None,
+                SkillScope::User,
+                SkillAgent::Codex,
+                "workmesh",
+            )
+            .expect("uninstall");
+            assert_eq!(report.removed, vec![path.clone()]);
+            assert!(report.missing.is_empty());
+            assert!(!path.exists());
+        });
+    }
+
+    #[test]
+    fn uninstall_embedded_skill_reports_missing_file() {
+        let temp = TempDir::new().expect("tempdir");
+        with_home(temp.path(), || {
+            let report = uninstall_embedded_skill_report(
+                None,
+                SkillScope::User,
+                SkillAgent::Codex,
+                "workmesh",
+            )
+            .expect("uninstall");
+            assert!(report.removed.is_empty());
+            assert_eq!(report.missing.len(), 1);
+            let suffix = Path::new(".codex")
+                .join("skills")
+                .join("workmesh")
+                .join("SKILL.md");
+            assert!(report.missing[0].ends_with(&suffix));
+        });
+    }
+
+    #[test]
+    fn uninstall_global_auto_reports_removed_and_missing() {
+        let temp = TempDir::new().expect("tempdir");
+        with_home(temp.path(), || {
+            fs::create_dir_all(temp.path().join(".codex")).expect("codex dir");
+            let written =
+                install_embedded_skill(None, SkillScope::User, SkillAgent::Codex, "workmesh", true)
+                    .expect("install");
+            assert_eq!(written.len(), 1);
+
+            let report =
+                uninstall_embedded_skill_global_auto_report("workmesh").expect("uninstall");
+            assert_eq!(report.removed.len(), 1);
+            assert!(report.missing.is_empty());
         });
     }
 
