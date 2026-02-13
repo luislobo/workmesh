@@ -211,6 +211,36 @@ Integration points:
   - task scope: prioritizes listed task ids
   - active work (`In Progress` / leased) stays first within scope
 
+## Worktrees (parallel execution layer)
+Use git worktrees to run multiple agents in parallel while keeping context and sessions explicit.
+
+CLI workflow:
+```bash
+# list known worktrees (git + registry)
+workmesh --root . worktree list --json
+
+# create a worktree + branch (optionally seed context)
+workmesh --root . worktree create \
+  --path ../repo-feature-a \
+  --branch feature/a \
+  --project workmesh \
+  --objective "Implement feature A" \
+  --json
+
+# bind current/specified session to a worktree
+workmesh --root . worktree attach --path ../repo-feature-a --json
+
+# diagnose drift (missing paths, stale registry entries)
+workmesh --root . worktree doctor --json
+```
+
+MCP tools:
+- `worktree_list`
+- `worktree_create`
+- `worktree_attach`
+- `worktree_detach`
+- `worktree_doctor`
+
 ## Views and diagnostics
 These commands are meant to be "high leverage" in human+agent workflows.
 
@@ -384,7 +414,8 @@ Auto session updates (opt-in):
 - Env: `WORKMESH_AUTO_SESSION=1`
 
 When enabled, mutating commands update the current global session with best-effort context:
-repo root, inferred project id, working set (in progress tasks / active leases), and a git snapshot.
+repo root, inferred project id, working set (in progress tasks / active leases), git snapshot,
+and worktree binding metadata when available.
 ## Migration from legacy backlog/
 WorkMesh prefers `workmesh/` (or `.workmesh/`). If it detects a legacy `backlog/` layout, the CLI will prompt to migrate.
 
@@ -577,6 +608,9 @@ Context:
 - `context set|show|clear` (primary)
 - `focus set|show|clear` (deprecated alias)
 
+Worktrees:
+- `worktree list|create|attach|detach|doctor`
+
 Index:
 - `index-rebuild`, `index-refresh`, `index-verify`
 
@@ -607,6 +641,7 @@ Auto session updates (opt-in):
 - Project scaffolding via `project-init` (CLI) / `project_init` (MCP).
 - Validation for required fields, missing dependencies, and missing project docs.
 - Checkpoints + resume + diff for session continuity.
+- Worktree runtime tooling for parallel agent execution (`worktree list/create/attach/detach/doctor`).
 - Bulk update operations for common task mutations (CLI + MCP).
 
 ## Repo layout

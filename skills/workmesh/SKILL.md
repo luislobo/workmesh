@@ -28,7 +28,8 @@ workmesh --root . install --skills --profile mcp --scope project
 ## Ground rules (applies to all modes)
 - Keep tasks small and outcome-based.
 - Record dependencies and blockers so ready work is queryable.
-- Use focus to scope work and reduce context thrash.
+- Use context to scope work and reduce thrash between sessions.
+- For parallel agent work, prefer separate git worktrees and attach sessions to those worktrees.
 - Claim before changes in multi-agent workflows.
 - Keep task metadata complete and current: `Description`, `Acceptance Criteria`, and `Definition of Done`.
 - Move a task to `Done` only when the task goals in `Description` are met and all `Acceptance Criteria` are satisfied.

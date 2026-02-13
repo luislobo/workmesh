@@ -41,6 +41,7 @@ fn append_and_load_sessions_returns_latest_snapshots() {
         checkpoint: None,
         recent_changes: None,
         handoff: None,
+        worktree: None,
     };
     let s2 = AgentSession {
         id: id2.clone(),
@@ -57,6 +58,7 @@ fn append_and_load_sessions_returns_latest_snapshots() {
         checkpoint: None,
         recent_changes: None,
         handoff: None,
+        worktree: None,
     };
 
     append_session_saved(home, s1).expect("append s1");
@@ -99,6 +101,7 @@ fn rebuild_and_verify_sessions_index() {
         checkpoint: None,
         recent_changes: None,
         handoff: None,
+        worktree: None,
     };
     append_session_saved(home, session).expect("append");
 

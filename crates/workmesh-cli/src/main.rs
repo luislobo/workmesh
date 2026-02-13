@@ -26,6 +26,7 @@ use workmesh_core::global_sessions::{
     append_session_saved, load_sessions_latest_fast, new_session_id, now_rfc3339,
     read_current_session_id, rebuild_sessions_index, refresh_sessions_index, resolve_workmesh_home,
     set_current_session, verify_sessions_index, AgentSession, CheckpointRef, GitSnapshot,
+    WorktreeBinding,
 };
 use workmesh_core::id_fix::{fix_duplicate_task_ids, FixIdsOptions};
 use workmesh_core::index::{rebuild_index, refresh_index, verify_index};
@@ -63,6 +64,10 @@ use workmesh_core::task_ops::{
 };
 use workmesh_core::views::{
     blockers_report_with_context, board_lanes, scope_ids_from_context, BoardBy,
+};
+use workmesh_core::worktrees::{
+    create_git_worktree, current_branch as current_worktree_branch, doctor_worktrees,
+    find_worktree_record_by_path, list_worktree_views, upsert_worktree_record, WorktreeRecord,
 };
 
 #[derive(Parser)]
@@ -331,6 +336,11 @@ enum Command {
     Session {
         #[command(subcommand)]
         command: SessionCommand,
+    },
+    /// Git worktree runtime orchestration for parallel agent workflows
+    Worktree {
+        #[command(subcommand)]
+        command: WorktreeCommand,
     },
     /// Repo-local context (project/objective/scope)
     Context {
@@ -1081,6 +1091,60 @@ enum ContextCommand {
 }
 
 #[derive(Subcommand)]
+enum WorktreeCommand {
+    /// List known worktrees (git + registry)
+    List {
+        #[arg(long, action = ArgAction::SetTrue)]
+        json: bool,
+    },
+    /// Create a new git worktree and optionally seed context
+    Create {
+        #[arg(long)]
+        path: PathBuf,
+        #[arg(long)]
+        branch: String,
+        /// Optional starting point (branch/commit/tag)
+        #[arg(long)]
+        from: Option<String>,
+        /// Optional context seed project id
+        #[arg(long)]
+        project: Option<String>,
+        /// Optional context seed epic id
+        #[arg(long)]
+        epic: Option<String>,
+        /// Optional context seed objective
+        #[arg(long)]
+        objective: Option<String>,
+        /// Optional context seed task list (CSV)
+        #[arg(long)]
+        tasks: Option<String>,
+        #[arg(long, action = ArgAction::SetTrue)]
+        json: bool,
+    },
+    /// Attach the current (or specified) session to a worktree path
+    Attach {
+        #[arg(long)]
+        session_id: Option<String>,
+        #[arg(long)]
+        path: Option<PathBuf>,
+        #[arg(long, action = ArgAction::SetTrue)]
+        json: bool,
+    },
+    /// Detach worktree metadata from the current (or specified) session
+    Detach {
+        #[arg(long)]
+        session_id: Option<String>,
+        #[arg(long, action = ArgAction::SetTrue)]
+        json: bool,
+    },
+    /// Diagnose stale/missing worktree records
+    Doctor {
+        #[arg(long, action = ArgAction::SetTrue)]
+        json: bool,
+    },
+}
+
+#[derive(Subcommand)]
 enum MigrateCommand {
     /// Detect legacy/deprecated structures and suggest migrations
     Audit {
@@ -1461,6 +1525,15 @@ fn render_session_detail(session: &AgentSession) -> String {
     if let Some(checkpoint) = session.checkpoint.as_ref() {
         lines.push(format!("checkpoint: {}", checkpoint.path));
     }
+    if let Some(worktree) = session.worktree.as_ref() {
+        lines.push(format!("worktree.path: {}", worktree.path));
+        if let Some(branch) = worktree.branch.as_deref() {
+            lines.push(format!("worktree.branch: {}", branch));
+        }
+        if let Some(id) = worktree.id.as_deref() {
+            lines.push(format!("worktree.id: {}", id));
+        }
+    }
     if let Some(handoff) = session.handoff.as_ref() {
         if !handoff.completed.is_empty() {
             lines.push(format!(
@@ -1497,7 +1570,11 @@ fn render_session_detail(session: &AgentSession) -> String {
 
 fn resume_script(session: &AgentSession) -> Vec<String> {
     let mut lines = Vec::new();
-    lines.push(format!("cd {}", session.cwd));
+    if let Some(worktree) = session.worktree.as_ref() {
+        lines.push(format!("cd {}", worktree.path));
+    } else {
+        lines.push(format!("cd {}", session.cwd));
+    }
 
     if let Some(repo_root) = session.repo_root.as_deref() {
         lines.push(format!("workmesh --root {} context show", repo_root));
@@ -1568,6 +1645,8 @@ fn auto_update_current_session(backlog_dir: &Path) -> Result<()> {
     }
 
     let now = now_rfc3339();
+    let worktree = best_effort_worktree_binding(&home, &cwd, Some(repo_root.as_str()))
+        .or(existing.worktree.clone());
     let updated = AgentSession {
         id: existing.id.clone(),
         created_at: existing.created_at.clone(),
@@ -1583,6 +1662,7 @@ fn auto_update_current_session(backlog_dir: &Path) -> Result<()> {
         checkpoint,
         recent_changes,
         handoff: existing.handoff.clone(),
+        worktree,
     };
 
     append_session_saved(&home, updated.clone())?;
@@ -2518,6 +2598,7 @@ fn main() -> Result<()> {
                     }
 
                     let now = now_rfc3339();
+                    let worktree = best_effort_worktree_binding(&home, &cwd, repo_root.as_deref());
                     let session = AgentSession {
                         id: new_session_id(),
                         created_at: now.clone(),
@@ -2533,6 +2614,7 @@ fn main() -> Result<()> {
                         checkpoint,
                         recent_changes,
                         handoff: None,
+                        worktree,
                     };
 
                     append_session_saved(&home, session.clone())?;
@@ -2626,6 +2708,11 @@ fn main() -> Result<()> {
                     }
                 }
             }
+        }
+        Command::Worktree { command } => {
+            let repo_root = repo_root_from_backlog(&backlog_dir);
+            let home = resolve_workmesh_home()?;
+            handle_worktree_command(&repo_root, &home, command)?;
         }
         Command::Context { command } => {
             let repo_root = repo_root_from_backlog(&backlog_dir);
@@ -3753,6 +3840,300 @@ fn handle_migrate_command(resolution: &BacklogResolution, target: &str, yes: boo
             println!("Destination exists: {}", path.display());
         }
         Err(err) => return Err(err.into()),
+    }
+    Ok(())
+}
+
+fn normalize_path(path: &Path) -> PathBuf {
+    let absolute = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        std::env::current_dir()
+            .unwrap_or_else(|_| PathBuf::from("."))
+            .join(path)
+    };
+    absolute.canonicalize().unwrap_or(absolute)
+}
+
+fn normalize_path_string(path: &Path) -> String {
+    normalize_path(path).to_string_lossy().to_string()
+}
+
+fn best_effort_worktree_binding(
+    home: &Path,
+    cwd: &Path,
+    repo_root: Option<&str>,
+) -> Option<WorktreeBinding> {
+    let registry = find_worktree_record_by_path(home, cwd).ok().flatten();
+    let branch =
+        current_worktree_branch(cwd).or_else(|| registry.as_ref().and_then(|r| r.branch.clone()));
+    let id = registry.as_ref().map(|r| r.id.clone());
+    let repo_root_value = registry
+        .as_ref()
+        .map(|r| r.repo_root.clone())
+        .or_else(|| repo_root.map(|value| normalize_path_string(Path::new(value))));
+
+    if branch.is_none() && id.is_none() {
+        return None;
+    }
+
+    Some(WorktreeBinding {
+        id,
+        path: normalize_path_string(cwd),
+        branch,
+        repo_root: repo_root_value,
+    })
+}
+
+fn handle_worktree_command(repo_root: &Path, home: &Path, command: WorktreeCommand) -> Result<()> {
+    match command {
+        WorktreeCommand::List { json } => {
+            let entries = list_worktree_views(repo_root, home)?;
+            if json {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&serde_json::json!({
+                        "repo_root": normalize_path_string(repo_root),
+                        "registry_path": workmesh_core::worktrees::worktrees_registry_path(home),
+                        "worktrees": entries
+                    }))?
+                );
+            } else if entries.is_empty() {
+                println!("(no worktrees)");
+            } else {
+                for entry in entries {
+                    let branch = entry.branch.unwrap_or_else(|| "-".to_string());
+                    let issues = if entry.issues.is_empty() {
+                        "ok".to_string()
+                    } else {
+                        entry.issues.join(",")
+                    };
+                    println!(
+                        "{} | branch={} | sources={} | issues={}",
+                        entry.path,
+                        branch,
+                        entry.source.join("+"),
+                        issues
+                    );
+                }
+            }
+        }
+        WorktreeCommand::Create {
+            path,
+            branch,
+            from,
+            project,
+            epic,
+            objective,
+            tasks,
+            json,
+        } => {
+            let created = create_git_worktree(repo_root, &path, &branch, from.as_deref())?;
+            let record = upsert_worktree_record(
+                home,
+                WorktreeRecord {
+                    id: String::new(),
+                    repo_root: normalize_path_string(repo_root),
+                    path: created.path.clone(),
+                    branch: created.branch.clone().or_else(|| Some(branch.clone())),
+                    created_at: String::new(),
+                    updated_at: String::new(),
+                    attached_session_id: read_current_session_id(home),
+                },
+            )?;
+
+            let should_seed_context = project.is_some()
+                || epic.is_some()
+                || objective.is_some()
+                || tasks
+                    .as_deref()
+                    .map(|value| !value.trim().is_empty())
+                    .unwrap_or(false);
+            let mut context_seeded = false;
+            let mut warnings = Vec::new();
+
+            if should_seed_context {
+                let seed_root = normalize_path(&path);
+                match resolve_backlog(&seed_root) {
+                    Ok(resolution) => {
+                        let task_ids = tasks
+                            .as_deref()
+                            .filter(|value| !value.trim().is_empty())
+                            .map(split_csv)
+                            .unwrap_or_default();
+                        let inferred_epic = epic
+                            .clone()
+                            .or_else(|| extract_task_id_from_branch(&branch));
+                        let scope = if inferred_epic
+                            .as_deref()
+                            .map(|id| !id.trim().is_empty())
+                            .unwrap_or(false)
+                        {
+                            ContextScope {
+                                mode: ContextScopeMode::Epic,
+                                epic_id: inferred_epic,
+                                task_ids: Vec::new(),
+                            }
+                        } else if !task_ids.is_empty() {
+                            ContextScope {
+                                mode: ContextScopeMode::Tasks,
+                                epic_id: None,
+                                task_ids,
+                            }
+                        } else {
+                            ContextScope {
+                                mode: ContextScopeMode::None,
+                                epic_id: None,
+                                task_ids: Vec::new(),
+                            }
+                        };
+                        let _ = save_context(
+                            &resolution.backlog_dir,
+                            ContextState {
+                                version: 1,
+                                project_id: project
+                                    .clone()
+                                    .or_else(|| infer_project_id(&seed_root)),
+                                objective: objective.clone(),
+                                scope,
+                                updated_at: None,
+                            },
+                        )?;
+                        context_seeded = true;
+                    }
+                    Err(_) => warnings.push(format!(
+                        "context seed skipped (no workmesh/tasks found under {})",
+                        seed_root.display()
+                    )),
+                }
+            }
+
+            if json {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&serde_json::json!({
+                        "ok": true,
+                        "worktree": created,
+                        "registry": record,
+                        "context_seeded": context_seeded,
+                        "warnings": warnings
+                    }))?
+                );
+            } else {
+                println!("Created worktree at {}", record.path);
+                if context_seeded {
+                    println!("Seeded context for new worktree.");
+                }
+                for warning in warnings {
+                    println!("warning: {}", warning);
+                }
+            }
+        }
+        WorktreeCommand::Attach {
+            session_id,
+            path,
+            json,
+        } => {
+            let session_id = session_id
+                .or_else(|| read_current_session_id(home))
+                .unwrap_or_else(|| {
+                    die("No session id provided and no current session pointer found")
+                });
+            let sessions = load_sessions_latest_fast(home)?;
+            let existing = sessions
+                .into_iter()
+                .find(|s| s.id == session_id)
+                .unwrap_or_else(|| die(&format!("Session not found: {}", session_id)));
+
+            let selected_path = match path {
+                Some(path) => path,
+                None => std::env::current_dir()?,
+            };
+            let normalized_path = normalize_path_string(&selected_path);
+            let branch = current_worktree_branch(&selected_path);
+            let repo_root_value = existing
+                .repo_root
+                .clone()
+                .unwrap_or_else(|| normalize_path_string(repo_root));
+            let existing_record = find_worktree_record_by_path(home, &selected_path)?;
+            let record = upsert_worktree_record(
+                home,
+                WorktreeRecord {
+                    id: existing_record
+                        .as_ref()
+                        .map(|record| record.id.clone())
+                        .unwrap_or_default(),
+                    repo_root: repo_root_value,
+                    path: normalized_path,
+                    branch: branch.clone(),
+                    created_at: existing_record
+                        .as_ref()
+                        .map(|record| record.created_at.clone())
+                        .unwrap_or_default(),
+                    updated_at: String::new(),
+                    attached_session_id: Some(session_id.clone()),
+                },
+            )?;
+            let binding = WorktreeBinding {
+                id: Some(record.id.clone()),
+                path: record.path.clone(),
+                branch: record.branch.clone().or(branch),
+                repo_root: Some(record.repo_root.clone()),
+            };
+            let mut updated = existing.clone();
+            updated.updated_at = now_rfc3339();
+            updated.worktree = Some(binding.clone());
+            append_session_saved(home, updated.clone())?;
+            set_current_session(home, &updated.id)?;
+
+            if json {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&serde_json::json!({
+                        "ok": true,
+                        "session": updated,
+                        "worktree": binding
+                    }))?
+                );
+            } else {
+                println!("Attached session {} to {}", updated.id, binding.path);
+            }
+        }
+        WorktreeCommand::Detach { session_id, json } => {
+            let session_id = session_id
+                .or_else(|| read_current_session_id(home))
+                .unwrap_or_else(|| {
+                    die("No session id provided and no current session pointer found")
+                });
+            let sessions = load_sessions_latest_fast(home)?;
+            let existing = sessions
+                .into_iter()
+                .find(|s| s.id == session_id)
+                .unwrap_or_else(|| die(&format!("Session not found: {}", session_id)));
+            let mut updated = existing.clone();
+            updated.updated_at = now_rfc3339();
+            updated.worktree = None;
+            append_session_saved(home, updated.clone())?;
+            set_current_session(home, &updated.id)?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&updated)?);
+            } else {
+                println!("Detached worktree from session {}", updated.id);
+            }
+        }
+        WorktreeCommand::Doctor { json } => {
+            let report = doctor_worktrees(repo_root, home)?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&report)?);
+            } else if report.issues.is_empty() {
+                println!("worktrees: ok");
+            } else {
+                println!("worktrees: {} issue(s)", report.issues.len());
+                for issue in report.issues {
+                    println!("- {}", issue);
+                }
+            }
+        }
     }
     Ok(())
 }

@@ -15,13 +15,18 @@ CLI:
 - `quickstart <project-id> [--agents-snippet]`
 - `project-init <project-id> [--name "..."]`
 - `doctor [--json]`
-- `migrate [--to workmesh] [--yes]`
+- `migrate audit [--json]`
+- `migrate plan [--include ...] [--exclude ...] [--json]`
+- `migrate apply [--include ...] [--exclude ...] [--apply] [--backup] [--json]`
 
 MCP:
 - `quickstart`
 - `project_init`
 - `doctor`
 - `migrate_backlog`
+- `migrate_audit`
+- `migrate_plan`
+- `migrate_apply`
 
 ## Read views (pick the next work)
 CLI:
@@ -86,16 +91,33 @@ MCP:
 - `bulk_add_dependency` / `bulk_remove_dependency`
 - `bulk_add_note`
 
-## Focus (keep agents scoped)
+## Context (keep agents scoped)
 CLI:
-- `focus show [--json]`
-- `focus set --project-id <pid> [--epic-id task-123] [--objective "..."]`
-- `focus clear`
+- `context show [--json]`
+- `context set --project <pid> [--epic task-123] [--objective "..."] [--tasks task-001,task-002]`
+- `context clear`
+- Deprecated alias: `focus show|set|clear`
 
 MCP:
-- `focus_show`
-- `focus_set`
-- `focus_clear`
+- `context_show`
+- `context_set`
+- `context_clear`
+- Deprecated alias: `focus_show|focus_set|focus_clear`
+
+## Worktree runtime (parallel agent execution)
+CLI:
+- `worktree list [--json]`
+- `worktree create --path <path> --branch <branch> [--from <ref>] [--project <pid>] [--epic task-123] [--objective "..."] [--tasks task-001,task-002] [--json]`
+- `worktree attach [--session-id <id>] [--path <path>] [--json]`
+- `worktree detach [--session-id <id>] [--json]`
+- `worktree doctor [--json]`
+
+MCP:
+- `worktree_list`
+- `worktree_create`
+- `worktree_attach`
+- `worktree_detach`
+- `worktree_doctor`
 
 ## Archive and hygiene
 CLI:

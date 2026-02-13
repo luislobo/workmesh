@@ -21,7 +21,8 @@ workmesh --root . install --skills --profile cli --scope project
 ## Baseline checks
 ```bash
 workmesh --root . doctor --json
-workmesh --root . focus show --json
+workmesh --root . context show --json
+workmesh --root . worktree list --json
 ```
 
 ## High-signal command loop
@@ -41,17 +42,22 @@ Notation:
 
 Bootstrap:
 ```text
-quickstart -> focus set -> list --status "To Do" -> next
+quickstart -> context set -> list --status "To Do" -> next
 ```
 
 Daily loop:
 ```text
-focus show -> next -> claim -> set-status(In Progress) -> work -> note -> set-status(Done) -> release
+context show -> next -> claim -> set-status(In Progress) -> work -> note -> set-status(Done) -> release
 ```
 
 Continuity:
 ```text
-session save -> stop -> session resume -> focus show -> next -> claim
+session save -> stop -> session resume -> context show -> next -> claim
+```
+
+Parallel worktree loop:
+```text
+worktree create -> worktree attach -> context set -> next -> claim
 ```
 
 Hygiene:
@@ -63,6 +69,7 @@ doctor -> blockers -> board --focus -> validate -> index-refresh
 - Board: `workmesh --root . board --by status --focus`
 - Blockers: `workmesh --root . blockers`
 - Graph export: `workmesh --root . graph-export --pretty`
+- Worktree health: `workmesh --root . worktree doctor --json`
 
 ## Rules
 - Prefer `--json` for agent parsing.

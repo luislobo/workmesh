@@ -27,6 +27,17 @@ pub struct RecentChanges {
     pub files: Vec<String>,
 }
 
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+pub struct WorktreeBinding {
+    #[serde(default)]
+    pub id: Option<String>,
+    pub path: String,
+    #[serde(default)]
+    pub branch: Option<String>,
+    #[serde(default)]
+    pub repo_root: Option<String>,
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, Default)]
 pub struct HandoffSummary {
     #[serde(default)]
@@ -59,6 +70,8 @@ pub struct AgentSession {
     pub recent_changes: Option<RecentChanges>,
     #[serde(default)]
     pub handoff: Option<HandoffSummary>,
+    #[serde(default)]
+    pub worktree: Option<WorktreeBinding>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -356,6 +369,7 @@ mod tests {
             checkpoint: None,
             recent_changes: None,
             handoff: None,
+            worktree: None,
         }
     }
 

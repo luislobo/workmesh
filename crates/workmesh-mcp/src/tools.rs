@@ -29,7 +29,7 @@ use workmesh_core::gantt::{plantuml_gantt, render_plantuml_svg, write_text_file}
 use workmesh_core::global_sessions::{
     append_session_saved, load_sessions_latest, new_session_id, now_rfc3339,
     read_current_session_id, resolve_workmesh_home, set_current_session, AgentSession,
-    CheckpointRef, GitSnapshot, RecentChanges,
+    CheckpointRef, GitSnapshot, RecentChanges, WorktreeBinding,
 };
 use workmesh_core::id_fix::{fix_duplicate_task_ids, FixIdsOptions};
 use workmesh_core::index::{rebuild_index, refresh_index, verify_index};
@@ -60,6 +60,10 @@ use workmesh_core::task_ops::{
 };
 use workmesh_core::views::{
     blockers_report_with_context, board_lanes, scope_ids_from_context, BoardBy,
+};
+use workmesh_core::worktrees::{
+    create_git_worktree, current_branch as current_worktree_branch, doctor_worktrees,
+    find_worktree_record_by_path, list_worktree_views, upsert_worktree_record, WorktreeRecord,
 };
 
 const ROOT_REQUIRED_ERROR: &str = "root is required for MCP calls unless the server is started within a repo containing tasks/ or backlog/tasks";
@@ -262,6 +266,11 @@ fn tool_catalog() -> Vec<serde_json::Value> {
         serde_json::json!({"name": "focus_show", "summary": "Deprecated alias for context_show."}),
         serde_json::json!({"name": "focus_set", "summary": "Deprecated alias for context_set."}),
         serde_json::json!({"name": "focus_clear", "summary": "Deprecated alias for context_clear."}),
+        serde_json::json!({"name": "worktree_list", "summary": "List worktrees (git + registry)."}),
+        serde_json::json!({"name": "worktree_create", "summary": "Create a git worktree and register it."}),
+        serde_json::json!({"name": "worktree_attach", "summary": "Attach current/specified session to a worktree."}),
+        serde_json::json!({"name": "worktree_detach", "summary": "Detach worktree from current/specified session."}),
+        serde_json::json!({"name": "worktree_doctor", "summary": "Diagnose worktree registry drift and missing paths."}),
         serde_json::json!({"name": "list_tasks", "summary": "List tasks with filters and sorting."}),
         serde_json::json!({"name": "show_task", "summary": "Show a single task by id."}),
         serde_json::json!({"name": "next_task", "summary": "Get the next context-relevant task (active/leased first, else next ready To Do)."}),
@@ -411,6 +420,70 @@ pub struct FocusSetTool {
 )]
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct FocusClearTool {
+    pub root: Option<String>,
+    #[serde(default = "default_format")]
+    pub format: String,
+}
+
+#[mcp_tool(
+    name = "worktree_list",
+    description = "List worktrees (git + registry)."
+)]
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct WorktreeListTool {
+    pub root: Option<String>,
+    #[serde(default = "default_format")]
+    pub format: String,
+}
+
+#[mcp_tool(
+    name = "worktree_create",
+    description = "Create a git worktree and register it (optional context seed)."
+)]
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct WorktreeCreateTool {
+    pub root: Option<String>,
+    pub path: String,
+    pub branch: String,
+    pub from: Option<String>,
+    pub project_id: Option<String>,
+    pub epic_id: Option<String>,
+    pub objective: Option<String>,
+    pub tasks: Option<ListInput>,
+    #[serde(default = "default_format")]
+    pub format: String,
+}
+
+#[mcp_tool(
+    name = "worktree_attach",
+    description = "Attach current/specified session to a worktree path."
+)]
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct WorktreeAttachTool {
+    pub root: Option<String>,
+    pub session_id: Option<String>,
+    pub path: Option<String>,
+    #[serde(default = "default_format")]
+    pub format: String,
+}
+
+#[mcp_tool(
+    name = "worktree_detach",
+    description = "Detach worktree metadata from current/specified session."
+)]
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct WorktreeDetachTool {
+    pub session_id: Option<String>,
+    #[serde(default = "default_format")]
+    pub format: String,
+}
+
+#[mcp_tool(
+    name = "worktree_doctor",
+    description = "Diagnose worktree registry drift and missing paths."
+)]
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct WorktreeDoctorTool {
     pub root: Option<String>,
     #[serde(default = "default_format")]
     pub format: String,
@@ -1226,6 +1299,11 @@ tool_box!(
         FocusShowTool,
         FocusSetTool,
         FocusClearTool,
+        WorktreeListTool,
+        WorktreeCreateTool,
+        WorktreeAttachTool,
+        WorktreeDetachTool,
+        WorktreeDoctorTool,
         ListTasksTool,
         ShowTaskTool,
         NextTaskTool,
@@ -1325,6 +1403,11 @@ impl ServerHandler for WorkmeshServerHandler {
             WorkmeshTools::FocusShowTool(tool) => tool.call(&self.context),
             WorkmeshTools::FocusSetTool(tool) => tool.call(&self.context),
             WorkmeshTools::FocusClearTool(tool) => tool.call(&self.context),
+            WorkmeshTools::WorktreeListTool(tool) => tool.call(&self.context),
+            WorkmeshTools::WorktreeCreateTool(tool) => tool.call(&self.context),
+            WorkmeshTools::WorktreeAttachTool(tool) => tool.call(&self.context),
+            WorkmeshTools::WorktreeDetachTool(tool) => tool.call(&self.context),
+            WorkmeshTools::WorktreeDoctorTool(tool) => tool.call(&self.context),
             WorkmeshTools::ListTasksTool(tool) => tool.call(&self.context),
             WorkmeshTools::ShowTaskTool(tool) => tool.call(&self.context),
             WorkmeshTools::NextTaskTool(tool) => tool.call(&self.context),
@@ -1655,6 +1738,320 @@ impl FocusSetTool {
 impl FocusClearTool {
     fn call(&self, context: &McpContext) -> Result<CallToolResult, CallToolError> {
         call_context_clear(context, self.root.as_deref(), "focus_clear")
+    }
+}
+
+fn normalize_path(path: &Path) -> PathBuf {
+    let absolute = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        std::env::current_dir()
+            .unwrap_or_else(|_| PathBuf::from("."))
+            .join(path)
+    };
+    absolute.canonicalize().unwrap_or(absolute)
+}
+
+fn normalize_path_string(path: &Path) -> String {
+    normalize_path(path).to_string_lossy().to_string()
+}
+
+fn best_effort_worktree_binding(
+    home: &Path,
+    cwd: &Path,
+    repo_root: Option<&str>,
+) -> Option<WorktreeBinding> {
+    let registry = find_worktree_record_by_path(home, cwd).ok().flatten();
+    let branch =
+        current_worktree_branch(cwd).or_else(|| registry.as_ref().and_then(|r| r.branch.clone()));
+    let id = registry.as_ref().map(|r| r.id.clone());
+    let repo_root_value = registry
+        .as_ref()
+        .map(|r| r.repo_root.clone())
+        .or_else(|| repo_root.map(|value| normalize_path_string(Path::new(value))));
+    if branch.is_none() && id.is_none() {
+        return None;
+    }
+    Some(WorktreeBinding {
+        id,
+        path: normalize_path_string(cwd),
+        branch,
+        repo_root: repo_root_value,
+    })
+}
+
+impl WorktreeListTool {
+    fn call(&self, context: &McpContext) -> Result<CallToolResult, CallToolError> {
+        let backlog_dir = match resolve_root(context, self.root.as_deref()) {
+            Ok(dir) => dir,
+            Err(err) => return ok_json(err),
+        };
+        let repo_root = repo_root_from_backlog(&backlog_dir);
+        let home =
+            resolve_workmesh_home().map_err(|err| CallToolError::from_message(err.to_string()))?;
+        let entries = list_worktree_views(&repo_root, &home)
+            .map_err(|err| CallToolError::from_message(err.to_string()))?;
+        if self.format == "text" {
+            if entries.is_empty() {
+                return ok_text("(no worktrees)".to_string());
+            }
+            let body = entries
+                .iter()
+                .map(|entry| {
+                    format!(
+                        "{} | branch={} | sources={} | issues={}",
+                        entry.path,
+                        entry.branch.clone().unwrap_or_else(|| "-".to_string()),
+                        entry.source.join("+"),
+                        if entry.issues.is_empty() {
+                            "ok".to_string()
+                        } else {
+                            entry.issues.join(",")
+                        }
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join("\n");
+            return ok_text(body);
+        }
+        ok_json(serde_json::json!({
+            "repo_root": normalize_path_string(&repo_root),
+            "registry_path": workmesh_core::worktrees::worktrees_registry_path(&home),
+            "worktrees": entries
+        }))
+    }
+}
+
+impl WorktreeCreateTool {
+    fn call(&self, context: &McpContext) -> Result<CallToolResult, CallToolError> {
+        let backlog_dir = match resolve_root(context, self.root.as_deref()) {
+            Ok(dir) => dir,
+            Err(err) => return ok_json(err),
+        };
+        let repo_root = repo_root_from_backlog(&backlog_dir);
+        let home =
+            resolve_workmesh_home().map_err(|err| CallToolError::from_message(err.to_string()))?;
+
+        let created = create_git_worktree(
+            &repo_root,
+            Path::new(self.path.trim()),
+            self.branch.trim(),
+            self.from.as_deref(),
+        )
+        .map_err(|err| CallToolError::from_message(err.to_string()))?;
+        let record = upsert_worktree_record(
+            &home,
+            WorktreeRecord {
+                id: String::new(),
+                repo_root: normalize_path_string(&repo_root),
+                path: created.path.clone(),
+                branch: created.branch.clone().or_else(|| Some(self.branch.clone())),
+                created_at: String::new(),
+                updated_at: String::new(),
+                attached_session_id: read_current_session_id(&home),
+            },
+        )
+        .map_err(|err| CallToolError::from_message(err.to_string()))?;
+
+        let should_seed_context = self.project_id.is_some()
+            || self.epic_id.is_some()
+            || self.objective.is_some()
+            || self
+                .tasks
+                .as_ref()
+                .map(|_| !parse_list_input(self.tasks.clone()).is_empty())
+                .unwrap_or(false);
+        let mut context_seeded = false;
+        let mut warnings = Vec::new();
+        if should_seed_context {
+            let seed_root = normalize_path(Path::new(self.path.trim()));
+            match resolve_backlog(&seed_root) {
+                Ok(resolution) => {
+                    let task_ids = parse_list_input(self.tasks.clone());
+                    let inferred_epic = self
+                        .epic_id
+                        .clone()
+                        .or_else(|| extract_task_id_from_branch(self.branch.trim()));
+                    let scope = if inferred_epic
+                        .as_deref()
+                        .map(|value| !value.trim().is_empty())
+                        .unwrap_or(false)
+                    {
+                        ContextScope {
+                            mode: ContextScopeMode::Epic,
+                            epic_id: inferred_epic,
+                            task_ids: Vec::new(),
+                        }
+                    } else if !task_ids.is_empty() {
+                        ContextScope {
+                            mode: ContextScopeMode::Tasks,
+                            epic_id: None,
+                            task_ids,
+                        }
+                    } else {
+                        ContextScope {
+                            mode: ContextScopeMode::None,
+                            epic_id: None,
+                            task_ids: Vec::new(),
+                        }
+                    };
+                    let _ = save_context(
+                        &resolution.backlog_dir,
+                        ContextState {
+                            version: 1,
+                            project_id: self
+                                .project_id
+                                .clone()
+                                .or_else(|| infer_project_id(&seed_root)),
+                            objective: self.objective.clone(),
+                            scope,
+                            updated_at: None,
+                        },
+                    )
+                    .map_err(|err| CallToolError::from_message(err.to_string()))?;
+                    context_seeded = true;
+                }
+                Err(_) => warnings.push(format!(
+                    "context seed skipped (no workmesh/tasks found under {})",
+                    seed_root.display()
+                )),
+            }
+        }
+
+        ok_json(serde_json::json!({
+            "ok": true,
+            "worktree": created,
+            "registry": record,
+            "context_seeded": context_seeded,
+            "warnings": warnings
+        }))
+    }
+}
+
+impl WorktreeAttachTool {
+    fn call(&self, _context: &McpContext) -> Result<CallToolResult, CallToolError> {
+        let home =
+            resolve_workmesh_home().map_err(|err| CallToolError::from_message(err.to_string()))?;
+        let session_id = self
+            .session_id
+            .clone()
+            .or_else(|| read_current_session_id(&home))
+            .ok_or_else(|| CallToolError::from_message("No session id provided"))?;
+        let sessions = load_sessions_latest(&home)
+            .map_err(|err| CallToolError::from_message(err.to_string()))?;
+        let existing = sessions
+            .into_iter()
+            .find(|session| session.id == session_id)
+            .ok_or_else(|| CallToolError::from_message("Session not found"))?;
+
+        let path = self
+            .path
+            .as_deref()
+            .map(|value| value.trim())
+            .filter(|value| !value.is_empty())
+            .map(PathBuf::from)
+            .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
+        let existing_record = find_worktree_record_by_path(&home, &path)
+            .map_err(|err| CallToolError::from_message(err.to_string()))?;
+        let repo_root = existing
+            .repo_root
+            .clone()
+            .unwrap_or_else(|| normalize_path_string(&path));
+        let branch = current_worktree_branch(&path);
+        let record = upsert_worktree_record(
+            &home,
+            WorktreeRecord {
+                id: existing_record
+                    .as_ref()
+                    .map(|record| record.id.clone())
+                    .unwrap_or_default(),
+                repo_root,
+                path: normalize_path_string(&path),
+                branch: branch.clone(),
+                created_at: existing_record
+                    .as_ref()
+                    .map(|record| record.created_at.clone())
+                    .unwrap_or_default(),
+                updated_at: String::new(),
+                attached_session_id: Some(session_id),
+            },
+        )
+        .map_err(|err| CallToolError::from_message(err.to_string()))?;
+        let binding = WorktreeBinding {
+            id: Some(record.id.clone()),
+            path: record.path.clone(),
+            branch: record.branch.clone().or(branch),
+            repo_root: Some(record.repo_root.clone()),
+        };
+        let mut updated = existing.clone();
+        updated.updated_at = now_rfc3339();
+        updated.worktree = Some(binding.clone());
+        append_session_saved(&home, updated.clone())
+            .map_err(|err| CallToolError::from_message(err.to_string()))?;
+        set_current_session(&home, &updated.id)
+            .map_err(|err| CallToolError::from_message(err.to_string()))?;
+        ok_json(serde_json::json!({
+            "ok": true,
+            "session": updated,
+            "worktree": binding
+        }))
+    }
+}
+
+impl WorktreeDetachTool {
+    fn call(&self, _context: &McpContext) -> Result<CallToolResult, CallToolError> {
+        let home =
+            resolve_workmesh_home().map_err(|err| CallToolError::from_message(err.to_string()))?;
+        let session_id = self
+            .session_id
+            .clone()
+            .or_else(|| read_current_session_id(&home))
+            .ok_or_else(|| CallToolError::from_message("No session id provided"))?;
+        let sessions = load_sessions_latest(&home)
+            .map_err(|err| CallToolError::from_message(err.to_string()))?;
+        let existing = sessions
+            .into_iter()
+            .find(|session| session.id == session_id)
+            .ok_or_else(|| CallToolError::from_message("Session not found"))?;
+        let mut updated = existing.clone();
+        updated.updated_at = now_rfc3339();
+        updated.worktree = None;
+        append_session_saved(&home, updated.clone())
+            .map_err(|err| CallToolError::from_message(err.to_string()))?;
+        set_current_session(&home, &updated.id)
+            .map_err(|err| CallToolError::from_message(err.to_string()))?;
+        ok_json(serde_json::to_value(updated).unwrap_or_default())
+    }
+}
+
+impl WorktreeDoctorTool {
+    fn call(&self, context: &McpContext) -> Result<CallToolResult, CallToolError> {
+        let backlog_dir = match resolve_root(context, self.root.as_deref()) {
+            Ok(dir) => dir,
+            Err(err) => return ok_json(err),
+        };
+        let repo_root = repo_root_from_backlog(&backlog_dir);
+        let home =
+            resolve_workmesh_home().map_err(|err| CallToolError::from_message(err.to_string()))?;
+        let report = doctor_worktrees(&repo_root, &home)
+            .map_err(|err| CallToolError::from_message(err.to_string()))?;
+        if self.format == "text" {
+            if report.issues.is_empty() {
+                return ok_text("worktrees: ok".to_string());
+            }
+            let body = report
+                .issues
+                .iter()
+                .map(|issue| format!("- {}", issue))
+                .collect::<Vec<_>>()
+                .join("\n");
+            return ok_text(format!(
+                "worktrees: {} issue(s)\n{}",
+                report.issues.len(),
+                body
+            ));
+        }
+        ok_json(serde_json::to_value(report).unwrap_or_default())
     }
 }
 
@@ -3200,6 +3597,7 @@ impl SessionSaveTool {
             }
         }
         let session = AgentSession {
+            worktree: best_effort_worktree_binding(&home, &cwd, repo_root.as_deref()),
             id: new_session_id(),
             created_at: now.clone(),
             updated_at: now,
@@ -3467,6 +3865,15 @@ fn render_session_detail(session: &AgentSession) -> String {
     if let Some(checkpoint) = session.checkpoint.as_ref() {
         lines.push(format!("checkpoint: {}", checkpoint.path));
     }
+    if let Some(worktree) = session.worktree.as_ref() {
+        lines.push(format!("worktree.path: {}", worktree.path));
+        if let Some(branch) = worktree.branch.as_deref() {
+            lines.push(format!("worktree.branch: {}", branch));
+        }
+        if let Some(id) = worktree.id.as_deref() {
+            lines.push(format!("worktree.id: {}", id));
+        }
+    }
     if let Some(handoff) = session.handoff.as_ref() {
         if !handoff.completed.is_empty() {
             lines.push(format!(
@@ -3503,7 +3910,11 @@ fn render_session_detail(session: &AgentSession) -> String {
 
 fn resume_script(session: &AgentSession) -> Vec<String> {
     let mut lines = Vec::new();
-    lines.push(format!("cd {}", session.cwd));
+    if let Some(worktree) = session.worktree.as_ref() {
+        lines.push(format!("cd {}", worktree.path));
+    } else {
+        lines.push(format!("cd {}", session.cwd));
+    }
 
     if let Some(repo_root) = session.repo_root.as_deref() {
         lines.push(format!("workmesh --root {} context show", repo_root));
@@ -3661,6 +4072,32 @@ fn tool_examples(name: &str) -> Vec<serde_json::Value> {
         "ready_tasks" => vec![serde_json::json!({
             "tool": "ready_tasks",
             "arguments": { "format": "json", "limit": 10 }
+        })],
+        "worktree_list" => vec![serde_json::json!({
+            "tool": "worktree_list",
+            "arguments": { "format": "json" }
+        })],
+        "worktree_create" => vec![serde_json::json!({
+            "tool": "worktree_create",
+            "arguments": {
+                "path": "../repo-feature-a",
+                "branch": "feature/a",
+                "project_id": "demo",
+                "objective": "Implement feature A",
+                "format": "json"
+            }
+        })],
+        "worktree_attach" => vec![serde_json::json!({
+            "tool": "worktree_attach",
+            "arguments": { "path": "../repo-feature-a", "format": "json" }
+        })],
+        "worktree_detach" => vec![serde_json::json!({
+            "tool": "worktree_detach",
+            "arguments": { "format": "json" }
+        })],
+        "worktree_doctor" => vec![serde_json::json!({
+            "tool": "worktree_doctor",
+            "arguments": { "format": "json" }
         })],
         "set_status" => vec![serde_json::json!({
             "tool": "set_status",
@@ -4035,6 +4472,8 @@ fn auto_update_current_session(backlog_dir: &Path, tasks: &[Task]) -> Result<(),
     }
 
     let now = now_rfc3339();
+    let worktree = best_effort_worktree_binding(&home, &cwd, Some(repo_root.as_str()))
+        .or(existing.worktree.clone());
     let updated = AgentSession {
         id: existing.id.clone(),
         created_at: existing.created_at.clone(),
@@ -4050,6 +4489,7 @@ fn auto_update_current_session(backlog_dir: &Path, tasks: &[Task]) -> Result<(),
         checkpoint,
         recent_changes,
         handoff: existing.handoff.clone(),
+        worktree,
     };
 
     append_session_saved(&home, updated.clone())?;

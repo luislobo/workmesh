@@ -161,6 +161,27 @@
         "Legacy workmesh/focus.json should be migrated to workmesh/context.json."
       ]
     },
+    "worktrees": {
+      "purpose": "Runtime execution layer for parallel agent workflows (separate from context intent).",
+      "cli": [
+        "workmesh --root . worktree list [--json]",
+        "workmesh --root . worktree create --path <path> --branch <branch> [--from <ref>] [--project <pid>] [--epic task-123] [--objective \"...\"] [--tasks task-001,task-002] [--json]",
+        "workmesh --root . worktree attach [--session-id <id>] [--path <path>] [--json]",
+        "workmesh --root . worktree detach [--session-id <id>] [--json]",
+        "workmesh --root . worktree doctor [--json]"
+      ],
+      "mcp_tools": [
+        "worktree_list",
+        "worktree_create",
+        "worktree_attach",
+        "worktree_detach",
+        "worktree_doctor"
+      ],
+      "notes": [
+        "Context remains intent-only (project/objective/scope).",
+        "Worktree metadata is stored in global sessions and registry state."
+      ]
+    },
     "views_and_diagnostics": {
       "doctor": {
         "cli": "workmesh --root . doctor --json",
@@ -229,7 +250,7 @@
           "index": "WORKMESH_HOME/.index/sessions.jsonl (derived)"
         },
         "tools": ["session save", "session list", "session show", "session resume"],
-        "purpose": "Cross-repo continuity (reboot/OS switch/machine switch)."
+        "purpose": "Cross-repo continuity (reboot/OS switch/machine switch), including optional worktree bindings."
       }
     },
     "leases": {
@@ -243,6 +264,7 @@
     "root_behavior": "If started inside a repo, root can be omitted; otherwise pass root explicitly in calls.",
     "examples": [
       { "tool": "doctor", "format": "json" },
+      { "tool": "worktree_list", "format": "json" },
       { "tool": "board", "format": "json", "by": "status", "focus": true },
       { "tool": "blockers", "format": "json" },
       { "tool": "ready_tasks", "format": "json" },

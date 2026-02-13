@@ -23,7 +23,7 @@ workmesh --root . install --skills --profile mcp --scope project
 {"tool":"doctor","format":"json"}
 ```
 ```json
-{"tool":"focus_show","format":"json"}
+{"tool":"context_show","format":"json"}
 ```
 
 ## High-signal tool loop
@@ -42,17 +42,22 @@ Notation:
 
 Bootstrap:
 ```text
-quickstart -> focus_set -> next_tasks
+quickstart -> context_set -> next_tasks
 ```
 
 Daily loop:
 ```text
-focus_show -> next_tasks -> claim_task -> set_status(In Progress) -> work -> add_note -> set_status(Done) -> release_task
+context_show -> next_tasks -> claim_task -> set_status(In Progress) -> work -> add_note -> set_status(Done) -> release_task
 ```
 
 Continuity:
 ```text
-session_save -> stop -> session_resume -> focus_show -> next_tasks -> claim_task
+session_save -> stop -> session_resume -> context_show -> next_tasks -> claim_task
+```
+
+Parallel worktree loop:
+```text
+worktree_create -> worktree_attach -> context_set -> next_tasks -> claim_task
 ```
 
 Hygiene:
