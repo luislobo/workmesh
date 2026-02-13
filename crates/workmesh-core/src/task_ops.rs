@@ -606,7 +606,8 @@ pub fn recommend_next_tasks_with_focus<'a>(
         .filter(|task| {
             task.status.eq_ignore_ascii_case("in progress")
                 || is_lease_active(task)
-                || (task.status.eq_ignore_ascii_case("to do") && blockers_satisfied(task, &done_ids))
+                || (task.status.eq_ignore_ascii_case("to do")
+                    && blockers_satisfied(task, &done_ids))
         })
         .collect();
 
@@ -618,7 +619,9 @@ pub fn recommend_next_tasks_with_focus<'a>(
                 .collect::<HashSet<_>>()
         })
         .unwrap_or_default();
-    let focus_epic_id = focus.and_then(|f| f.epic_id.as_ref()).map(|s| s.to_lowercase());
+    let focus_epic_id = focus
+        .and_then(|f| f.epic_id.as_ref())
+        .map(|s| s.to_lowercase());
     let focus_project_id = focus
         .and_then(|f| f.project_id.as_ref())
         .map(|s| s.to_lowercase());
@@ -1930,8 +1933,12 @@ mod tests {
         let temp = TempDir::new().expect("tempdir");
         let path = temp.path().join("task-001.md");
         fs::write(&path, "---\nid: task-001\ndependencies: [a]\n---\nBody\n").expect("write");
-        set_list_field(&path, "dependencies", vec!["x".to_string(), "y".to_string()])
-            .expect("set list");
+        set_list_field(
+            &path,
+            "dependencies",
+            vec!["x".to_string(), "y".to_string()],
+        )
+        .expect("set list");
         let content = fs::read_to_string(&path).expect("read");
         assert!(content.contains("dependencies: [x, y]"));
     }
@@ -1959,7 +1966,8 @@ mod tests {
 
     #[test]
     fn replace_section_replaces_existing_notes_section() {
-        let body = "Notes:\n--------------------------------------------------\n- old\n\nOther:\n- x\n";
+        let body =
+            "Notes:\n--------------------------------------------------\n- old\n\nOther:\n- x\n";
         let updated = replace_section(body, "Notes", "- new");
         assert!(updated.contains("Notes:"));
         assert!(updated.contains("- new"));

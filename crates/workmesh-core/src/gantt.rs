@@ -452,14 +452,26 @@ mod tests {
         let mut durations: HashMap<String, i32> = HashMap::new();
         durations.insert("Phase1".to_string(), 2);
 
-        let t = task("task-001", "A", "To Do", "Phase1", &["task-002", "task-003", "task-004"]);
+        let t = task(
+            "task-001",
+            "A",
+            "To Do",
+            "Phase1",
+            &["task-002", "task-003", "task-004"],
+        );
         assert_eq!(duration_for_task(&t, &durations), 4);
     }
 
     #[test]
     fn status_key_marks_blocked_until_all_dependencies_done() {
         let done: HashSet<String> = ["task-002".to_string()].into_iter().collect();
-        let blocked = task("task-001", "A", "To Do", "Phase1", &["task-002", "task-003"]);
+        let blocked = task(
+            "task-001",
+            "A",
+            "To Do",
+            "Phase1",
+            &["task-002", "task-003"],
+        );
         assert_eq!(status_key(&blocked, &done), "blocked");
 
         let unblocked = task("task-001", "A", "To Do", "Phase1", &["task-002"]);

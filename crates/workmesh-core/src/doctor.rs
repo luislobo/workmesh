@@ -6,7 +6,7 @@ use serde_json::json;
 use crate::backlog::{resolve_backlog, BacklogLayout};
 use crate::config::{config_filename_candidates, find_config_root};
 use crate::focus::{focus_path, load_focus};
-use crate::index::{index_path};
+use crate::index::index_path;
 use crate::skills::{detect_user_agents_in_home, embedded_skill_ids, SkillAgent};
 
 fn layout_name(layout: BacklogLayout) -> &'static str {
@@ -31,13 +31,17 @@ fn agent_name(agent: SkillAgent) -> &'static str {
 }
 
 fn home_dir() -> Option<PathBuf> {
-    let home = std::env::var("HOME").ok().map(|value| value.trim().to_string());
+    let home = std::env::var("HOME")
+        .ok()
+        .map(|value| value.trim().to_string());
     if let Some(home) = home {
         if !home.is_empty() {
             return Some(PathBuf::from(home));
         }
     }
-    let profile = std::env::var("USERPROFILE").ok().map(|value| value.trim().to_string());
+    let profile = std::env::var("USERPROFILE")
+        .ok()
+        .map(|value| value.trim().to_string());
     if let Some(profile) = profile {
         if !profile.is_empty() {
             return Some(PathBuf::from(profile));
@@ -111,19 +115,16 @@ pub fn doctor_report(root: &Path, running_binary: &str) -> serde_json::Value {
     });
 
     let focus_path = focus_path(&backlog_dir);
-    let focus = load_focus(&backlog_dir)
-        .ok()
-        .flatten()
-        .map(|f| {
-            json!({
-                "path": focus_path.to_string_lossy().to_string(),
-                "project_id": f.project_id,
-                "epic_id": f.epic_id,
-                "objective": f.objective,
-                "working_set_count": f.working_set.len(),
-                "updated_at": f.updated_at,
-            })
-        });
+    let focus = load_focus(&backlog_dir).ok().flatten().map(|f| {
+        json!({
+            "path": focus_path.to_string_lossy().to_string(),
+            "project_id": f.project_id,
+            "epic_id": f.epic_id,
+            "objective": f.objective,
+            "working_set_count": f.working_set.len(),
+            "updated_at": f.updated_at,
+        })
+    });
 
     let idx_path = index_path(&backlog_dir);
     let index = json!({
@@ -237,8 +238,11 @@ mod tests {
             // Index file (derived).
             let index_dir = repo.join("workmesh").join(".index");
             std::fs::create_dir_all(&index_dir).expect("mkdir index");
-            std::fs::write(index_dir.join("tasks.jsonl"), "{\"id\":\"task-test-001\"}\n")
-                .expect("write index");
+            std::fs::write(
+                index_dir.join("tasks.jsonl"),
+                "{\"id\":\"task-test-001\"}\n",
+            )
+            .expect("write index");
 
             // Skills detection: point HOME at temp and create ~/.codex to be detected.
             std::env::set_var("HOME", repo);
@@ -246,7 +250,10 @@ mod tests {
             std::fs::create_dir_all(repo.join(".codex").join("skills").join("workmesh"))
                 .expect("mkdir skill");
             std::fs::write(
-                repo.join(".codex").join("skills").join("workmesh").join("SKILL.md"),
+                repo.join(".codex")
+                    .join("skills")
+                    .join("workmesh")
+                    .join("SKILL.md"),
                 "test",
             )
             .expect("write skill");

@@ -962,7 +962,14 @@ mod tests {
             expires_at: None,
         };
         let tasks = vec![
-            task("task-010", "A", "To Do", None, None, Some(lease_active.clone())),
+            task(
+                "task-010",
+                "A",
+                "To Do",
+                None,
+                None,
+                Some(lease_active.clone()),
+            ),
             task("task-002", "B", "To Do", None, None, Some(lease_active)),
             task("task-001", "C", "To Do", None, None, Some(lease_inactive)),
         ];

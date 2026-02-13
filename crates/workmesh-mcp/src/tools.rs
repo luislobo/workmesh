@@ -21,9 +21,8 @@ use workmesh_core::backlog::{
 };
 use workmesh_core::doctor::doctor_report;
 use workmesh_core::focus::{
-    clear_focus, extract_task_id_from_branch, infer_project_id, load_focus, save_focus, FocusState,
-    update_focus_for_task_mutation,
-    maybe_auto_clean_focus,
+    clear_focus, extract_task_id_from_branch, infer_project_id, load_focus, maybe_auto_clean_focus,
+    save_focus, update_focus_for_task_mutation, FocusState,
 };
 use workmesh_core::gantt::{plantuml_gantt, render_plantuml_svg, write_text_file};
 use workmesh_core::global_sessions::{
@@ -32,8 +31,10 @@ use workmesh_core::global_sessions::{
     CheckpointRef, GitSnapshot, RecentChanges,
 };
 use workmesh_core::id_fix::{fix_duplicate_task_ids, FixIdsOptions};
-use workmesh_core::initiative::{best_effort_git_branch as core_git_branch, ensure_branch_initiative, next_namespaced_task_id};
 use workmesh_core::index::{rebuild_index, refresh_index, verify_index};
+use workmesh_core::initiative::{
+    best_effort_git_branch as core_git_branch, ensure_branch_initiative, next_namespaced_task_id,
+};
 use workmesh_core::migration::migrate_backlog;
 use workmesh_core::project::{ensure_project_docs, repo_root_from_backlog};
 use workmesh_core::quickstart::quickstart;
@@ -46,13 +47,13 @@ use workmesh_core::session::{
 };
 use workmesh_core::task::{load_tasks, load_tasks_with_archive, Lease, Task};
 use workmesh_core::task_ops::{
-    append_note, create_task_file, filter_tasks, graph_export, is_lease_active, now_timestamp,
-    ready_tasks, recommend_next_tasks_with_focus, render_task_line, replace_section, set_list_field,
-    sort_tasks, status_counts, task_to_json_value, tasks_to_jsonl, timestamp_plus_minutes,
-    update_body, update_lease_fields, update_task_field, update_task_field_or_section,
-    validate_tasks, FieldValue, ensure_can_mark_done,
+    append_note, create_task_file, ensure_can_mark_done, filter_tasks, graph_export,
+    is_lease_active, now_timestamp, ready_tasks, recommend_next_tasks_with_focus, render_task_line,
+    replace_section, set_list_field, sort_tasks, status_counts, task_to_json_value, tasks_to_jsonl,
+    timestamp_plus_minutes, update_body, update_lease_fields, update_task_field,
+    update_task_field_or_section, validate_tasks, FieldValue,
 };
-use workmesh_core::views::{board_lanes, blockers_report, scope_ids_from_focus, BoardBy};
+use workmesh_core::views::{blockers_report, board_lanes, scope_ids_from_focus, BoardBy};
 
 const ROOT_REQUIRED_ERROR: &str = "root is required for MCP calls unless the server is started within a repo containing tasks/ or backlog/tasks";
 
@@ -169,7 +170,10 @@ fn resolve_repo_root(context: &McpContext, root: Option<&str>) -> PathBuf {
     std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
 }
 
-fn read_skill_content(repo_root: &Path, name: &str) -> Result<workmesh_core::skills::SkillContent, serde_json::Value> {
+fn read_skill_content(
+    repo_root: &Path,
+    name: &str,
+) -> Result<workmesh_core::skills::SkillContent, serde_json::Value> {
     match workmesh_core::skills::load_skill_content(Some(repo_root), name) {
         Some(skill) => Ok(skill),
         None => Err(serde_json::json!({
@@ -1304,8 +1308,8 @@ impl ReadmeTool {
         let path = repo_root.join("README.json");
         let raw = std::fs::read_to_string(&path)
             .map_err(|err| CallToolError::from_message(err.to_string()))?;
-        let parsed: serde_json::Value =
-            serde_json::from_str(&raw).map_err(|err| CallToolError::from_message(err.to_string()))?;
+        let parsed: serde_json::Value = serde_json::from_str(&raw)
+            .map_err(|err| CallToolError::from_message(err.to_string()))?;
 
         if self.format == "text" {
             return ok_text(raw);
@@ -1793,7 +1797,9 @@ impl SetStatusTool {
             serde_json::json!({ "status": self.status.clone() }),
         )?;
         refresh_index_best_effort(&backlog_dir);
-        if update_focus_for_task_mutation(&backlog_dir, &task.id, Some(&self.status), None).unwrap_or(false) {
+        if update_focus_for_task_mutation(&backlog_dir, &task.id, Some(&self.status), None)
+            .unwrap_or(false)
+        {
             audit_event(
                 &backlog_dir,
                 "focus_auto_update",
@@ -1943,7 +1949,9 @@ impl BulkSetStatusTool {
                 Some(&task.id),
                 serde_json::json!({ "status": self.status.clone() }),
             )?;
-            if update_focus_for_task_mutation(&backlog_dir, &task.id, Some(&self.status), None).unwrap_or(false) {
+            if update_focus_for_task_mutation(&backlog_dir, &task.id, Some(&self.status), None)
+                .unwrap_or(false)
+            {
                 audit_event(
                     &backlog_dir,
                     "focus_auto_update",
@@ -2292,7 +2300,9 @@ impl ClaimTaskTool {
             }),
         )?;
         refresh_index_best_effort(&backlog_dir);
-        if update_focus_for_task_mutation(&backlog_dir, &task.id, None, Some(&lease.owner)).unwrap_or(false) {
+        if update_focus_for_task_mutation(&backlog_dir, &task.id, None, Some(&lease.owner))
+            .unwrap_or(false)
+        {
             audit_event(
                 &backlog_dir,
                 "focus_auto_update",
@@ -2340,7 +2350,9 @@ impl ReleaseTaskTool {
             .as_ref()
             .and_then(|t| t.lease.as_ref())
             .map(|l| l.owner.as_str());
-        if update_focus_for_task_mutation(&backlog_dir, &task.id, status_after, owner_after).unwrap_or(false) {
+        if update_focus_for_task_mutation(&backlog_dir, &task.id, status_after, owner_after)
+            .unwrap_or(false)
+        {
             audit_event(
                 &backlog_dir,
                 "focus_auto_update",
@@ -2639,14 +2651,9 @@ impl FixIdsTool {
             Err(err) => return ok_json(err),
         };
         let tasks = load_tasks(&backlog_dir);
-        let report = fix_duplicate_task_ids(
-            &backlog_dir,
-            &tasks,
-            FixIdsOptions {
-                apply: self.apply,
-            },
-        )
-        .map_err(CallToolError::new)?;
+        let report =
+            fix_duplicate_task_ids(&backlog_dir, &tasks, FixIdsOptions { apply: self.apply })
+                .map_err(CallToolError::new)?;
 
         if self.apply {
             audit_event(
@@ -3975,11 +3982,8 @@ Body\n",
         let (temp, root_arg, context) = init_repo();
         let repo_root = temp.path().to_path_buf();
         let readme_path = repo_root.join("README.json");
-        std::fs::write(
-            &readme_path,
-            "{\"name\":\"WorkMesh\",\"tagline\":\"test\"}",
-        )
-        .expect("write readme");
+        std::fs::write(&readme_path, "{\"name\":\"WorkMesh\",\"tagline\":\"test\"}")
+            .expect("write readme");
 
         let result = ReadmeTool {
             root: Some(root_arg),
@@ -3988,8 +3992,7 @@ Body\n",
         .call(&context)
         .expect("readme");
 
-        let parsed: serde_json::Value =
-            serde_json::from_str(&text_payload(result)).expect("json");
+        let parsed: serde_json::Value = serde_json::from_str(&text_payload(result)).expect("json");
         assert_eq!(parsed["ok"], true);
         assert_eq!(parsed["readme"]["name"], "WorkMesh");
     }
@@ -4001,7 +4004,14 @@ Body\n",
 
         write_task_with_meta(&tasks_dir, "task-010", "Low", "To Do", "P3", "Phase2");
         write_task_with_meta(&tasks_dir, "task-002", "High", "To Do", "P1", "Phase2");
-        write_task_with_meta(&tasks_dir, "task-001", "HighPhase1", "To Do", "P1", "Phase1");
+        write_task_with_meta(
+            &tasks_dir,
+            "task-001",
+            "HighPhase1",
+            "To Do",
+            "P1",
+            "Phase1",
+        );
         // Focus: working set should win even if the task is otherwise lower priority.
         let focus_path = temp.path().join("workmesh").join("focus.json");
         let focus = FocusState {
@@ -4011,8 +4021,11 @@ Body\n",
             working_set: vec!["task-010".to_string()],
             updated_at: None,
         };
-        std::fs::write(&focus_path, serde_json::to_string_pretty(&focus).expect("focus json"))
-            .expect("write focus");
+        std::fs::write(
+            &focus_path,
+            serde_json::to_string_pretty(&focus).expect("focus json"),
+        )
+        .expect("write focus");
 
         let result = NextTasksTool {
             root: Some(root_arg),
@@ -4022,8 +4035,7 @@ Body\n",
         .call(&context)
         .expect("next_tasks");
 
-        let parsed: serde_json::Value =
-            serde_json::from_str(&text_payload(result)).expect("json");
+        let parsed: serde_json::Value = serde_json::from_str(&text_payload(result)).expect("json");
         let ids: Vec<String> = parsed
             .as_array()
             .expect("array")
@@ -4137,8 +4149,11 @@ Body\n",
             working_set: vec!["task-001".to_string()],
             updated_at: None,
         };
-        std::fs::write(&focus_path, serde_json::to_string_pretty(&focus).expect("focus"))
-            .expect("write focus");
+        std::fs::write(
+            &focus_path,
+            serde_json::to_string_pretty(&focus).expect("focus"),
+        )
+        .expect("write focus");
 
         // Derived index file.
         let index_dir = temp.path().join("workmesh").join(".index");
@@ -4174,8 +4189,11 @@ Body\n",
             working_set: vec!["task-003".to_string()],
             updated_at: None,
         };
-        std::fs::write(&focus_path, serde_json::to_string_pretty(&focus).expect("focus"))
-            .expect("write focus");
+        std::fs::write(
+            &focus_path,
+            serde_json::to_string_pretty(&focus).expect("focus"),
+        )
+        .expect("write focus");
 
         let tool = BoardTool {
             root: Some(root_arg),
@@ -4292,8 +4310,11 @@ assignee: []\n\
             working_set: vec![],
             updated_at: None,
         };
-        std::fs::write(&focus_path, serde_json::to_string_pretty(&focus).expect("focus"))
-            .expect("write focus");
+        std::fs::write(
+            &focus_path,
+            serde_json::to_string_pretty(&focus).expect("focus"),
+        )
+        .expect("write focus");
 
         let tool = BlockersTool {
             root: Some(root_arg),
@@ -4308,6 +4329,9 @@ assignee: []\n\
             .and_then(|v| v.as_array())
             .unwrap();
         assert_eq!(blocked.len(), 1);
-        assert_eq!(blocked[0].get("id").and_then(|v| v.as_str()), Some("task-101"));
+        assert_eq!(
+            blocked[0].get("id").and_then(|v| v.as_str()),
+            Some("task-101")
+        );
     }
 }

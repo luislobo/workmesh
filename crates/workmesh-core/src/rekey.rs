@@ -5,9 +5,9 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 use serde_yaml::Value;
 
+use crate::task::{load_tasks, load_tasks_with_archive, Task};
 use crate::task::{split_front_matter, TaskParseError};
 use crate::task_ops::graph_export;
-use crate::task::{load_tasks, load_tasks_with_archive, Task};
 
 #[derive(Debug, Clone, Default)]
 pub struct RekeyPromptOptions {
@@ -263,7 +263,10 @@ fn parse_front_matter_loose(front: &str) -> HashMap<String, Value> {
     data
 }
 
-fn rewrite_id_refs_in_list_count(list: &mut Vec<Value>, mapping_lc: &HashMap<String, String>) -> usize {
+fn rewrite_id_refs_in_list_count(
+    list: &mut Vec<Value>,
+    mapping_lc: &HashMap<String, String>,
+) -> usize {
     let mut changed = 0usize;
     for entry in list.iter_mut() {
         let Some(s) = entry.as_str() else { continue };
@@ -278,8 +281,17 @@ fn rewrite_id_refs_in_list_count(list: &mut Vec<Value>, mapping_lc: &HashMap<Str
     changed
 }
 
-fn rewrite_known_ref_fields(map: &mut serde_yaml::Mapping, mapping_lc: &HashMap<String, String>) -> usize {
-    let list_keys = ["dependencies", "blocked_by", "parent", "child", "discovered_from"];
+fn rewrite_known_ref_fields(
+    map: &mut serde_yaml::Mapping,
+    mapping_lc: &HashMap<String, String>,
+) -> usize {
+    let list_keys = [
+        "dependencies",
+        "blocked_by",
+        "parent",
+        "child",
+        "discovered_from",
+    ];
     let mut changed = 0usize;
 
     for key in list_keys {
@@ -309,7 +321,11 @@ fn rewrite_known_ref_fields(map: &mut serde_yaml::Mapping, mapping_lc: &HashMap<
     changed
 }
 
-fn rename_task_file_prefix(old_path: &Path, old_id: &str, new_id: &str) -> Result<Option<PathBuf>, TaskParseError> {
+fn rename_task_file_prefix(
+    old_path: &Path,
+    old_id: &str,
+    new_id: &str,
+) -> Result<Option<PathBuf>, TaskParseError> {
     let file_name = old_path
         .file_name()
         .and_then(|s| s.to_str())
@@ -439,7 +455,9 @@ pub fn rekey_apply(
     for task in &tasks {
         let old_id = task.id.clone();
         let key = old_id.to_lowercase();
-        let Some(new_id) = mapping_lc.get(&key) else { continue };
+        let Some(new_id) = mapping_lc.get(&key) else {
+            continue;
+        };
         let path = task
             .file_path
             .clone()
@@ -472,7 +490,8 @@ pub fn rekey_apply(
             .clone()
             .ok_or_else(|| TaskParseError::Invalid(format!("Missing path for {}", old_id)))?;
 
-        let text = fs::read_to_string(&path).map_err(|err| TaskParseError::Invalid(err.to_string()))?;
+        let text =
+            fs::read_to_string(&path).map_err(|err| TaskParseError::Invalid(err.to_string()))?;
         let (front, body) = split_front_matter(&text)?;
         let mut map = parse_front_matter_tolerant(&front);
 
@@ -490,7 +509,10 @@ pub fn rekey_apply(
         let mut renamed = false;
         let mut new_path = None;
         if let Some(new_id) = mapping_lc.get(&old_id.to_lowercase()) {
-            map.insert(Value::String("id".to_string()), Value::String(new_id.clone()));
+            map.insert(
+                Value::String("id".to_string()),
+                Value::String(new_id.clone()),
+            );
             renamed = true;
         }
 
@@ -507,20 +529,14 @@ pub fn rekey_apply(
             front
         };
 
-        let updated = format!(
-            "---\n{}\n---\n{}",
-            rendered_front.trim_end(),
-            new_body
-        );
+        let updated = format!("---\n{}\n---\n{}", rendered_front.trim_end(), new_body);
         if updated != text {
             fs::write(&path, updated).map_err(|err| TaskParseError::Invalid(err.to_string()))?;
         }
 
         // Rename file if the id changed.
         if renamed {
-            let new_id = mapping_lc
-                .get(&old_id.to_lowercase())
-                .expect("mapped");
+            let new_id = mapping_lc.get(&old_id.to_lowercase()).expect("mapped");
             new_path = rename_task_file_prefix(&path, &old_id, new_id)?;
         }
 
@@ -536,7 +552,9 @@ pub fn rekey_apply(
     }
 
     if applied.is_empty() && !mapping_lc.is_empty() {
-        warnings.push("Mapping applied, but no tasks were rekeyed (check id casing/spacing).".to_string());
+        warnings.push(
+            "Mapping applied, but no tasks were rekeyed (check id casing/spacing).".to_string(),
+        );
     }
 
     Ok(RekeyReport {
@@ -678,7 +696,9 @@ Body\n",
                 .cloned()
                 .unwrap_or_default()
         };
-        assert!(blocked_by.iter().any(|v| v.as_str() == Some("task-logi-001")));
+        assert!(blocked_by
+            .iter()
+            .any(|v| v.as_str() == Some("task-logi-001")));
 
         // Alpha file should be renamed (prefix replaced) if it started with old id.
         let renamed_path = report.changes[0].new_path.clone().expect("new path");

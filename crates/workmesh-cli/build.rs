@@ -20,7 +20,9 @@ fn rerun_if_changed(path: &str) {
         p.to_path_buf()
     } else {
         // If current_dir fails, fall back to the raw path (still works relative to the crate dir).
-        std::env::current_dir().map(|cwd| cwd.join(p)).unwrap_or_else(|_| p.to_path_buf())
+        std::env::current_dir()
+            .map(|cwd| cwd.join(p))
+            .unwrap_or_else(|_| p.to_path_buf())
     };
     println!("cargo:rerun-if-changed={}", abs.display());
 }

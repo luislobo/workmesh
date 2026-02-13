@@ -371,7 +371,10 @@ mod tests {
 
         let resolution = resolve_backlog(temp.path()).expect("resolve");
         assert_eq!(resolution.layout, BacklogLayout::HiddenWorkmesh);
-        assert_eq!(canon(&resolution.backlog_dir), canon(&temp.path().join(".workmesh")));
+        assert_eq!(
+            canon(&resolution.backlog_dir),
+            canon(&temp.path().join(".workmesh"))
+        );
         assert!(resolution.config.is_some());
     }
 

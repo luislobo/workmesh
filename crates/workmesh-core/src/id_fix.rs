@@ -83,18 +83,34 @@ fn next_free_legacy_dup_id(old_id: &str, used: &HashSet<String>) -> String {
     }
 }
 
-fn rename_task_file(old_path: &Path, old_id: &str, new_id: &str) -> Result<PathBuf, TaskParseError> {
+fn rename_task_file(
+    old_path: &Path,
+    old_id: &str,
+    new_id: &str,
+) -> Result<PathBuf, TaskParseError> {
     let file_name = old_path
         .file_name()
         .and_then(|s| s.to_str())
         .unwrap_or("")
         .to_string();
-    let new_file_name = if file_name.to_lowercase().starts_with(&format!("{} ", old_id.to_lowercase()))
-        || file_name.to_lowercase().starts_with(&format!("{}-", old_id.to_lowercase()))
-        || file_name.to_lowercase().starts_with(&format!("{}_", old_id.to_lowercase()))
-        || file_name.to_lowercase().starts_with(&format!("{}.", old_id.to_lowercase()))
-        || file_name.to_lowercase().starts_with(&format!("{}-", old_id.to_lowercase()))
-        || file_name.to_lowercase().starts_with(&format!("{} -", old_id.to_lowercase()))
+    let new_file_name = if file_name
+        .to_lowercase()
+        .starts_with(&format!("{} ", old_id.to_lowercase()))
+        || file_name
+            .to_lowercase()
+            .starts_with(&format!("{}-", old_id.to_lowercase()))
+        || file_name
+            .to_lowercase()
+            .starts_with(&format!("{}_", old_id.to_lowercase()))
+        || file_name
+            .to_lowercase()
+            .starts_with(&format!("{}.", old_id.to_lowercase()))
+        || file_name
+            .to_lowercase()
+            .starts_with(&format!("{}-", old_id.to_lowercase()))
+        || file_name
+            .to_lowercase()
+            .starts_with(&format!("{} -", old_id.to_lowercase()))
         || file_name.to_lowercase().starts_with(&old_id.to_lowercase())
     {
         // Replace the leading id only.
@@ -109,8 +125,7 @@ fn rename_task_file(old_path: &Path, old_id: &str, new_id: &str) -> Result<PathB
         .unwrap_or_else(|| Path::new("."))
         .join(new_file_name);
     if new_path != old_path {
-        fs::rename(old_path, &new_path)
-            .map_err(|err| TaskParseError::Invalid(err.to_string()))?;
+        fs::rename(old_path, &new_path).map_err(|err| TaskParseError::Invalid(err.to_string()))?;
     }
     Ok(new_path)
 }
@@ -126,10 +141,7 @@ pub fn fix_duplicate_task_ids(
         if task.id.trim().is_empty() {
             continue;
         }
-        groups
-            .entry(task.id.to_lowercase())
-            .or_default()
-            .push(task);
+        groups.entry(task.id.to_lowercase()).or_default().push(task);
     }
 
     let mut used = lower_set(tasks);
@@ -214,18 +226,8 @@ mod tests {
     use tempfile::TempDir;
 
     fn mk_task(tasks_dir: &Path, id: &str, title: &str) -> PathBuf {
-        create_task_file(
-            tasks_dir,
-            id,
-            title,
-            "To Do",
-            "P2",
-            "Phase1",
-            &[],
-            &[],
-            &[],
-        )
-        .expect("create task")
+        create_task_file(tasks_dir, id, title, "To Do", "P2", "Phase1", &[], &[], &[])
+            .expect("create task")
     }
 
     #[test]
@@ -269,6 +271,11 @@ mod tests {
 
         let changed = &report.changes[0];
         assert!(changed.new_id.starts_with("task-001-dup"));
-        assert!(changed.new_path.file_name().unwrap().to_string_lossy().contains(&changed.new_id));
+        assert!(changed
+            .new_path
+            .file_name()
+            .unwrap()
+            .to_string_lossy()
+            .contains(&changed.new_id));
     }
 }

@@ -57,13 +57,23 @@ pub fn board_lanes<'a>(
             BoardBy::Priority => task.priority.trim(),
         };
         let display = if by == BoardBy::Status {
-            canonical_status_name(raw_key).unwrap_or_else(|| {
-                let trimmed = raw_key.trim();
-                if trimmed.is_empty() { "(none)" } else { trimmed }
-            }).to_string()
+            canonical_status_name(raw_key)
+                .unwrap_or_else(|| {
+                    let trimmed = raw_key.trim();
+                    if trimmed.is_empty() {
+                        "(none)"
+                    } else {
+                        trimmed
+                    }
+                })
+                .to_string()
         } else {
             let trimmed = raw_key.trim();
-            if trimmed.is_empty() { "(none)".to_string() } else { trimmed.to_string() }
+            if trimmed.is_empty() {
+                "(none)".to_string()
+            } else {
+                trimmed.to_string()
+            }
         };
 
         let k = display.to_lowercase();
@@ -151,7 +161,12 @@ fn scope_ids_for_epic(tasks: &[Task], epic_id: &str) -> HashSet<String> {
 /// Prefer epic subtree when `focus.epic_id` is set. Otherwise, if `focus.working_set` has ids,
 /// scope to those ids.
 pub fn scope_ids_from_focus(tasks: &[Task], focus: &FocusState) -> Option<HashSet<String>> {
-    if let Some(epic) = focus.epic_id.as_deref().map(|s| s.trim()).filter(|s| !s.is_empty()) {
+    if let Some(epic) = focus
+        .epic_id
+        .as_deref()
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
+    {
         return Some(scope_ids_for_epic(tasks, epic));
     }
     if !focus.working_set.is_empty() {
@@ -199,7 +214,11 @@ pub struct BlockersReport {
 /// - If `epic_id` is provided, scope to that epic + descendants via relationships.parent.
 /// - Else if focus has `epic_id`, scope to that epic subtree.
 /// - Otherwise scope to all tasks.
-pub fn blockers_report(tasks: &[Task], focus: Option<&FocusState>, epic_id: Option<&str>) -> BlockersReport {
+pub fn blockers_report(
+    tasks: &[Task],
+    focus: Option<&FocusState>,
+    epic_id: Option<&str>,
+) -> BlockersReport {
     let mut warnings = Vec::new();
     let chosen_epic = epic_id
         .map(|s| s.trim().to_string())
@@ -222,10 +241,7 @@ pub fn blockers_report(tasks: &[Task], focus: Option<&FocusState>, epic_id: Opti
         .filter(|t| is_done(t))
         .map(|t| t.id.to_lowercase())
         .collect();
-    let by_id: HashMap<String, &Task> = tasks
-        .iter()
-        .map(|t| (t.id.to_lowercase(), t))
-        .collect();
+    let by_id: HashMap<String, &Task> = tasks.iter().map(|t| (t.id.to_lowercase(), t)).collect();
 
     let mut blocked_tasks = Vec::new();
     let mut blocker_counts: HashMap<String, usize> = HashMap::new();

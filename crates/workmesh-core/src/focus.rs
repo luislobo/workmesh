@@ -93,9 +93,7 @@ pub fn update_focus_for_task_mutation(
     let mut changed = false;
 
     let status_lc = new_status.map(|s| s.trim().to_lowercase());
-    let lease_active = lease_owner
-        .map(|o| !o.trim().is_empty())
-        .unwrap_or(false);
+    let lease_active = lease_owner.map(|o| !o.trim().is_empty()).unwrap_or(false);
 
     let mut has_id = focus
         .working_set
@@ -139,9 +137,7 @@ pub fn maybe_auto_clean_focus(backlog_dir: &Path, tasks: &[Task]) -> Result<bool
     let Some(epic_id) = focus.epic_id.clone() else {
         return Ok(false);
     };
-    let epic = tasks
-        .iter()
-        .find(|t| t.id.eq_ignore_ascii_case(&epic_id));
+    let epic = tasks.iter().find(|t| t.id.eq_ignore_ascii_case(&epic_id));
     let Some(epic) = epic else {
         return Ok(false);
     };
@@ -257,7 +253,8 @@ mod tests {
         assert!(focus.working_set.iter().any(|id| id == "task-002"));
         // Dedupe should have removed duplicates (case-insensitive).
         assert_eq!(
-            focus.working_set
+            focus
+                .working_set
                 .iter()
                 .filter(|id| id.to_lowercase() == "task-001")
                 .count(),
@@ -267,7 +264,10 @@ mod tests {
         // Done should remove.
         update_focus_for_task_mutation(backlog_dir, "task-002", Some("Done"), None).expect("rm");
         let focus = load_focus(backlog_dir).expect("load").expect("present");
-        assert!(!focus.working_set.iter().any(|id| id.to_lowercase() == "task-002"));
+        assert!(!focus
+            .working_set
+            .iter()
+            .any(|id| id.to_lowercase() == "task-002"));
     }
 
     #[test]

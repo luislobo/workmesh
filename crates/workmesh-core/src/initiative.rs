@@ -39,14 +39,7 @@ pub fn branch_to_initiative_slug(branch: &str) -> String {
     }
     let mut s = raw.to_string();
     for prefix in [
-        "feature/",
-        "feat/",
-        "bugfix/",
-        "fix/",
-        "chore/",
-        "hotfix/",
-        "issue/",
-        "spike/",
+        "feature/", "feat/", "bugfix/", "fix/", "chore/", "hotfix/", "issue/", "spike/",
     ] {
         if s.starts_with(prefix) {
             s = s[prefix.len()..].to_string();
@@ -186,7 +179,11 @@ fn reserve_unique_initiative(config: &mut WorkmeshConfig, branch: &str, desired:
 
 pub fn next_namespaced_task_id(tasks: &[Task], initiative: &str) -> String {
     let init = initiative.trim().to_lowercase();
-    let init = if init.is_empty() { "work".to_string() } else { init };
+    let init = if init.is_empty() {
+        "work".to_string()
+    } else {
+        init
+    };
     let prefix = format!("task-{}-", init);
     let mut max_num = 0i32;
     for task in tasks {
@@ -254,7 +251,10 @@ mod tests {
     #[test]
     fn branch_to_initiative_slug_strips_prefixes_and_slugifies() {
         assert_eq!(branch_to_initiative_slug("feature/Login UI"), "login-ui");
-        assert_eq!(branch_to_initiative_slug("bugfix/api/Crash-123"), "crash-123");
+        assert_eq!(
+            branch_to_initiative_slug("bugfix/api/Crash-123"),
+            "crash-123"
+        );
         assert_eq!(branch_to_initiative_slug("main"), "main");
     }
 
@@ -335,7 +335,10 @@ mod tests {
             },
         ];
         assert_eq!(next_namespaced_task_id(&tasks, "login"), "task-login-002");
-        assert_eq!(next_namespaced_task_id(&tasks, "billing"), "task-billing-003");
+        assert_eq!(
+            next_namespaced_task_id(&tasks, "billing"),
+            "task-billing-003"
+        );
         assert_eq!(next_namespaced_task_id(&tasks, "new"), "task-new-001");
     }
 }
