@@ -180,7 +180,23 @@
     },
     "archive": {
       "path": "workmesh/archive/YYYY-MM/",
-      "purpose": "Keep Done tasks out of the hot path; date-based archiving."
+      "purpose": "Keep completed tasks out of the hot path; date-based archiving.",
+      "defaults": {
+        "status": "Done",
+        "before": "30d"
+      },
+      "eligibility_rule": "Archive when status matches and task_date <= before.",
+      "task_date_resolution": [
+        "updated_date (preferred)",
+        "created_date (fallback)",
+        "today (final fallback if neither date exists)"
+      ],
+      "note": "If recently completed tasks are newer than the before threshold, archive reports 'Archived 0 tasks'.",
+      "examples": [
+        "workmesh --root . archive",
+        "workmesh --root . archive --before 2024-12-31",
+        "workmesh --root . archive --before 0d"
+      ]
     },
     "sessions": {
       "repo_local": {

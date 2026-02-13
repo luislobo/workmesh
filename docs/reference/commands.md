@@ -100,6 +100,10 @@ MCP:
 ## Archive and hygiene
 CLI:
 - `archive [--before 30d|YYYY-MM-DD] [--status Done] [--json]`
+- `archive` defaults to `--before 30d`, so only tasks with `task_date <= (today - 30 days)` are moved.
+- `task_date` uses `updated_date`, then `created_date`, then today.
+- `archive --before 0d` archives all matching `Done` tasks dated today or earlier.
+- `Archived 0 tasks` is expected when nothing matches the threshold.
 - `validate [--json]`
 - `fix list [--json]`
 - `fix uid|deps|ids [--check|--apply] [--json]`

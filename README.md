@@ -407,13 +407,25 @@ workmesh --root . migrate
 ```
 
 ## Archive (date-based)
-Archive moves **Done** tasks into `workmesh/archive/YYYY-MM/` based on task dates:
+Archive moves tasks into `workmesh/archive/YYYY-MM/` when:
+- `status` matches `--status` (default: `Done`)
+- `task_date <= --before` (default: `30d`, meaning 30 days ago)
+
+`task_date` is resolved as:
+1. `updated_date` (if present)
+2. `created_date` (if present)
+3. today (fallback)
+
+This means `workmesh --root . archive` is intentionally conservative by default. If everything was completed recently, `Archived 0 tasks` is expected.
 ```bash
 # archive Done tasks older than 30 days (default)
 workmesh --root . archive
 
 # archive Done tasks before a specific date
 workmesh --root . archive --before 2024-12-31
+
+# archive all Done tasks dated today or earlier
+workmesh --root . archive --before 0d
 ```
 
 ## Derived files (git-friendly)
