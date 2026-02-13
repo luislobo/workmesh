@@ -202,6 +202,7 @@ pub fn doctor_report(root: &Path, running_binary: &str) -> serde_json::Value {
 #[cfg(test)]
 mod tests {
     use super::doctor_report;
+    use std::ffi::OsString;
     use std::sync::{Mutex, OnceLock};
     use tempfile::TempDir;
 
@@ -209,8 +210,37 @@ mod tests {
 
     fn with_env_lock<T>(f: impl FnOnce() -> T) -> T {
         let lock = ENV_LOCK.get_or_init(|| Mutex::new(()));
-        let _guard = lock.lock().expect("lock");
+        let _guard = lock.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
         f()
+    }
+
+    struct EnvGuard {
+        home: Option<OsString>,
+        userprofile: Option<OsString>,
+    }
+
+    impl EnvGuard {
+        fn capture() -> Self {
+            Self {
+                home: std::env::var_os("HOME"),
+                userprofile: std::env::var_os("USERPROFILE"),
+            }
+        }
+    }
+
+    impl Drop for EnvGuard {
+        fn drop(&mut self) {
+            if let Some(home) = self.home.as_ref() {
+                std::env::set_var("HOME", home);
+            } else {
+                std::env::remove_var("HOME");
+            }
+            if let Some(profile) = self.userprofile.as_ref() {
+                std::env::set_var("USERPROFILE", profile);
+            } else {
+                std::env::remove_var("USERPROFILE");
+            }
+        }
     }
 
     #[test]
@@ -218,6 +248,7 @@ mod tests {
         with_env_lock(|| {
             let temp = TempDir::new().expect("tempdir");
             let repo = temp.path();
+            let _env_guard = EnvGuard::capture();
 
             // Minimal backlog: workmesh/tasks with one task.
             let tasks_dir = repo.join("workmesh").join("tasks");
@@ -264,6 +295,70 @@ mod tests {
             assert_eq!(report["index"]["present"], true);
             assert_eq!(report["index"]["entries"], 1);
             assert!(report["skills"]["embedded"].is_array());
+        })
+    }
+
+    #[test]
+    fn doctor_report_unresolved_root_uses_fallback_shape() {
+        with_env_lock(|| {
+            let temp = TempDir::new().expect("tempdir");
+            let repo = temp.path();
+            let _env_guard = EnvGuard::capture();
+
+            std::env::remove_var("HOME");
+            std::env::remove_var("USERPROFILE");
+
+            let report = doctor_report(repo, "unknown-binary");
+            assert_eq!(report["layout"], "unresolved");
+            assert_eq!(report["focus"].is_null(), true);
+            assert_eq!(report["index"]["present"], false);
+            assert_eq!(report["versions"]["running"].as_str().is_some(), true);
+
+            let agents = report["skills"]["detected_user_agents"]
+                .as_array()
+                .expect("agents");
+            assert!(agents.is_empty());
+        })
+    }
+
+    #[test]
+    fn doctor_report_supports_mcp_binary_and_userprofile_detection() {
+        with_env_lock(|| {
+            let temp = TempDir::new().expect("tempdir");
+            let repo = temp.path();
+            let _env_guard = EnvGuard::capture();
+
+            let tasks_dir = repo.join("workmesh").join("tasks");
+            std::fs::create_dir_all(&tasks_dir).expect("mkdir tasks");
+            std::fs::write(
+                tasks_dir.join("task-test-001 - seed task.md"),
+                "---\nid: task-test-001\ntitle: Seed\nstatus: To Do\npriority: P2\nphase: Phase1\n---\n",
+            )
+            .expect("write task");
+
+            std::fs::write(repo.join(".workmesh.toml"), "root_dir = \"workmesh\"\n")
+                .expect("write config");
+
+            std::env::remove_var("HOME");
+            std::env::set_var("USERPROFILE", repo);
+            std::fs::create_dir_all(repo.join(".cursor")).expect("mkdir .cursor");
+
+            let report = doctor_report(repo, "workmesh-mcp");
+            assert_eq!(report["layout"], "workmesh");
+            assert_eq!(report["versions"]["workmesh_mcp"].as_str().is_some(), true);
+
+            let agents = report["skills"]["detected_user_agents"]
+                .as_array()
+                .expect("agents")
+                .iter()
+                .filter_map(|v| v.as_str())
+                .collect::<Vec<_>>();
+            assert!(agents.contains(&"cursor"));
+
+            let config_files = report["config"]["files"].as_array().expect("config files");
+            assert!(config_files.iter().any(|entry| {
+                entry["name"] == ".workmesh.toml" && entry["exists"] == serde_json::json!(true)
+            }));
         })
     }
 }

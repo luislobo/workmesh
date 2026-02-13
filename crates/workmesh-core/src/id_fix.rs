@@ -278,4 +278,99 @@ mod tests {
             .to_string_lossy()
             .contains(&changed.new_id));
     }
+
+    #[test]
+    fn fix_duplicate_task_ids_skips_duplicate_without_file_path() {
+        let temp = TempDir::new().expect("tempdir");
+        let backlog_dir = temp.path().join("workmesh");
+        let tasks_dir = backlog_dir.join("tasks");
+        fs::create_dir_all(&tasks_dir).expect("tasks dir");
+
+        let a = mk_task(&tasks_dir, "task-main-001", "Alpha");
+        let b = mk_task(&tasks_dir, "task-main-001", "Beta");
+
+        let mut keep = parse_task_file(&a).expect("a");
+        keep.uid = Some("aaa".to_string());
+        let mut missing_path = parse_task_file(&b).expect("b");
+        missing_path.uid = Some("zzz".to_string());
+        missing_path.file_path = None;
+
+        let report = fix_duplicate_task_ids(
+            &backlog_dir,
+            &[keep, missing_path],
+            FixIdsOptions { apply: true },
+        )
+        .expect("apply");
+
+        assert!(report.changes.is_empty());
+        assert_eq!(report.warnings.len(), 1);
+    }
+
+    #[test]
+    fn fix_duplicate_task_ids_keeps_filename_when_id_not_prefixed() {
+        let temp = TempDir::new().expect("tempdir");
+        let backlog_dir = temp.path().join("workmesh");
+        let tasks_dir = backlog_dir.join("tasks");
+        fs::create_dir_all(&tasks_dir).expect("tasks dir");
+
+        let keep_path = tasks_dir.join("task-main-001 - keep.md");
+        fs::write(
+            &keep_path,
+            "---\nid: task-main-001\nuid: aaa\ntitle: Keep\nkind: task\nstatus: To Do\npriority: P2\nphase: Phase1\ndependencies: []\nlabels: []\nassignee: []\n---\n",
+        )
+        .expect("write keep");
+        let custom_path = tasks_dir.join("custom-name.md");
+        fs::write(
+            &custom_path,
+            "---\nid: task-main-001\nuid: zzz\ntitle: Custom\nkind: task\nstatus: To Do\npriority: P2\nphase: Phase1\ndependencies: []\nlabels: []\nassignee: []\n---\n",
+        )
+        .expect("write custom");
+
+        let tasks = vec![
+            parse_task_file(&keep_path).expect("keep"),
+            parse_task_file(&custom_path).expect("custom"),
+        ];
+
+        let report = fix_duplicate_task_ids(&backlog_dir, &tasks, FixIdsOptions { apply: true })
+            .expect("apply");
+        assert_eq!(report.changes.len(), 1);
+        let change = &report.changes[0];
+        assert_eq!(
+            change.old_path.file_name().and_then(|s| s.to_str()),
+            Some("custom-name.md")
+        );
+        assert_eq!(change.old_path, change.new_path);
+        assert_ne!(change.new_id, "task-main-001");
+        assert!(change.new_id.starts_with("task-main-"));
+    }
+
+    #[test]
+    fn fix_duplicate_task_ids_rejects_changes_outside_backlog_dir() {
+        let temp = TempDir::new().expect("tempdir");
+        let backlog_dir = temp.path().join("workmesh");
+        fs::create_dir_all(&backlog_dir).expect("mkdir backlog");
+        let outside = temp.path().join("outside");
+        fs::create_dir_all(&outside).expect("mkdir outside");
+
+        let a = outside.join("a.md");
+        fs::write(
+            &a,
+            "---\nid: task-main-009\ntitle: A\nkind: task\nstatus: To Do\npriority: P2\nphase: Phase1\ndependencies: []\nlabels: []\nassignee: []\n---\n",
+        )
+        .expect("write a");
+        let b = outside.join("b.md");
+        fs::write(
+            &b,
+            "---\nid: task-main-009\ntitle: B\nkind: task\nstatus: To Do\npriority: P2\nphase: Phase1\ndependencies: []\nlabels: []\nassignee: []\n---\n",
+        )
+        .expect("write b");
+
+        let tasks = vec![
+            parse_task_file(&a).expect("a"),
+            parse_task_file(&b).expect("b"),
+        ];
+        let err = fix_duplicate_task_ids(&backlog_dir, &tasks, FixIdsOptions { apply: false })
+            .unwrap_err();
+        assert!(format!("{err:#}").contains("Refusing to write outside backlog dir"));
+    }
 }

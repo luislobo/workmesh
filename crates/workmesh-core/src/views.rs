@@ -394,4 +394,84 @@ mod tests {
         assert_eq!(report.top_blockers[0].id, "task-102");
         assert_eq!(report.top_blockers[0].blocked_count, 1);
     }
+
+    #[test]
+    fn board_lanes_phase_scope_and_blank_bucket() {
+        let tasks = vec![
+            t("task-001", "A", "To Do", &[], &[]),
+            t("task-002", "B", "To Do", &[], &[]),
+            t("task-003", "C", "To Do", &[], &[]),
+        ];
+        let mut tasks = tasks;
+        tasks[0].phase = "Phase2".to_string();
+        tasks[1].phase = "".to_string();
+        tasks[2].phase = "Phase1".to_string();
+
+        let scope = HashSet::from(["task-001".to_string(), "task-002".to_string()]);
+        let lanes = board_lanes(&tasks, BoardBy::Phase, Some(&scope));
+        let keys: Vec<String> = lanes.iter().map(|(k, _)| k.clone()).collect();
+        assert_eq!(keys, vec!["(none)".to_string(), "Phase2".to_string()]);
+    }
+
+    #[test]
+    fn scope_ids_from_focus_prefers_epic_then_working_set() {
+        let tasks = vec![
+            t("task-100", "Epic", "To Do", &[], &[]),
+            t("task-101", "Child", "To Do", &[], &["task-100"]),
+            t("task-200", "Other", "To Do", &[], &[]),
+        ];
+
+        let focus_with_epic = FocusState {
+            project_id: None,
+            epic_id: Some("task-100".to_string()),
+            objective: None,
+            working_set: vec!["task-200".to_string()],
+            updated_at: None,
+        };
+        let scoped = scope_ids_from_focus(&tasks, &focus_with_epic).expect("scope");
+        assert!(scoped.contains("task-100"));
+        assert!(scoped.contains("task-101"));
+        assert!(!scoped.contains("task-200"));
+
+        let focus_with_working_set = FocusState {
+            project_id: None,
+            epic_id: None,
+            objective: None,
+            working_set: vec!["task-200".to_string(), " ".to_string()],
+            updated_at: None,
+        };
+        let scoped = scope_ids_from_focus(&tasks, &focus_with_working_set).expect("scope");
+        assert_eq!(scoped, HashSet::from(["task-200".to_string()]));
+    }
+
+    #[test]
+    fn blockers_report_warns_when_epic_missing_and_tracks_missing_refs() {
+        let tasks = vec![
+            t("task-001", "A", "To Do", &["task-missing-999"], &[]),
+            t("task-002", "B", "Done", &[], &[]),
+        ];
+        let report = blockers_report(&tasks, None, Some("task-epic-missing"));
+        assert_eq!(report.scope["type"].as_str(), Some("epic"));
+        assert!(report
+            .warnings
+            .iter()
+            .any(|w| w.contains("epic not found: task-epic-missing")));
+        assert_eq!(report.blocked_tasks.len(), 0);
+    }
+
+    #[test]
+    fn blockers_report_tracks_missing_refs_in_repo_scope() {
+        let tasks = vec![
+            t("task-001", "A", "To Do", &["task-missing-999"], &[]),
+            t("task-002", "B", "Done", &[], &[]),
+        ];
+        let report = blockers_report(&tasks, None, None);
+        assert_eq!(report.scope["type"].as_str(), Some("repo"));
+        assert_eq!(report.blocked_tasks.len(), 1);
+        assert_eq!(report.blocked_tasks[0].id, "task-001");
+        assert_eq!(
+            report.blocked_tasks[0].missing_refs,
+            vec!["task-missing-999".to_string()]
+        );
+    }
 }
