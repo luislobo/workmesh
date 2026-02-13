@@ -67,4 +67,7 @@ doctor -> blockers -> board --focus -> validate -> index-refresh
 ## Rules
 - Prefer `--json` for agent parsing.
 - Keep dependencies current when status changes.
+- Keep task metadata complete and current: `Description`, `Acceptance Criteria`, and `Definition of Done`.
+- Move a task to `Done` only when the task goals in `Description` are met and all `Acceptance Criteria` are satisfied.
+- Treat `Code/config committed` and `Docs updated if needed` as hygiene checks, not the core completion criteria.
 - Do not commit derived `workmesh/.index/` files.

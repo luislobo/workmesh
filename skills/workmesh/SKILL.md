@@ -30,4 +30,7 @@ workmesh --root . install --skills --profile mcp --scope project
 - Record dependencies and blockers so ready work is queryable.
 - Use focus to scope work and reduce context thrash.
 - Claim before changes in multi-agent workflows.
+- Keep task metadata complete and current: `Description`, `Acceptance Criteria`, and `Definition of Done`.
+- Move a task to `Done` only when the task goals in `Description` are met and all `Acceptance Criteria` are satisfied.
+- Treat `Code/config committed` and `Docs updated if needed` as hygiene checks, not the core completion criteria.
 - Do not commit derived artifacts like `workmesh/.index/`.

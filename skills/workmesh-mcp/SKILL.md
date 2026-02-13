@@ -66,3 +66,6 @@ doctor -> blockers -> board(focus=true) -> validate -> index_refresh
   - Otherwise provide `root`.
 - Prefer `next_tasks` over `next_task` when the agent should choose among candidates.
 - Keep dependencies and `blocked_by` updated so blockers views remain useful.
+- Keep task metadata complete and current: `Description`, `Acceptance Criteria`, and `Definition of Done`.
+- Move a task to `Done` only when the task goals in `Description` are met and all `Acceptance Criteria` are satisfied.
+- Treat `Code/config committed` and `Docs updated if needed` as hygiene checks, not the core completion criteria.
