@@ -13,11 +13,12 @@ use workmesh_core::audit::{append_audit_event, AuditEvent};
 use workmesh_core::backlog::{locate_backlog_dir, resolve_backlog, BacklogResolution};
 use workmesh_core::config::update_do_not_migrate;
 use workmesh_core::doctor::doctor_report;
-use workmesh_core::focus::{
-    clear_focus, extract_task_id_from_branch, infer_project_id, load_focus, save_focus, FocusState,
-    update_focus_for_task_mutation,
-};
+use workmesh_core::fix::{backfill_missing_uids, fix_dependencies, FixerKind};
 use workmesh_core::focus::maybe_auto_clean_focus;
+use workmesh_core::focus::{
+    clear_focus, extract_task_id_from_branch, infer_project_id, load_focus, save_focus,
+    update_focus_for_task_mutation, FocusState,
+};
 use workmesh_core::gantt::{
     plantuml_gantt, render_plantuml_svg, write_text_file, PlantumlRenderError,
 };
@@ -28,7 +29,9 @@ use workmesh_core::global_sessions::{
 };
 use workmesh_core::id_fix::{fix_duplicate_task_ids, FixIdsOptions};
 use workmesh_core::index::{rebuild_index, refresh_index, verify_index};
-use workmesh_core::initiative::{best_effort_git_branch as core_git_branch, ensure_branch_initiative, next_namespaced_task_id};
+use workmesh_core::initiative::{
+    best_effort_git_branch as core_git_branch, ensure_branch_initiative, next_namespaced_task_id,
+};
 use workmesh_core::migration::{migrate_backlog, MigrationError};
 use workmesh_core::project::{ensure_project_docs, repo_root_from_backlog};
 use workmesh_core::quickstart::quickstart;
@@ -40,18 +43,20 @@ use workmesh_core::session::{
     resume_summary, task_summary, write_checkpoint, write_working_set, CheckpointOptions,
 };
 use workmesh_core::skills::{
-    detect_user_agents, embedded_skill_ids, install_embedded_skill, install_embedded_skill_global_auto,
-    load_skill_content, SkillAgent, SkillScope,
+    detect_user_agents, embedded_skill_ids, install_embedded_skill_global_auto_report,
+    install_embedded_skill_report, load_skill_content, uninstall_embedded_skill_global_auto_report,
+    uninstall_embedded_skill_report, SkillAgent, SkillInstallReport, SkillScope,
+    SkillUninstallReport,
 };
 use workmesh_core::task::{load_tasks, load_tasks_with_archive, Lease, Task};
 use workmesh_core::task_ops::{
-    append_note, create_task_file, filter_tasks, graph_export, is_lease_active, now_timestamp,
-    ready_tasks, recommend_next_tasks_with_focus, render_task_line, replace_section, set_list_field,
-    sort_tasks, status_counts, task_to_json_value, tasks_to_json, tasks_to_jsonl,
-    timestamp_plus_minutes, update_body, update_lease_fields, update_task_field,
-    update_task_field_or_section, validate_tasks, FieldValue, ensure_can_mark_done,
+    append_note, create_task_file, ensure_can_mark_done, filter_tasks, graph_export,
+    is_lease_active, now_timestamp, ready_tasks, recommend_next_tasks_with_focus, render_task_line,
+    replace_section, set_list_field, sort_tasks, status_counts, task_to_json_value, tasks_to_json,
+    tasks_to_jsonl, timestamp_plus_minutes, update_body, update_lease_fields, update_task_field,
+    update_task_field_or_section, validate_tasks, FieldValue,
 };
-use workmesh_core::views::{board_lanes, blockers_report, scope_ids_from_focus, BoardBy};
+use workmesh_core::views::{blockers_report, board_lanes, scope_ids_from_focus, BoardBy};
 
 #[derive(Parser)]
 #[command(name = "workmesh", version = version::FULL, about = "WorkMesh CLI (WIP)")]
@@ -76,7 +81,7 @@ enum Command {
         #[arg(long, action = ArgAction::SetTrue)]
         json: bool,
     },
-    /// Install bundled WorkMesh skill packs (playwright-style convenience command)
+    /// Install bundled WorkMesh skill packs (convenience command)
     Install {
         /// Install skill packs into agent skill directories
         #[arg(long, action = ArgAction::SetTrue)]
@@ -93,6 +98,23 @@ enum Command {
         /// Overwrite existing SKILL.md files
         #[arg(long, action = ArgAction::SetTrue)]
         force: bool,
+        #[arg(long, action = ArgAction::SetTrue)]
+        json: bool,
+    },
+    /// Uninstall bundled WorkMesh skill packs (convenience command)
+    Uninstall {
+        /// Uninstall skill packs from agent skill directories
+        #[arg(long, action = ArgAction::SetTrue)]
+        skills: bool,
+        /// Skill profile to uninstall
+        #[arg(long, value_enum, default_value_t = SkillProfileArg::All)]
+        profile: SkillProfileArg,
+        /// Uninstall scope: project (default) or user
+        #[arg(long, value_enum, default_value_t = SkillScopeArg::Project)]
+        scope: SkillScopeArg,
+        /// Which agent(s) to uninstall for
+        #[arg(long, value_enum, default_value_t = SkillAgentArg::All)]
+        agent: SkillAgentArg,
         #[arg(long, action = ArgAction::SetTrue)]
         json: bool,
     },
@@ -183,6 +205,11 @@ enum Command {
         apply: bool,
         #[arg(long, action = ArgAction::SetTrue)]
         json: bool,
+    },
+    /// Run fixers to detect/repair common task data issues
+    Fix {
+        #[command(subcommand)]
+        command: FixCommand,
     },
     /// Generate an agent prompt to propose a task-id rekey mapping (and reference rewrites).
     RekeyPrompt {
@@ -303,7 +330,7 @@ enum Command {
         #[command(subcommand)]
         command: FocusCommand,
     },
-    /// Manage agent skills (export/install/show)
+    /// Manage agent skills (show/install/uninstall)
     Skill {
         #[command(subcommand)]
         command: SkillCommand,
@@ -686,6 +713,20 @@ enum SkillCommand {
         #[arg(long, action = ArgAction::SetTrue)]
         json: bool,
     },
+    /// Uninstall the embedded WorkMesh skill from agent skill directories
+    Uninstall {
+        /// Skill name (defaults to workmesh)
+        #[arg(long)]
+        name: Option<String>,
+        /// Uninstall from user-level (~/.codex/skills, ~/.claude/skills, ~/.cursor/skills) or project-level (<repo>/.codex/skills, etc.)
+        #[arg(long, value_enum, default_value_t = SkillScopeArg::User)]
+        scope: SkillScopeArg,
+        /// Which agent(s) to uninstall for
+        #[arg(long, value_enum, default_value_t = SkillAgentArg::All)]
+        agent: SkillAgentArg,
+        #[arg(long, action = ArgAction::SetTrue)]
+        json: bool,
+    },
     /// Install the embedded skill globally for detected agents under your home directory
     ///
     /// This only installs for agents that already have a home folder (e.g. ~/.codex, ~/.claude, ~/.cursor).
@@ -699,6 +740,80 @@ enum SkillCommand {
         #[arg(long, action = ArgAction::SetTrue)]
         json: bool,
     },
+    /// Uninstall the embedded skill globally for detected agents under your home directory
+    UninstallGlobal {
+        /// Skill name (defaults to workmesh)
+        #[arg(long)]
+        name: Option<String>,
+        #[arg(long, action = ArgAction::SetTrue)]
+        json: bool,
+    },
+}
+
+#[derive(Subcommand)]
+enum FixCommand {
+    /// List available fixers
+    List {
+        #[arg(long, action = ArgAction::SetTrue)]
+        json: bool,
+    },
+    /// Run all fixers (optionally scoped by --only/--exclude)
+    All {
+        /// Apply changes (default is check/dry-run)
+        #[arg(long, action = ArgAction::SetTrue)]
+        apply: bool,
+        /// Explicitly run in check mode (default if --apply is not set)
+        #[arg(long, action = ArgAction::SetTrue)]
+        check: bool,
+        /// Comma-separated list of fixers to include (uid,deps,ids)
+        #[arg(long, value_delimiter = ',', value_enum)]
+        only: Vec<FixTargetArg>,
+        /// Comma-separated list of fixers to exclude (uid,deps,ids)
+        #[arg(long, value_delimiter = ',', value_enum)]
+        exclude: Vec<FixTargetArg>,
+        #[arg(long, action = ArgAction::SetTrue)]
+        json: bool,
+    },
+    /// Backfill missing task uid values
+    Uid {
+        /// Apply changes (default is check/dry-run)
+        #[arg(long, action = ArgAction::SetTrue)]
+        apply: bool,
+        /// Explicitly run in check mode (default if --apply is not set)
+        #[arg(long, action = ArgAction::SetTrue)]
+        check: bool,
+        #[arg(long, action = ArgAction::SetTrue)]
+        json: bool,
+    },
+    /// Remove missing/duplicate dependencies from task dependency lists
+    Deps {
+        /// Apply changes (default is check/dry-run)
+        #[arg(long, action = ArgAction::SetTrue)]
+        apply: bool,
+        /// Explicitly run in check mode (default if --apply is not set)
+        #[arg(long, action = ArgAction::SetTrue)]
+        check: bool,
+        #[arg(long, action = ArgAction::SetTrue)]
+        json: bool,
+    },
+    /// Detect/rekey duplicate task ids (same behavior as legacy `fix-ids`)
+    Ids {
+        /// Apply changes (default is check/dry-run)
+        #[arg(long, action = ArgAction::SetTrue)]
+        apply: bool,
+        /// Explicitly run in check mode (default if --apply is not set)
+        #[arg(long, action = ArgAction::SetTrue)]
+        check: bool,
+        #[arg(long, action = ArgAction::SetTrue)]
+        json: bool,
+    },
+}
+
+#[derive(Debug, Copy, Clone, ValueEnum, PartialEq, Eq, Hash)]
+enum FixTargetArg {
+    Uid,
+    Deps,
+    Ids,
 }
 
 #[derive(Debug, Copy, Clone, ValueEnum)]
@@ -742,6 +857,170 @@ fn skill_names_for_profile(profile: SkillProfileArg) -> Vec<&'static str> {
         SkillProfileArg::Cli => vec!["workmesh-cli"],
         SkillProfileArg::Mcp => vec!["workmesh-mcp"],
         SkillProfileArg::All => embedded_skill_ids(),
+    }
+}
+
+fn merge_install_report(report: &mut SkillInstallReport, partial: SkillInstallReport) {
+    report.written.extend(partial.written);
+    report.skipped.extend(partial.skipped);
+}
+
+fn merge_uninstall_report(report: &mut SkillUninstallReport, partial: SkillUninstallReport) {
+    report.removed.extend(partial.removed);
+    report.missing.extend(partial.missing);
+}
+
+fn print_install_report(report: SkillInstallReport) {
+    if report.written.is_empty() {
+        println!("(no files written)");
+    } else {
+        for path in report.written {
+            println!("{}", path.display());
+        }
+    }
+    if !report.skipped.is_empty() {
+        println!("(skipped existing; use --force to overwrite)");
+        for path in report.skipped {
+            println!("{}", path.display());
+        }
+    }
+}
+
+fn print_uninstall_report(report: SkillUninstallReport) {
+    if report.removed.is_empty() {
+        println!("(no files removed)");
+    } else {
+        for path in report.removed {
+            println!("{}", path.display());
+        }
+    }
+    if !report.missing.is_empty() {
+        println!("(not found)");
+        for path in report.missing {
+            println!("{}", path.display());
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+struct FixRunReport {
+    fixer: String,
+    detected: usize,
+    fixed: usize,
+    skipped: usize,
+    warnings: Vec<String>,
+    details: serde_json::Value,
+}
+
+fn fix_run_to_json(run: &FixRunReport) -> serde_json::Value {
+    serde_json::json!({
+        "fixer": run.fixer,
+        "detected": run.detected,
+        "fixed": run.fixed,
+        "skipped": run.skipped,
+        "warnings": run.warnings,
+        "details": run.details,
+    })
+}
+
+fn parse_fix_mode(apply: bool, check: bool) -> Result<bool> {
+    if apply && check {
+        die("choose either --apply or --check (or neither for default dry-run)");
+    }
+    Ok(apply)
+}
+
+fn all_fix_targets() -> Vec<FixTargetArg> {
+    vec![FixTargetArg::Uid, FixTargetArg::Deps, FixTargetArg::Ids]
+}
+
+fn select_fix_targets(only: &[FixTargetArg], exclude: &[FixTargetArg]) -> Vec<FixTargetArg> {
+    let mut selected = if only.is_empty() {
+        all_fix_targets()
+    } else {
+        only.to_vec()
+    };
+    if !exclude.is_empty() {
+        let exclude_set: HashSet<FixTargetArg> = exclude.iter().copied().collect();
+        selected.retain(|item| !exclude_set.contains(item));
+    }
+    let mut seen = HashSet::new();
+    selected.retain(|item| seen.insert(*item));
+    selected
+}
+
+fn as_fixer_kind(target: FixTargetArg) -> FixerKind {
+    match target {
+        FixTargetArg::Uid => FixerKind::Uid,
+        FixTargetArg::Deps => FixerKind::Deps,
+        FixTargetArg::Ids => FixerKind::Ids,
+    }
+}
+
+fn print_fix_report(report: &FixRunReport, apply: bool) {
+    println!(
+        "{} | detected={} {}={} skipped={}",
+        report.fixer,
+        report.detected,
+        if apply { "fixed" } else { "would_fix" },
+        if apply {
+            report.fixed
+        } else {
+            report.detected.saturating_sub(report.skipped)
+        },
+        report.skipped
+    );
+    for warning in &report.warnings {
+        println!("  warning: {}", warning);
+    }
+}
+
+fn run_fix_target(backlog_dir: &Path, target: FixTargetArg, apply: bool) -> Result<FixRunReport> {
+    let tasks = load_tasks(backlog_dir);
+    match target {
+        FixTargetArg::Uid => {
+            let report = backfill_missing_uids(&tasks, apply)?;
+            Ok(FixRunReport {
+                fixer: FixerKind::Uid.as_str().to_string(),
+                detected: report.detected,
+                fixed: report.fixed,
+                skipped: report.skipped,
+                warnings: report.warnings,
+                details: serde_json::json!(report.changes),
+            })
+        }
+        FixTargetArg::Deps => {
+            let report = fix_dependencies(&tasks, apply)?;
+            Ok(FixRunReport {
+                fixer: FixerKind::Deps.as_str().to_string(),
+                detected: report.detected,
+                fixed: report.fixed,
+                skipped: report.skipped,
+                warnings: report.warnings,
+                details: serde_json::json!(report.changes),
+            })
+        }
+        FixTargetArg::Ids => {
+            let report = fix_duplicate_task_ids(backlog_dir, &tasks, FixIdsOptions { apply })?;
+            Ok(FixRunReport {
+                fixer: FixerKind::Ids.as_str().to_string(),
+                detected: report.changes.len(),
+                fixed: if apply { report.changes.len() } else { 0 },
+                skipped: 0,
+                warnings: report.warnings,
+                details: serde_json::json!(report
+                    .changes
+                    .iter()
+                    .map(|change| serde_json::json!({
+                        "old_id": change.old_id,
+                        "new_id": change.new_id,
+                        "old_path": change.old_path,
+                        "new_path": change.new_path,
+                        "uid": change.uid,
+                    }))
+                    .collect::<Vec<_>>()),
+            })
+        }
     }
 }
 
@@ -1270,17 +1549,17 @@ fn main() -> Result<()> {
             die("install currently supports only --skills");
         }
         let repo_root = repo_root_from_backlog(&cli.root);
-        let mut written = Vec::new();
+        let mut report = SkillInstallReport::default();
         let names = skill_names_for_profile(*profile);
         for name in names.iter() {
-            let paths = install_embedded_skill(
+            let partial = install_embedded_skill_report(
                 Some(&repo_root),
                 (*scope).into(),
                 (*agent).into(),
                 name,
                 *force,
             )?;
-            written.extend(paths);
+            merge_install_report(&mut report, partial);
         }
         if *json {
             println!(
@@ -1291,7 +1570,8 @@ fn main() -> Result<()> {
                     "scope": format!("{:?}", scope).to_lowercase(),
                     "agent": format!("{:?}", agent).to_lowercase(),
                     "skills": names,
-                    "written": written
+                    "written": report.written,
+                    "skipped": report.skipped
                 }))?
             );
         } else {
@@ -1302,13 +1582,56 @@ fn main() -> Result<()> {
                 format!("{:?}", agent).to_lowercase(),
                 names.join(", ")
             );
-            if written.is_empty() {
-                println!("(no files written)");
-            } else {
-                for path in written {
-                    println!("{}", path.display());
-                }
-            }
+            print_install_report(report);
+        }
+        return Ok(());
+    }
+
+    if let Command::Uninstall {
+        skills,
+        profile,
+        scope,
+        agent,
+        json,
+    } = &cli.command
+    {
+        if !skills {
+            die("uninstall currently supports only --skills");
+        }
+        let repo_root = repo_root_from_backlog(&cli.root);
+        let mut report = SkillUninstallReport::default();
+        let names = skill_names_for_profile(*profile);
+        for name in names.iter() {
+            let partial = uninstall_embedded_skill_report(
+                Some(&repo_root),
+                (*scope).into(),
+                (*agent).into(),
+                name,
+            )?;
+            merge_uninstall_report(&mut report, partial);
+        }
+        if *json {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&serde_json::json!({
+                    "ok": true,
+                    "profile": format!("{:?}", profile).to_lowercase(),
+                    "scope": format!("{:?}", scope).to_lowercase(),
+                    "agent": format!("{:?}", agent).to_lowercase(),
+                    "skills": names,
+                    "removed": report.removed,
+                    "missing": report.missing
+                }))?
+            );
+        } else {
+            println!(
+                "Uninstalled profile={} scope={} agent={} skills={}",
+                format!("{:?}", profile).to_lowercase(),
+                format!("{:?}", scope).to_lowercase(),
+                format!("{:?}", agent).to_lowercase(),
+                names.join(", ")
+            );
+            print_uninstall_report(report);
         }
         return Ok(());
     }
@@ -1320,7 +1643,10 @@ fn main() -> Result<()> {
         } else {
             println!("root: {}", report["root"].as_str().unwrap_or(""));
             println!("repo_root: {}", report["repo_root"].as_str().unwrap_or(""));
-            println!("backlog_dir: {}", report["backlog_dir"].as_str().unwrap_or(""));
+            println!(
+                "backlog_dir: {}",
+                report["backlog_dir"].as_str().unwrap_or("")
+            );
             println!("layout: {}", report["layout"].as_str().unwrap_or(""));
             if !report["focus"].is_null() {
                 let epic = report["focus"]["epic_id"].as_str().unwrap_or("");
@@ -1370,7 +1696,11 @@ fn main() -> Result<()> {
             } else {
                 load_tasks(&backlog_dir)
             };
-            let focus_state = if focus { load_focus(&backlog_dir).ok().flatten() } else { None };
+            let focus_state = if focus {
+                load_focus(&backlog_dir).ok().flatten()
+            } else {
+                None
+            };
             let scope_ids = focus_state
                 .as_ref()
                 .and_then(|f| scope_ids_from_focus(&tasks, f));
@@ -1436,7 +1766,13 @@ fn main() -> Result<()> {
                     if !entry.missing_refs.is_empty() {
                         parts.push(format!("missing_refs=[{}]", entry.missing_refs.join(", ")));
                     }
-                    println!("- {}: {} ({}) {}", entry.id, entry.title, entry.status, parts.join(" "));
+                    println!(
+                        "- {}: {} ({}) {}",
+                        entry.id,
+                        entry.title,
+                        entry.status,
+                        parts.join(" ")
+                    );
                 }
             }
             if report.top_blockers.is_empty() {
@@ -1601,6 +1937,176 @@ fn main() -> Result<()> {
                 }
             }
         }
+        Command::Fix { command } => match command {
+            FixCommand::List { json } => {
+                let fixers = all_fix_targets()
+                    .into_iter()
+                    .map(as_fixer_kind)
+                    .map(|kind| kind.as_str().to_string())
+                    .collect::<Vec<_>>();
+                if json {
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(&serde_json::json!({
+                            "fixers": fixers,
+                        }))?
+                    );
+                } else {
+                    for fixer in fixers {
+                        println!("{}", fixer);
+                    }
+                }
+            }
+            FixCommand::All {
+                apply,
+                check,
+                only,
+                exclude,
+                json,
+            } => {
+                let apply_mode = parse_fix_mode(apply, check)?;
+                let targets = select_fix_targets(&only, &exclude);
+                if targets.is_empty() {
+                    die("No fixers selected. Adjust --only/--exclude.");
+                }
+                let mut runs = Vec::new();
+                for target in targets {
+                    runs.push(run_fix_target(&backlog_dir, target, apply_mode)?);
+                }
+
+                let total_detected: usize = runs.iter().map(|run| run.detected).sum();
+                let total_fixed: usize = runs.iter().map(|run| run.fixed).sum();
+                let total_skipped: usize = runs.iter().map(|run| run.skipped).sum();
+                let runs_json: Vec<serde_json::Value> = runs.iter().map(fix_run_to_json).collect();
+
+                if apply_mode {
+                    audit_event(
+                        &backlog_dir,
+                        "fix_all",
+                        None,
+                        serde_json::json!({
+                            "runs": runs_json.clone(),
+                            "fixed": total_fixed,
+                        }),
+                    )?;
+                    refresh_index_best_effort(&backlog_dir);
+                    maybe_auto_checkpoint(&backlog_dir, auto_checkpoint, auto_session);
+                }
+
+                if json {
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(&serde_json::json!({
+                            "ok": true,
+                            "mode": if apply_mode { "apply" } else { "check" },
+                            "runs": runs_json,
+                            "totals": {
+                                "detected": total_detected,
+                                "fixed": total_fixed,
+                                "skipped": total_skipped,
+                            }
+                        }))?
+                    );
+                } else {
+                    for run in &runs {
+                        print_fix_report(run, apply_mode);
+                    }
+                    if !apply_mode {
+                        println!("Dry-run: re-run with --apply to write changes.");
+                    }
+                }
+            }
+            FixCommand::Uid { apply, check, json } => {
+                let apply_mode = parse_fix_mode(apply, check)?;
+                let run = run_fix_target(&backlog_dir, FixTargetArg::Uid, apply_mode)?;
+                if apply_mode {
+                    audit_event(
+                        &backlog_dir,
+                        "fix_uid",
+                        None,
+                        serde_json::json!({ "fixed": run.fixed }),
+                    )?;
+                    refresh_index_best_effort(&backlog_dir);
+                    maybe_auto_checkpoint(&backlog_dir, auto_checkpoint, auto_session);
+                }
+                if json {
+                    let run_json = fix_run_to_json(&run);
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(&serde_json::json!({
+                            "ok": true,
+                            "mode": if apply_mode { "apply" } else { "check" },
+                            "run": run_json
+                        }))?
+                    );
+                } else {
+                    print_fix_report(&run, apply_mode);
+                    if !apply_mode {
+                        println!("Dry-run: re-run with --apply to write changes.");
+                    }
+                }
+            }
+            FixCommand::Deps { apply, check, json } => {
+                let apply_mode = parse_fix_mode(apply, check)?;
+                let run = run_fix_target(&backlog_dir, FixTargetArg::Deps, apply_mode)?;
+                if apply_mode {
+                    audit_event(
+                        &backlog_dir,
+                        "fix_deps",
+                        None,
+                        serde_json::json!({ "fixed": run.fixed }),
+                    )?;
+                    refresh_index_best_effort(&backlog_dir);
+                    maybe_auto_checkpoint(&backlog_dir, auto_checkpoint, auto_session);
+                }
+                if json {
+                    let run_json = fix_run_to_json(&run);
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(&serde_json::json!({
+                            "ok": true,
+                            "mode": if apply_mode { "apply" } else { "check" },
+                            "run": run_json
+                        }))?
+                    );
+                } else {
+                    print_fix_report(&run, apply_mode);
+                    if !apply_mode {
+                        println!("Dry-run: re-run with --apply to write changes.");
+                    }
+                }
+            }
+            FixCommand::Ids { apply, check, json } => {
+                let apply_mode = parse_fix_mode(apply, check)?;
+                let run = run_fix_target(&backlog_dir, FixTargetArg::Ids, apply_mode)?;
+                if apply_mode {
+                    audit_event(
+                        &backlog_dir,
+                        "fix_ids",
+                        None,
+                        serde_json::json!({ "fixed": run.fixed }),
+                    )?;
+                    refresh_index_best_effort(&backlog_dir);
+                    maybe_auto_checkpoint(&backlog_dir, auto_checkpoint, auto_session);
+                }
+                if json {
+                    let run_json = fix_run_to_json(&run);
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(&serde_json::json!({
+                            "ok": true,
+                            "mode": if apply_mode { "apply" } else { "check" },
+                            "run": run_json
+                        }))?
+                    );
+                } else {
+                    print_fix_report(&run, apply_mode);
+                    if !apply_mode {
+                        println!("Dry-run: re-run with --apply to write changes.");
+                    }
+                }
+            }
+        },
         Command::RekeyPrompt {
             all,
             include_body,
@@ -1666,7 +2172,10 @@ fn main() -> Result<()> {
                 maybe_auto_checkpoint(&backlog_dir, auto_checkpoint, auto_session);
             }
             if json {
-                println!("{}", serde_json::to_string_pretty(&serde_json::to_value(&report)?)?);
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&serde_json::to_value(&report)?)?
+                );
             } else if report.changes.is_empty() {
                 println!("No tasks matched the mapping.");
             } else {
@@ -1675,7 +2184,12 @@ fn main() -> Result<()> {
                 }
                 for change in &report.changes {
                     if let Some(new_path) = &change.new_path {
-                        println!("{} -> {} ({})", change.old_id, change.new_id, new_path.display());
+                        println!(
+                            "{} -> {} ({})",
+                            change.old_id,
+                            change.new_id,
+                            new_path.display()
+                        );
                     } else {
                         println!("{} -> {}", change.old_id, change.new_id);
                     }
@@ -2143,12 +2657,7 @@ fn main() -> Result<()> {
                 FocusCommand::Clear { json } => {
                     let cleared = clear_focus(&backlog_dir)?;
                     if cleared {
-                        audit_event(
-                            &backlog_dir,
-                            "focus_clear",
-                            None,
-                            serde_json::json!({}),
-                        )?;
+                        audit_event(&backlog_dir, "focus_clear", None, serde_json::json!({}))?;
                     }
                     if json {
                         println!(
@@ -2197,7 +2706,7 @@ fn main() -> Result<()> {
                         .map(|value| value.trim())
                         .filter(|value| !value.is_empty())
                         .unwrap_or("workmesh");
-                    let written = install_embedded_skill(
+                    let report = install_embedded_skill_report(
                         Some(&repo_root),
                         scope.into(),
                         agent.into(),
@@ -2207,16 +2716,44 @@ fn main() -> Result<()> {
                     if json {
                         println!(
                             "{}",
-                            serde_json::to_string_pretty(
-                                &serde_json::json!({ "ok": true, "written": written })
-                            )?
+                            serde_json::to_string_pretty(&serde_json::json!({
+                                "ok": true,
+                                "written": report.written,
+                                "skipped": report.skipped
+                            }))?
                         );
-                    } else if written.is_empty() {
-                        println!("(no files written)");
                     } else {
-                        for path in written {
-                            println!("{}", path.display());
-                        }
+                        print_install_report(report);
+                    }
+                }
+                SkillCommand::Uninstall {
+                    name,
+                    scope,
+                    agent,
+                    json,
+                } => {
+                    let skill_name = name
+                        .as_deref()
+                        .map(|value| value.trim())
+                        .filter(|value| !value.is_empty())
+                        .unwrap_or("workmesh");
+                    let report = uninstall_embedded_skill_report(
+                        Some(&repo_root),
+                        scope.into(),
+                        agent.into(),
+                        skill_name,
+                    )?;
+                    if json {
+                        println!(
+                            "{}",
+                            serde_json::to_string_pretty(&serde_json::json!({
+                                "ok": true,
+                                "removed": report.removed,
+                                "missing": report.missing
+                            }))?
+                        );
+                    } else {
+                        print_uninstall_report(report);
                     }
                 }
                 SkillCommand::InstallGlobal { name, force, json } => {
@@ -2226,14 +2763,15 @@ fn main() -> Result<()> {
                         .filter(|value| !value.is_empty())
                         .unwrap_or("workmesh");
                     let agents = detect_user_agents().unwrap_or_default();
-                    let written = install_embedded_skill_global_auto(skill_name, force)?;
+                    let report = install_embedded_skill_global_auto_report(skill_name, force)?;
                     if json {
                         println!(
                             "{}",
                             serde_json::to_string_pretty(&serde_json::json!({
                                 "ok": true,
                                 "detected_agents": agents,
-                                "written": written
+                                "written": report.written,
+                                "skipped": report.skipped
                             }))?
                         );
                     } else {
@@ -2245,13 +2783,37 @@ fn main() -> Result<()> {
                                 .collect::<Vec<_>>()
                                 .join(", ")
                         );
-                        if written.is_empty() {
-                            println!("(no files written)");
-                        } else {
-                            for path in written {
-                                println!("{}", path.display());
-                            }
-                        }
+                        print_install_report(report);
+                    }
+                }
+                SkillCommand::UninstallGlobal { name, json } => {
+                    let skill_name = name
+                        .as_deref()
+                        .map(|value| value.trim())
+                        .filter(|value| !value.is_empty())
+                        .unwrap_or("workmesh");
+                    let agents = detect_user_agents().unwrap_or_default();
+                    let report = uninstall_embedded_skill_global_auto_report(skill_name)?;
+                    if json {
+                        println!(
+                            "{}",
+                            serde_json::to_string_pretty(&serde_json::json!({
+                                "ok": true,
+                                "detected_agents": agents,
+                                "removed": report.removed,
+                                "missing": report.missing
+                            }))?
+                        );
+                    } else {
+                        println!(
+                            "Detected agents: {}",
+                            agents
+                                .iter()
+                                .map(|a| format!("{:?}", a))
+                                .collect::<Vec<_>>()
+                                .join(", ")
+                        );
+                        print_uninstall_report(report);
                     }
                 }
             }
@@ -2300,7 +2862,9 @@ fn main() -> Result<()> {
                 serde_json::json!({ "status": status.clone() }),
             )?;
             refresh_index_best_effort(&backlog_dir);
-            if update_focus_for_task_mutation(&backlog_dir, &task.id, Some(&status), None).unwrap_or(false) {
+            if update_focus_for_task_mutation(&backlog_dir, &task.id, Some(&status), None)
+                .unwrap_or(false)
+            {
                 audit_event(
                     &backlog_dir,
                     "focus_auto_update",
@@ -2360,7 +2924,9 @@ fn main() -> Result<()> {
                 }),
             )?;
             refresh_index_best_effort(&backlog_dir);
-            if update_focus_for_task_mutation(&backlog_dir, &task.id, None, Some(&lease.owner)).unwrap_or(false) {
+            if update_focus_for_task_mutation(&backlog_dir, &task.id, None, Some(&lease.owner))
+                .unwrap_or(false)
+            {
                 audit_event(
                     &backlog_dir,
                     "focus_auto_update",
@@ -2402,7 +2968,9 @@ fn main() -> Result<()> {
                 .as_ref()
                 .and_then(|t| t.lease.as_ref())
                 .map(|l| l.owner.as_str());
-            if update_focus_for_task_mutation(&backlog_dir, &task.id, status_after, owner_after).unwrap_or(false) {
+            if update_focus_for_task_mutation(&backlog_dir, &task.id, status_after, owner_after)
+                .unwrap_or(false)
+            {
                 audit_event(
                     &backlog_dir,
                     "focus_auto_update",
@@ -2862,8 +3430,7 @@ fn main() -> Result<()> {
                 Some(value) => value,
                 None => {
                     let repo_root = repo_root_from_backlog(&backlog_dir);
-                    let branch =
-                        core_git_branch(&repo_root).unwrap_or_else(|| "work".to_string());
+                    let branch = core_git_branch(&repo_root).unwrap_or_else(|| "work".to_string());
                     let initiative = ensure_branch_initiative(&repo_root, &branch)?;
                     next_namespaced_task_id(&tasks, &initiative)
                 }
@@ -2914,8 +3481,7 @@ fn main() -> Result<()> {
                 Some(value) => value,
                 None => {
                     let repo_root = repo_root_from_backlog(&backlog_dir);
-                    let branch =
-                        core_git_branch(&repo_root).unwrap_or_else(|| "work".to_string());
+                    let branch = core_git_branch(&repo_root).unwrap_or_else(|| "work".to_string());
                     let initiative = ensure_branch_initiative(&repo_root, &branch)?;
                     next_namespaced_task_id(&tasks, &initiative)
                 }
@@ -3042,6 +3608,9 @@ fn main() -> Result<()> {
         }
         Command::Install { .. } => {
             unreachable!("install handled before backlog resolution");
+        }
+        Command::Uninstall { .. } => {
+            unreachable!("uninstall handled before backlog resolution");
         }
         Command::Doctor { .. } => {
             unreachable!("doctor handled before backlog resolution");
@@ -3310,7 +3879,9 @@ fn handle_bulk_set_status(
             Some(&task.id),
             serde_json::json!({ "status": status.clone() }),
         )?;
-        if update_focus_for_task_mutation(backlog_dir, &task.id, Some(&status), None).unwrap_or(false) {
+        if update_focus_for_task_mutation(backlog_dir, &task.id, Some(&status), None)
+            .unwrap_or(false)
+        {
             audit_event(
                 backlog_dir,
                 "focus_auto_update",
