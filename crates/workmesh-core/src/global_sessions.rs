@@ -27,6 +27,20 @@ pub struct RecentChanges {
     pub files: Vec<String>,
 }
 
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, Default)]
+pub struct HandoffSummary {
+    #[serde(default)]
+    pub completed: Vec<String>,
+    #[serde(default)]
+    pub remaining: Vec<String>,
+    #[serde(default)]
+    pub decisions: Vec<String>,
+    #[serde(default)]
+    pub unknowns: Vec<String>,
+    #[serde(default)]
+    pub next_step: Option<String>,
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 pub struct AgentSession {
     pub id: String,
@@ -43,6 +57,8 @@ pub struct AgentSession {
     pub git: Option<GitSnapshot>,
     pub checkpoint: Option<CheckpointRef>,
     pub recent_changes: Option<RecentChanges>,
+    #[serde(default)]
+    pub handoff: Option<HandoffSummary>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -339,6 +355,7 @@ mod tests {
             git: None,
             checkpoint: None,
             recent_changes: None,
+            handoff: None,
         }
     }
 

@@ -7,6 +7,7 @@ use regex::Regex;
 use serde::Serialize;
 use ulid::Ulid;
 
+use crate::context::{context_from_legacy_focus, ContextScopeMode, ContextState};
 use crate::focus::FocusState;
 use crate::project::{project_docs_dir, repo_root_from_backlog};
 use crate::task::{split_front_matter, Task, TaskParseError};
@@ -585,12 +586,12 @@ pub fn ready_tasks<'a>(tasks: &'a [Task]) -> Vec<&'a Task> {
 }
 
 pub fn recommend_next_tasks<'a>(tasks: &'a [Task]) -> Vec<&'a Task> {
-    recommend_next_tasks_with_focus(tasks, None)
+    recommend_next_tasks_with_context(tasks, None)
 }
 
-pub fn recommend_next_tasks_with_focus<'a>(
+pub fn recommend_next_tasks_with_context<'a>(
     tasks: &'a [Task],
-    focus: Option<&FocusState>,
+    context: Option<&ContextState>,
 ) -> Vec<&'a Task> {
     let done_ids: HashSet<String> = tasks
         .iter()
@@ -611,29 +612,32 @@ pub fn recommend_next_tasks_with_focus<'a>(
         })
         .collect();
 
-    let focus_working_set: HashSet<String> = focus
-        .map(|f| {
-            f.working_set
+    let context_task_scope: HashSet<String> = context
+        .filter(|c| c.scope.mode == ContextScopeMode::Tasks)
+        .map(|c| {
+            c.scope
+                .task_ids
                 .iter()
                 .map(|id| id.to_lowercase())
                 .collect::<HashSet<_>>()
         })
         .unwrap_or_default();
-    let focus_epic_id = focus
-        .and_then(|f| f.epic_id.as_ref())
+    let context_epic_id = context
+        .filter(|c| c.scope.mode == ContextScopeMode::Epic)
+        .and_then(|c| c.scope.epic_id.as_ref())
         .map(|s| s.to_lowercase());
-    let focus_project_id = focus
-        .and_then(|f| f.project_id.as_ref())
+    let context_project_id = context
+        .and_then(|c| c.project_id.as_ref())
         .map(|s| s.to_lowercase());
 
     fn focus_bucket(
         task: &Task,
-        working_set: &HashSet<String>,
+        task_scope: &HashSet<String>,
         epic_id: Option<&String>,
         project_id: Option<&String>,
     ) -> i32 {
         let id_lc = task.id.to_lowercase();
-        if working_set.contains(&id_lc) {
+        if task_scope.contains(&id_lc) {
             return 0;
         }
         if let Some(epic_id) = epic_id {
@@ -674,9 +678,9 @@ pub fn recommend_next_tasks_with_focus<'a>(
         (
             focus_bucket(
                 task,
-                &focus_working_set,
-                focus_epic_id.as_ref(),
-                focus_project_id.as_ref(),
+                &context_task_scope,
+                context_epic_id.as_ref(),
+                context_project_id.as_ref(),
             ),
             status_bucket(task),
             priority_rank(&task.priority),
@@ -685,6 +689,21 @@ pub fn recommend_next_tasks_with_focus<'a>(
         )
     });
     candidates
+}
+
+pub fn recommend_next_tasks_with_focus<'a>(
+    tasks: &'a [Task],
+    focus: Option<&FocusState>,
+) -> Vec<&'a Task> {
+    let context = focus.map(|f| {
+        context_from_legacy_focus(
+            f.project_id.clone(),
+            f.epic_id.clone(),
+            f.objective.clone(),
+            f.working_set.clone(),
+        )
+    });
+    recommend_next_tasks_with_context(tasks, context.as_ref())
 }
 
 pub fn is_lease_active(task: &Task) -> bool {

@@ -12,13 +12,13 @@ use workmesh_core::archive::{archive_tasks, ArchiveOptions};
 use workmesh_core::audit::{append_audit_event, AuditEvent};
 use workmesh_core::backlog::{locate_backlog_dir, resolve_backlog, BacklogResolution};
 use workmesh_core::config::update_do_not_migrate;
+use workmesh_core::context::{
+    clear_context, context_path, extract_task_id_from_branch, infer_project_id, load_context,
+    save_context, ContextScope, ContextScopeMode, ContextState,
+};
 use workmesh_core::doctor::doctor_report;
 use workmesh_core::fix::{backfill_missing_uids, fix_dependencies, FixerKind};
-use workmesh_core::focus::maybe_auto_clean_focus;
-use workmesh_core::focus::{
-    clear_focus, extract_task_id_from_branch, infer_project_id, load_focus, save_focus,
-    update_focus_for_task_mutation, FocusState,
-};
+use workmesh_core::focus::load_focus;
 use workmesh_core::gantt::{
     plantuml_gantt, render_plantuml_svg, write_text_file, PlantumlRenderError,
 };
@@ -33,6 +33,10 @@ use workmesh_core::initiative::{
     best_effort_git_branch as core_git_branch, ensure_branch_initiative, next_namespaced_task_id,
 };
 use workmesh_core::migration::{migrate_backlog, MigrationError};
+use workmesh_core::migration_audit::{
+    apply_migration_plan, audit_deprecations, plan_migrations, MigrationApplyOptions,
+    MigrationPlanOptions,
+};
 use workmesh_core::project::{ensure_project_docs, repo_root_from_backlog};
 use workmesh_core::quickstart::quickstart;
 use workmesh_core::rekey::{
@@ -51,12 +55,15 @@ use workmesh_core::skills::{
 use workmesh_core::task::{load_tasks, load_tasks_with_archive, Lease, Task};
 use workmesh_core::task_ops::{
     append_note, create_task_file, ensure_can_mark_done, filter_tasks, graph_export,
-    is_lease_active, now_timestamp, ready_tasks, recommend_next_tasks_with_focus, render_task_line,
-    replace_section, set_list_field, sort_tasks, status_counts, task_to_json_value, tasks_to_json,
-    tasks_to_jsonl, timestamp_plus_minutes, update_body, update_lease_fields, update_task_field,
-    update_task_field_or_section, validate_tasks, FieldValue,
+    is_lease_active, now_timestamp, ready_tasks, recommend_next_tasks_with_context,
+    render_task_line, replace_section, set_list_field, sort_tasks, status_counts,
+    task_to_json_value, tasks_to_json, tasks_to_jsonl, timestamp_plus_minutes, update_body,
+    update_lease_fields, update_task_field, update_task_field_or_section, validate_tasks,
+    FieldValue,
 };
-use workmesh_core::views::{blockers_report, board_lanes, scope_ids_from_focus, BoardBy};
+use workmesh_core::views::{
+    blockers_report_with_context, board_lanes, scope_ids_from_context, BoardBy,
+};
 
 #[derive(Parser)]
 #[command(name = "workmesh", version = version::FULL, about = "WorkMesh CLI (WIP)")]
@@ -325,10 +332,15 @@ enum Command {
         #[command(subcommand)]
         command: SessionCommand,
     },
-    /// Repo-local focus (project/epic/objective/working set)
+    /// Repo-local context (project/objective/scope)
+    Context {
+        #[command(subcommand)]
+        command: ContextCommand,
+    },
+    /// Deprecated alias for `context`
     Focus {
         #[command(subcommand)]
-        command: FocusCommand,
+        command: ContextCommand,
     },
     /// Manage agent skills (show/install/uninstall)
     Skill {
@@ -632,10 +644,14 @@ enum Command {
         #[arg(long, action = ArgAction::SetTrue)]
         json: bool,
     },
-    /// Migrate legacy backlog layout to workmesh/
+    /// Migrate legacy/deprecated structures (audit -> plan -> apply)
     Migrate {
+        #[command(subcommand)]
+        command: Option<MigrateCommand>,
+        /// Legacy migration target (compat mode when no subcommand is provided)
         #[arg(long)]
         to: Option<String>,
+        /// Legacy non-interactive confirm (compat mode when no subcommand is provided)
         #[arg(long, action = ArgAction::SetTrue)]
         yes: bool,
     },
@@ -1036,11 +1052,12 @@ impl From<SkillAgentArg> for SkillAgent {
 }
 
 #[derive(Subcommand)]
-enum FocusCommand {
-    /// Set focus state for the current repo
+enum ContextCommand {
+    /// Set context state for the current repo
     Set {
         #[arg(long)]
         project: Option<String>,
+        /// Scope to an epic subtree
         #[arg(long)]
         epic: Option<String>,
         #[arg(long)]
@@ -1051,13 +1068,44 @@ enum FocusCommand {
         #[arg(long, action = ArgAction::SetTrue)]
         json: bool,
     },
-    /// Show the current focus state
+    /// Show the current context state
     Show {
         #[arg(long, action = ArgAction::SetTrue)]
         json: bool,
     },
-    /// Clear the current focus state
+    /// Clear the current context state
     Clear {
+        #[arg(long, action = ArgAction::SetTrue)]
+        json: bool,
+    },
+}
+
+#[derive(Subcommand)]
+enum MigrateCommand {
+    /// Detect legacy/deprecated structures and suggest migrations
+    Audit {
+        #[arg(long, action = ArgAction::SetTrue)]
+        json: bool,
+    },
+    /// Build an ordered migration plan from audit findings
+    Plan {
+        #[arg(long, value_delimiter = ',', num_args = 0..)]
+        include: Vec<String>,
+        #[arg(long, value_delimiter = ',', num_args = 0..)]
+        exclude: Vec<String>,
+        #[arg(long, action = ArgAction::SetTrue)]
+        json: bool,
+    },
+    /// Apply migration plan (dry-run by default unless --apply is passed)
+    Apply {
+        #[arg(long, value_delimiter = ',', num_args = 0..)]
+        include: Vec<String>,
+        #[arg(long, value_delimiter = ',', num_args = 0..)]
+        exclude: Vec<String>,
+        #[arg(long, action = ArgAction::SetTrue)]
+        apply: bool,
+        #[arg(long, action = ArgAction::SetTrue)]
+        backup: bool,
         #[arg(long, action = ArgAction::SetTrue)]
         json: bool,
     },
@@ -1413,6 +1461,37 @@ fn render_session_detail(session: &AgentSession) -> String {
     if let Some(checkpoint) = session.checkpoint.as_ref() {
         lines.push(format!("checkpoint: {}", checkpoint.path));
     }
+    if let Some(handoff) = session.handoff.as_ref() {
+        if !handoff.completed.is_empty() {
+            lines.push(format!(
+                "handoff.completed: {}",
+                handoff.completed.join(" | ")
+            ));
+        }
+        if !handoff.remaining.is_empty() {
+            lines.push(format!(
+                "handoff.remaining: {}",
+                handoff.remaining.join(" | ")
+            ));
+        }
+        if !handoff.decisions.is_empty() {
+            lines.push(format!(
+                "handoff.decisions: {}",
+                handoff.decisions.join(" | ")
+            ));
+        }
+        if !handoff.unknowns.is_empty() {
+            lines.push(format!(
+                "handoff.unknowns: {}",
+                handoff.unknowns.join(" | ")
+            ));
+        }
+        if let Some(next_step) = handoff.next_step.as_deref() {
+            if !next_step.trim().is_empty() {
+                lines.push(format!("handoff.next_step: {}", next_step));
+            }
+        }
+    }
     lines.join("\n")
 }
 
@@ -1421,7 +1500,7 @@ fn resume_script(session: &AgentSession) -> Vec<String> {
     lines.push(format!("cd {}", session.cwd));
 
     if let Some(repo_root) = session.repo_root.as_deref() {
-        lines.push(format!("workmesh --root {} focus show", repo_root));
+        lines.push(format!("workmesh --root {} context show", repo_root));
     }
 
     if let (Some(repo_root), Some(project_id)) =
@@ -1462,8 +1541,8 @@ fn auto_update_current_session(backlog_dir: &Path) -> Result<()> {
     let repo_root = rr.to_string_lossy().to_string();
     let repo_tasks = load_tasks(backlog_dir);
     let project_id = resolve_project_id(&rr, &repo_tasks, None);
-    let epic_id = load_focus(backlog_dir)?
-        .and_then(|f| f.epic_id)
+    let epic_id = load_context_state(backlog_dir)
+        .and_then(|c| c.scope.epic_id)
         .or_else(|| best_effort_git_branch(&rr).and_then(|b| extract_task_id_from_branch(&b)));
 
     let working_set: Vec<String> = repo_tasks
@@ -1503,6 +1582,7 @@ fn auto_update_current_session(backlog_dir: &Path) -> Result<()> {
         git: Some(best_effort_git_snapshot(&rr)),
         checkpoint,
         recent_changes,
+        handoff: existing.handoff.clone(),
     };
 
     append_session_saved(&home, updated.clone())?;
@@ -1648,16 +1728,18 @@ fn main() -> Result<()> {
                 report["backlog_dir"].as_str().unwrap_or("")
             );
             println!("layout: {}", report["layout"].as_str().unwrap_or(""));
-            if !report["focus"].is_null() {
-                let epic = report["focus"]["epic_id"].as_str().unwrap_or("");
-                let project = report["focus"]["project_id"].as_str().unwrap_or("");
-                let ws = report["focus"]["working_set_count"].as_i64().unwrap_or(0);
+            if !report["context"].is_null() {
+                let epic = report["context"]["scope"]["epic_id"].as_str().unwrap_or("");
+                let project = report["context"]["project_id"].as_str().unwrap_or("");
+                let mode = report["context"]["scope"]["mode"]
+                    .as_str()
+                    .unwrap_or("none");
                 println!(
-                    "focus: project_id={} epic_id={} working_set_count={}",
-                    project, epic, ws
+                    "context: project_id={} scope_mode={} epic_id={}",
+                    project, mode, epic
                 );
             } else {
-                println!("focus: (none)");
+                println!("context: (none)");
             }
             let present = report["index"]["present"].as_bool().unwrap_or(false);
             let entries = report["index"]["entries"].as_i64().unwrap_or(0);
@@ -1671,10 +1753,14 @@ fn main() -> Result<()> {
         return Ok(());
     }
 
-    if let Command::Migrate { to, yes } = &cli.command {
-        let resolution = resolve_backlog(&cli.root)?;
-        let target = to.as_deref().unwrap_or("workmesh");
-        handle_migrate_command(&resolution, target, *yes)?;
+    if let Command::Migrate { command, to, yes } = &cli.command {
+        if let Some(migrate_cmd) = command {
+            handle_migrate_workflow(&cli.root, migrate_cmd)?;
+        } else {
+            let resolution = resolve_backlog(&cli.root)?;
+            let target = to.as_deref().unwrap_or("workmesh");
+            handle_migrate_command(&resolution, target, *yes)?;
+        }
         return Ok(());
     }
 
@@ -1696,14 +1782,14 @@ fn main() -> Result<()> {
             } else {
                 load_tasks(&backlog_dir)
             };
-            let focus_state = if focus {
-                load_focus(&backlog_dir).ok().flatten()
+            let context_state = if focus {
+                load_context_state(&backlog_dir)
             } else {
                 None
             };
-            let scope_ids = focus_state
+            let scope_ids = context_state
                 .as_ref()
-                .and_then(|f| scope_ids_from_focus(&tasks, f));
+                .and_then(|c| scope_ids_from_context(&tasks, c));
             let lanes = board_lanes(&tasks, by.to_core(), scope_ids.as_ref());
 
             if json {
@@ -1739,8 +1825,9 @@ fn main() -> Result<()> {
             } else {
                 load_tasks(&backlog_dir)
             };
-            let focus_state = load_focus(&backlog_dir).ok().flatten();
-            let report = blockers_report(&tasks, focus_state.as_ref(), epic_id.as_deref());
+            let context_state = load_context_state(&backlog_dir);
+            let report =
+                blockers_report_with_context(&tasks, context_state.as_ref(), epic_id.as_deref());
 
             if json {
                 println!("{}", serde_json::to_string_pretty(&report)?);
@@ -1830,8 +1917,8 @@ fn main() -> Result<()> {
             }
         }
         Command::Next { json } => {
-            let focus = load_focus(&backlog_dir).ok().flatten();
-            let recommended = recommend_next_tasks_with_focus(&tasks, focus.as_ref());
+            let context = load_context_state(&backlog_dir);
+            let recommended = recommend_next_tasks_with_context(&tasks, context.as_ref());
             let task = recommended.first().map(|t| (*t).clone());
             if json {
                 if let Some(task) = task {
@@ -2391,8 +2478,8 @@ fn main() -> Result<()> {
                         let rr = repo_root_from_backlog(&backlog_dir);
                         repo_root = Some(rr.to_string_lossy().to_string());
                         let repo_tasks = load_tasks(&backlog_dir);
-                        epic_id = load_focus(&backlog_dir)?
-                            .and_then(|f| f.epic_id)
+                        epic_id = load_context_state(&backlog_dir)
+                            .and_then(|c| c.scope.epic_id)
                             .or_else(|| {
                                 best_effort_git_branch(&rr)
                                     .and_then(|b| extract_task_id_from_branch(&b))
@@ -2445,6 +2532,7 @@ fn main() -> Result<()> {
                         git,
                         checkpoint,
                         recent_changes,
+                        handoff: None,
                     };
 
                     append_session_saved(&home, session.clone())?;
@@ -2539,140 +2627,13 @@ fn main() -> Result<()> {
                 }
             }
         }
+        Command::Context { command } => {
+            let repo_root = repo_root_from_backlog(&backlog_dir);
+            handle_context_command(&backlog_dir, &repo_root, command, false)?;
+        }
         Command::Focus { command } => {
             let repo_root = repo_root_from_backlog(&backlog_dir);
-            match command {
-                FocusCommand::Set {
-                    project,
-                    epic,
-                    objective,
-                    tasks: task_list,
-                    json,
-                } => {
-                    let inferred_project = infer_project_id(&repo_root);
-
-                    let epic_id = match epic {
-                        Some(value) => Some(value),
-                        None => {
-                            // Best-effort: if branch name contains a task id, use it.
-                            best_effort_git_branch(&repo_root)
-                                .and_then(|b| extract_task_id_from_branch(&b))
-                        }
-                    };
-
-                    let working_set = task_list
-                        .as_deref()
-                        .filter(|value| !value.trim().is_empty())
-                        .map(split_csv)
-                        .unwrap_or_default();
-
-                    let state = FocusState {
-                        project_id: project.or(inferred_project),
-                        epic_id,
-                        objective,
-                        working_set,
-                        updated_at: None,
-                    };
-                    let path = save_focus(&backlog_dir, state.clone())?;
-                    audit_event(
-                        &backlog_dir,
-                        "focus_set",
-                        state.epic_id.as_deref(),
-                        serde_json::json!({
-                            "project_id": state.project_id.clone(),
-                            "epic_id": state.epic_id.clone(),
-                            "objective": state.objective.clone(),
-                            "working_set": state.working_set.clone()
-                        }),
-                    )?;
-                    if json {
-                        println!(
-                            "{}",
-                            serde_json::to_string_pretty(&serde_json::json!({
-                                "ok": true,
-                                "path": path,
-                                "focus": state
-                            }))?
-                        );
-                    } else {
-                        println!("Focus saved: {}", path.display());
-                    }
-                }
-                FocusCommand::Show { json } => {
-                    let inferred_project = infer_project_id(&repo_root);
-                    let inferred_epic = best_effort_git_branch(&repo_root)
-                        .and_then(|b| extract_task_id_from_branch(&b));
-                    let loaded = load_focus(&backlog_dir)?;
-                    let focus = loaded.or_else(|| {
-                        if inferred_project.is_some() || inferred_epic.is_some() {
-                            Some(FocusState {
-                                project_id: inferred_project.clone(),
-                                epic_id: inferred_epic.clone(),
-                                objective: None,
-                                working_set: Vec::new(),
-                                updated_at: None,
-                            })
-                        } else {
-                            None
-                        }
-                    });
-
-                    if json {
-                        println!(
-                            "{}",
-                            serde_json::to_string_pretty(&serde_json::json!({
-                                "focus": focus,
-                                "inferred": {
-                                    "project_id": inferred_project,
-                                    "epic_id": inferred_epic
-                                }
-                            }))?
-                        );
-                    } else if let Some(focus) = focus {
-                        println!(
-                            "project_id: {}",
-                            focus.project_id.unwrap_or_else(|| "(none)".into())
-                        );
-                        println!(
-                            "epic_id: {}",
-                            focus.epic_id.unwrap_or_else(|| "(none)".into())
-                        );
-                        println!(
-                            "objective: {}",
-                            focus.objective.unwrap_or_else(|| "(none)".into())
-                        );
-                        if focus.working_set.is_empty() {
-                            println!("working_set: (empty)");
-                        } else {
-                            println!("working_set: {}", focus.working_set.join(", "));
-                        }
-                        println!();
-                        println!("Next:");
-                        println!("- workmesh --root . ready --json");
-                        println!("- workmesh --root . claim <task-id> <owner> --minutes 60");
-                    } else {
-                        println!("(no focus set)");
-                    }
-                }
-                FocusCommand::Clear { json } => {
-                    let cleared = clear_focus(&backlog_dir)?;
-                    if cleared {
-                        audit_event(&backlog_dir, "focus_clear", None, serde_json::json!({}))?;
-                    }
-                    if json {
-                        println!(
-                            "{}",
-                            serde_json::to_string_pretty(
-                                &serde_json::json!({ "ok": true, "cleared": cleared })
-                            )?
-                        );
-                    } else if cleared {
-                        println!("Focus cleared");
-                    } else {
-                        println!("(no focus to clear)");
-                    }
-                }
-            }
+            handle_context_command(&backlog_dir, &repo_root, command, true)?;
         }
         Command::Skill { command } => {
             let repo_root = repo_root_from_backlog(&backlog_dir);
@@ -2862,26 +2823,6 @@ fn main() -> Result<()> {
                 serde_json::json!({ "status": status.clone() }),
             )?;
             refresh_index_best_effort(&backlog_dir);
-            if update_focus_for_task_mutation(&backlog_dir, &task.id, Some(&status), None)
-                .unwrap_or(false)
-            {
-                audit_event(
-                    &backlog_dir,
-                    "focus_auto_update",
-                    Some(&task.id),
-                    serde_json::json!({ "status": status.clone() }),
-                )?;
-            }
-            // If the focused epic is now fully complete, clear focus epic + working set.
-            let tasks_after = load_tasks(&backlog_dir);
-            if maybe_auto_clean_focus(&backlog_dir, &tasks_after).unwrap_or(false) {
-                audit_event(
-                    &backlog_dir,
-                    "focus_auto_clean",
-                    None,
-                    serde_json::json!({ "reason": "focused epic completed" }),
-                )?;
-            }
             maybe_auto_checkpoint(&backlog_dir, auto_checkpoint, auto_session);
             println!("Updated {} status -> {}", task.id, status);
         }
@@ -2924,16 +2865,6 @@ fn main() -> Result<()> {
                 }),
             )?;
             refresh_index_best_effort(&backlog_dir);
-            if update_focus_for_task_mutation(&backlog_dir, &task.id, None, Some(&lease.owner))
-                .unwrap_or(false)
-            {
-                audit_event(
-                    &backlog_dir,
-                    "focus_auto_update",
-                    Some(&task.id),
-                    serde_json::json!({ "lease_owner": lease.owner.clone() }),
-                )?;
-            }
             maybe_auto_checkpoint(&backlog_dir, auto_checkpoint, auto_session);
             println!("Claimed {} lease -> {}", task.id, lease.owner);
         }
@@ -2960,24 +2891,6 @@ fn main() -> Result<()> {
                 serde_json::json!({}),
             )?;
             refresh_index_best_effort(&backlog_dir);
-            // Release can imply "not actively working", but we only remove from focus when status
-            // is explicitly "To Do" or "Done" (or keep it if still leased).
-            let task_after = workmesh_core::task::parse_task_file(path).ok();
-            let status_after = task_after.as_ref().map(|t| t.status.as_str());
-            let owner_after = task_after
-                .as_ref()
-                .and_then(|t| t.lease.as_ref())
-                .map(|l| l.owner.as_str());
-            if update_focus_for_task_mutation(&backlog_dir, &task.id, status_after, owner_after)
-                .unwrap_or(false)
-            {
-                audit_event(
-                    &backlog_dir,
-                    "focus_auto_update",
-                    Some(&task.id),
-                    serde_json::json!({ "event": "release" }),
-                )?;
-            }
             maybe_auto_checkpoint(&backlog_dir, auto_checkpoint, auto_session);
             println!("Released {} lease", task.id);
         }
@@ -3844,6 +3757,340 @@ fn handle_migrate_command(resolution: &BacklogResolution, target: &str, yes: boo
     Ok(())
 }
 
+fn handle_context_command(
+    backlog_dir: &Path,
+    repo_root: &Path,
+    command: ContextCommand,
+    focus_alias: bool,
+) -> Result<()> {
+    let state_key = if focus_alias { "focus" } else { "context" };
+    let command_label = if focus_alias { "Focus" } else { "Context" };
+    let clear_action = if focus_alias {
+        "focus_clear"
+    } else {
+        "context_clear"
+    };
+    let set_action = if focus_alias {
+        "focus_set"
+    } else {
+        "context_set"
+    };
+
+    match command {
+        ContextCommand::Set {
+            project,
+            epic,
+            objective,
+            tasks: task_list,
+            json,
+        } => {
+            let inferred_project = infer_project_id(repo_root);
+            let inferred_epic_id = match epic {
+                Some(value) => Some(value),
+                None => {
+                    best_effort_git_branch(repo_root).and_then(|b| extract_task_id_from_branch(&b))
+                }
+            };
+            let task_ids = task_list
+                .as_deref()
+                .filter(|value| !value.trim().is_empty())
+                .map(split_csv)
+                .unwrap_or_default();
+            let scope = if inferred_epic_id
+                .as_deref()
+                .map(|v| !v.trim().is_empty())
+                .unwrap_or(false)
+            {
+                ContextScope {
+                    mode: ContextScopeMode::Epic,
+                    epic_id: inferred_epic_id.clone(),
+                    task_ids: Vec::new(),
+                }
+            } else if !task_ids.is_empty() {
+                ContextScope {
+                    mode: ContextScopeMode::Tasks,
+                    epic_id: None,
+                    task_ids: task_ids.clone(),
+                }
+            } else {
+                ContextScope {
+                    mode: ContextScopeMode::None,
+                    epic_id: None,
+                    task_ids: Vec::new(),
+                }
+            };
+
+            let state = ContextState {
+                version: 1,
+                project_id: project.or(inferred_project),
+                objective,
+                scope,
+                updated_at: None,
+            };
+            let path = save_context(backlog_dir, state.clone())?;
+            audit_event(
+                backlog_dir,
+                set_action,
+                state.scope.epic_id.as_deref(),
+                serde_json::json!({
+                    "project_id": state.project_id.clone(),
+                    "objective": state.objective.clone(),
+                    "scope": state.scope.clone()
+                }),
+            )?;
+            if json {
+                let mut payload = serde_json::json!({
+                    "ok": true,
+                    "path": path
+                });
+                payload[state_key] = if focus_alias {
+                    legacy_focus_payload(&state)
+                } else {
+                    serde_json::to_value(&state)?
+                };
+                println!("{}", serde_json::to_string_pretty(&payload)?);
+            } else {
+                println!("{} saved: {}", command_label, path.display());
+            }
+        }
+        ContextCommand::Show { json } => {
+            let context = infer_context_state(repo_root, backlog_dir);
+            if json {
+                let mut payload = serde_json::json!({
+                    "path": context_path(backlog_dir)
+                });
+                payload[state_key] = if focus_alias {
+                    match context.as_ref() {
+                        Some(state) => legacy_focus_payload(state),
+                        None => serde_json::Value::Null,
+                    }
+                } else {
+                    serde_json::to_value(&context)?
+                };
+                println!("{}", serde_json::to_string_pretty(&payload)?);
+            } else if let Some(context) = context {
+                println!(
+                    "project_id: {}",
+                    context.project_id.unwrap_or_else(|| "(none)".into())
+                );
+                println!(
+                    "objective: {}",
+                    context.objective.unwrap_or_else(|| "(none)".into())
+                );
+                println!("scope.mode: {:?}", context.scope.mode);
+                if let Some(epic_id) = context.scope.epic_id.as_deref() {
+                    println!("scope.epic_id: {}", epic_id);
+                }
+                if !context.scope.task_ids.is_empty() {
+                    println!("scope.task_ids: {}", context.scope.task_ids.join(", "));
+                }
+                println!();
+                println!("Next:");
+                println!("- workmesh --root . ready --json");
+                println!("- workmesh --root . claim <task-id> <owner> --minutes 60");
+            } else {
+                println!("(no {} set)", state_key);
+            }
+        }
+        ContextCommand::Clear { json } => {
+            let cleared = clear_context(backlog_dir)?;
+            if cleared {
+                audit_event(backlog_dir, clear_action, None, serde_json::json!({}))?;
+            }
+            if json {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&serde_json::json!({
+                        "ok": true,
+                        "cleared": cleared
+                    }))?
+                );
+            } else if cleared {
+                println!("{} cleared", command_label);
+            } else {
+                println!("(no {} to clear)", state_key);
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn legacy_focus_payload(state: &ContextState) -> serde_json::Value {
+    let (epic_id, working_set) = match state.scope.mode {
+        ContextScopeMode::Epic => (state.scope.epic_id.clone(), Vec::new()),
+        ContextScopeMode::Tasks => (None, state.scope.task_ids.clone()),
+        ContextScopeMode::None => (None, Vec::new()),
+    };
+    serde_json::json!({
+        "project_id": state.project_id.clone(),
+        "epic_id": epic_id,
+        "objective": state.objective.clone(),
+        "working_set": working_set
+    })
+}
+
+fn handle_migrate_workflow(root: &Path, command: &MigrateCommand) -> Result<()> {
+    match command {
+        MigrateCommand::Audit { json } => {
+            let report = audit_deprecations(root)?;
+            if *json {
+                println!("{}", serde_json::to_string_pretty(&report)?);
+            } else if report.findings.is_empty() {
+                println!("No legacy/deprecated structures detected.");
+            } else {
+                println!("Detected {} finding(s):", report.findings.len());
+                for finding in report.findings {
+                    println!(
+                        "- [{}] {} ({})",
+                        finding.severity, finding.title, finding.id
+                    );
+                    if let Some(action) = finding.suggested_action {
+                        println!("  suggested_action: {}", action);
+                    }
+                }
+            }
+        }
+        MigrateCommand::Plan {
+            include,
+            exclude,
+            json,
+        } => {
+            let report = audit_deprecations(root)?;
+            let plan = plan_migrations(
+                &report,
+                &MigrationPlanOptions {
+                    include: include.clone(),
+                    exclude: exclude.clone(),
+                },
+            );
+            if *json {
+                println!("{}", serde_json::to_string_pretty(&plan)?);
+            } else if plan.steps.is_empty() {
+                println!("No migration steps required.");
+            } else {
+                println!("Migration plan:");
+                for (idx, step) in plan.steps.iter().enumerate() {
+                    println!(
+                        "{}. {} [{}] - {}",
+                        idx + 1,
+                        step.action,
+                        if step.required {
+                            "required"
+                        } else {
+                            "recommended"
+                        },
+                        step.reason
+                    );
+                }
+                if !plan.warnings.is_empty() {
+                    println!("Warnings:");
+                    for warning in plan.warnings {
+                        println!("- {}", warning);
+                    }
+                }
+            }
+        }
+        MigrateCommand::Apply {
+            include,
+            exclude,
+            apply,
+            backup,
+            json,
+        } => {
+            let report = audit_deprecations(root)?;
+            let plan = plan_migrations(
+                &report,
+                &MigrationPlanOptions {
+                    include: include.clone(),
+                    exclude: exclude.clone(),
+                },
+            );
+            let result = apply_migration_plan(
+                root,
+                &plan,
+                &MigrationApplyOptions {
+                    dry_run: !*apply,
+                    backup: *backup,
+                },
+            )?;
+            if *json {
+                println!("{}", serde_json::to_string_pretty(&result)?);
+            } else {
+                if !*apply {
+                    println!("Dry-run migration complete (no files changed).");
+                    println!("Use `workmesh --root . migrate apply --apply` to write changes.");
+                }
+                println!("Applied: {}", result.applied.len());
+                for step in result.applied {
+                    println!("- {}", step);
+                }
+                if !result.skipped.is_empty() {
+                    println!("Skipped:");
+                    for step in result.skipped {
+                        println!("- {}", step);
+                    }
+                }
+                if !result.backups.is_empty() {
+                    println!("Backups:");
+                    for path in result.backups {
+                        println!("- {}", path);
+                    }
+                }
+                if !result.warnings.is_empty() {
+                    println!("Warnings:");
+                    for warning in result.warnings {
+                        println!("- {}", warning);
+                    }
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+fn load_context_state(backlog_dir: &Path) -> Option<ContextState> {
+    if let Ok(Some(context)) = load_context(backlog_dir) {
+        return Some(context);
+    }
+    // Legacy fallback for repos not yet migrated.
+    let legacy = load_focus(backlog_dir).ok().flatten()?;
+    Some(workmesh_core::context::context_from_legacy_focus(
+        legacy.project_id,
+        legacy.epic_id,
+        legacy.objective,
+        legacy.working_set,
+    ))
+}
+
+fn infer_context_state(repo_root: &Path, backlog_dir: &Path) -> Option<ContextState> {
+    if let Some(existing) = load_context_state(backlog_dir) {
+        return Some(existing);
+    }
+    let inferred_project = infer_project_id(repo_root);
+    let inferred_epic =
+        best_effort_git_branch(repo_root).and_then(|b| extract_task_id_from_branch(&b));
+    if inferred_project.is_none() && inferred_epic.is_none() {
+        return None;
+    }
+    let mut scope = ContextScope {
+        mode: ContextScopeMode::None,
+        epic_id: None,
+        task_ids: Vec::new(),
+    };
+    if let Some(epic_id) = inferred_epic {
+        scope.mode = ContextScopeMode::Epic;
+        scope.epic_id = Some(epic_id);
+    }
+    Some(ContextState {
+        version: 1,
+        project_id: inferred_project,
+        objective: None,
+        scope,
+        updated_at: None,
+    })
+}
+
 fn handle_bulk_set_status(
     backlog_dir: &Path,
     tasks: &[Task],
@@ -3879,29 +4126,9 @@ fn handle_bulk_set_status(
             Some(&task.id),
             serde_json::json!({ "status": status.clone() }),
         )?;
-        if update_focus_for_task_mutation(backlog_dir, &task.id, Some(&status), None)
-            .unwrap_or(false)
-        {
-            audit_event(
-                backlog_dir,
-                "focus_auto_update",
-                Some(&task.id),
-                serde_json::json!({ "status": status.clone() }),
-            )?;
-        }
         updated.push(task.id.clone());
     }
     refresh_index_best_effort(backlog_dir);
-    // Re-load to include any just-written changes.
-    let tasks_after = load_tasks(backlog_dir);
-    if maybe_auto_clean_focus(backlog_dir, &tasks_after).unwrap_or(false) {
-        audit_event(
-            backlog_dir,
-            "focus_auto_clean",
-            None,
-            serde_json::json!({ "reason": "focused epic completed" }),
-        )?;
-    }
     maybe_auto_checkpoint(backlog_dir, auto_checkpoint, auto_session);
     emit_bulk_result(&updated, &missing, json);
     Ok(())

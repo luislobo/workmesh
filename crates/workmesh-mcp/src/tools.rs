@@ -19,11 +19,12 @@ use workmesh_core::audit::{append_audit_event, AuditEvent};
 use workmesh_core::backlog::{
     locate_backlog_dir, resolve_backlog, resolve_backlog_dir, BacklogError,
 };
-use workmesh_core::doctor::doctor_report;
-use workmesh_core::focus::{
-    clear_focus, extract_task_id_from_branch, infer_project_id, load_focus, maybe_auto_clean_focus,
-    save_focus, update_focus_for_task_mutation, FocusState,
+use workmesh_core::context::{
+    clear_context, context_path, extract_task_id_from_branch, infer_project_id, load_context,
+    save_context, ContextScope, ContextScopeMode, ContextState,
 };
+use workmesh_core::doctor::doctor_report;
+use workmesh_core::focus::load_focus;
 use workmesh_core::gantt::{plantuml_gantt, render_plantuml_svg, write_text_file};
 use workmesh_core::global_sessions::{
     append_session_saved, load_sessions_latest, new_session_id, now_rfc3339,
@@ -36,6 +37,10 @@ use workmesh_core::initiative::{
     best_effort_git_branch as core_git_branch, ensure_branch_initiative, next_namespaced_task_id,
 };
 use workmesh_core::migration::migrate_backlog;
+use workmesh_core::migration_audit::{
+    apply_migration_plan, audit_deprecations, plan_migrations, MigrationApplyOptions,
+    MigrationPlanOptions,
+};
 use workmesh_core::project::{ensure_project_docs, repo_root_from_backlog};
 use workmesh_core::quickstart::quickstart;
 use workmesh_core::rekey::{
@@ -48,12 +53,14 @@ use workmesh_core::session::{
 use workmesh_core::task::{load_tasks, load_tasks_with_archive, Lease, Task};
 use workmesh_core::task_ops::{
     append_note, create_task_file, ensure_can_mark_done, filter_tasks, graph_export,
-    is_lease_active, now_timestamp, ready_tasks, recommend_next_tasks_with_focus, render_task_line,
-    replace_section, set_list_field, sort_tasks, status_counts, task_to_json_value, tasks_to_jsonl,
-    timestamp_plus_minutes, update_body, update_lease_fields, update_task_field,
-    update_task_field_or_section, validate_tasks, FieldValue,
+    is_lease_active, now_timestamp, ready_tasks, recommend_next_tasks_with_context,
+    render_task_line, replace_section, set_list_field, sort_tasks, status_counts,
+    task_to_json_value, tasks_to_jsonl, timestamp_plus_minutes, update_body, update_lease_fields,
+    update_task_field, update_task_field_or_section, validate_tasks, FieldValue,
 };
-use workmesh_core::views::{blockers_report, board_lanes, scope_ids_from_focus, BoardBy};
+use workmesh_core::views::{
+    blockers_report_with_context, board_lanes, scope_ids_from_context, BoardBy,
+};
 
 const ROOT_REQUIRED_ERROR: &str = "root is required for MCP calls unless the server is started within a repo containing tasks/ or backlog/tasks";
 
@@ -170,6 +177,19 @@ fn resolve_repo_root(context: &McpContext, root: Option<&str>) -> PathBuf {
     std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
 }
 
+fn load_context_state(backlog_dir: &Path) -> Option<ContextState> {
+    if let Ok(Some(context)) = load_context(backlog_dir) {
+        return Some(context);
+    }
+    let legacy = load_focus(backlog_dir).ok().flatten()?;
+    Some(workmesh_core::context::context_from_legacy_focus(
+        legacy.project_id,
+        legacy.epic_id,
+        legacy.objective,
+        legacy.working_set,
+    ))
+}
+
 fn read_skill_content(
     repo_root: &Path,
     name: &str,
@@ -235,17 +255,20 @@ fn tool_catalog() -> Vec<serde_json::Value> {
     vec![
         serde_json::json!({"name": "version", "summary": "Return WorkMesh version information."}),
         serde_json::json!({"name": "readme", "summary": "Return README.json (agent-friendly repo docs)."}),
-        serde_json::json!({"name": "doctor", "summary": "Diagnostics report for repo layout, focus, index, skills, and versions."}),
-        serde_json::json!({"name": "focus_show", "summary": "Show repo-local focus (project/epic/objective/working set)."}),
-        serde_json::json!({"name": "focus_set", "summary": "Set repo-local focus (project/epic/objective/working set)."}),
-        serde_json::json!({"name": "focus_clear", "summary": "Clear repo-local focus."}),
+        serde_json::json!({"name": "doctor", "summary": "Diagnostics report for repo layout, context, index, skills, and versions."}),
+        serde_json::json!({"name": "context_show", "summary": "Show repo-local context (project/objective/scope)."}),
+        serde_json::json!({"name": "context_set", "summary": "Set repo-local context (project/objective/scope)."}),
+        serde_json::json!({"name": "context_clear", "summary": "Clear repo-local context."}),
+        serde_json::json!({"name": "focus_show", "summary": "Deprecated alias for context_show."}),
+        serde_json::json!({"name": "focus_set", "summary": "Deprecated alias for context_set."}),
+        serde_json::json!({"name": "focus_clear", "summary": "Deprecated alias for context_clear."}),
         serde_json::json!({"name": "list_tasks", "summary": "List tasks with filters and sorting."}),
         serde_json::json!({"name": "show_task", "summary": "Show a single task by id."}),
-        serde_json::json!({"name": "next_task", "summary": "Get the next focus-relevant task (active/leased first, else next ready To Do)."}),
-        serde_json::json!({"name": "next_tasks", "summary": "Get a deterministic list of next-task candidates (includes active work; focus-aware)."}),
+        serde_json::json!({"name": "next_task", "summary": "Get the next context-relevant task (active/leased first, else next ready To Do)."}),
+        serde_json::json!({"name": "next_tasks", "summary": "Get a deterministic list of next-task candidates (includes active work; context-aware)."}),
         serde_json::json!({"name": "ready_tasks", "summary": "List tasks with deps satisfied (ready work)."}),
-        serde_json::json!({"name": "board", "summary": "Board (swimlanes) grouped by status/phase/priority (optionally focus-scoped)."}),
-        serde_json::json!({"name": "blockers", "summary": "Blocked work and top blockers (scoped to focus epic by default)."}),
+        serde_json::json!({"name": "board", "summary": "Board (swimlanes) grouped by status/phase/priority (optionally context-scoped)."}),
+        serde_json::json!({"name": "blockers", "summary": "Blocked work and top blockers (scoped to context epic by default)."}),
         serde_json::json!({"name": "export_tasks", "summary": "Export all tasks as JSON."}),
         serde_json::json!({"name": "set_status", "summary": "Update task status."}),
         serde_json::json!({"name": "set_field", "summary": "Update a front matter field."}),
@@ -262,6 +285,9 @@ fn tool_catalog() -> Vec<serde_json::Value> {
         serde_json::json!({"name": "bulk_add_note", "summary": "Bulk append a note to tasks."}),
         serde_json::json!({"name": "archive_tasks", "summary": "Archive done tasks into date-based folders."}),
         serde_json::json!({"name": "migrate_backlog", "summary": "Migrate legacy backlog to workmesh/."}),
+        serde_json::json!({"name": "migrate_audit", "summary": "Detect deprecated structures and produce migration findings."}),
+        serde_json::json!({"name": "migrate_plan", "summary": "Build migration plan from findings."}),
+        serde_json::json!({"name": "migrate_apply", "summary": "Apply migration plan (dry-run by default)."}),
         serde_json::json!({"name": "claim_task", "summary": "Claim a task lease."}),
         serde_json::json!({"name": "release_task", "summary": "Release a task lease."}),
         serde_json::json!({"name": "add_note", "summary": "Append a note to Notes or Implementation Notes."}),
@@ -313,7 +339,7 @@ pub struct ReadmeTool {
 
 #[mcp_tool(
     name = "doctor",
-    description = "Return a diagnostics report for repo layout, focus, index, skills, and versions."
+    description = "Return a diagnostics report for repo layout, context, index, skills, and versions."
 )]
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct DoctorTool {
@@ -322,7 +348,41 @@ pub struct DoctorTool {
     pub format: String,
 }
 
-#[mcp_tool(name = "focus_show", description = "Show repo-local focus state.")]
+#[mcp_tool(name = "context_show", description = "Show repo-local context state.")]
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct ContextShowTool {
+    pub root: Option<String>,
+    #[serde(default = "default_format")]
+    pub format: String,
+}
+
+#[mcp_tool(name = "context_set", description = "Set repo-local context state.")]
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct ContextSetTool {
+    pub root: Option<String>,
+    pub project_id: Option<String>,
+    pub epic_id: Option<String>,
+    pub objective: Option<String>,
+    pub tasks: Option<ListInput>,
+    #[serde(default = "default_format")]
+    pub format: String,
+}
+
+#[mcp_tool(
+    name = "context_clear",
+    description = "Clear repo-local context state."
+)]
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct ContextClearTool {
+    pub root: Option<String>,
+    #[serde(default = "default_format")]
+    pub format: String,
+}
+
+#[mcp_tool(
+    name = "focus_show",
+    description = "Deprecated alias for context_show. Show repo-local context state."
+)]
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct FocusShowTool {
     pub root: Option<String>,
@@ -330,7 +390,10 @@ pub struct FocusShowTool {
     pub format: String,
 }
 
-#[mcp_tool(name = "focus_set", description = "Set repo-local focus state.")]
+#[mcp_tool(
+    name = "focus_set",
+    description = "Deprecated alias for context_set. Set repo-local context state."
+)]
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct FocusSetTool {
     pub root: Option<String>,
@@ -342,7 +405,10 @@ pub struct FocusSetTool {
     pub format: String,
 }
 
-#[mcp_tool(name = "focus_clear", description = "Clear repo-local focus state.")]
+#[mcp_tool(
+    name = "focus_clear",
+    description = "Deprecated alias for context_clear. Clear repo-local context state."
+)]
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct FocusClearTool {
     pub root: Option<String>,
@@ -388,7 +454,7 @@ pub struct ShowTaskTool {
 
 #[mcp_tool(
     name = "next_task",
-    description = "Return the next focus-relevant task (active/leased first, else next ready To Do)."
+    description = "Return the next context-relevant task (active/leased first, else next ready To Do)."
 )]
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct NextTaskTool {
@@ -399,7 +465,7 @@ pub struct NextTaskTool {
 
 #[mcp_tool(
     name = "next_tasks",
-    description = "Recommend next work items (active/leased first, then ready To Do), ordered deterministically and biased by focus. Use this when an agent should choose among candidates."
+    description = "Recommend next work items (active/leased first, then ready To Do), ordered deterministically and biased by context. Use this when an agent should choose among candidates."
 )]
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct NextTasksTool {
@@ -423,7 +489,7 @@ pub struct ReadyTasksTool {
 
 #[mcp_tool(
     name = "board",
-    description = "Board (swimlanes) grouped by status/phase/priority. Use --focus to scope to current focus."
+    description = "Board (swimlanes) grouped by status/phase/priority. Use --focus to scope to current context."
 )]
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct BoardTool {
@@ -434,7 +500,7 @@ pub struct BoardTool {
     /// Group lanes by: status|phase|priority
     #[serde(default = "default_board_by")]
     pub by: String,
-    /// Scope to focus epic subtree or focus working set.
+    /// Scope to context epic subtree or explicit context task scope.
     #[serde(default)]
     pub focus: bool,
     #[serde(default = "default_format")]
@@ -443,7 +509,7 @@ pub struct BoardTool {
 
 #[mcp_tool(
     name = "blockers",
-    description = "Show blocked work and top blockers (scoped to focus epic by default)."
+    description = "Show blocked work and top blockers (scoped to context epic by default)."
 )]
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct BlockersTool {
@@ -451,7 +517,7 @@ pub struct BlockersTool {
     /// Include archived tasks under `workmesh/archive/` (recursively).
     #[serde(default)]
     pub all: bool,
-    /// Override focus epic id for scoping.
+    /// Override context epic id for scoping.
     pub epic_id: Option<String>,
     #[serde(default = "default_format")]
     pub format: String,
@@ -637,12 +703,49 @@ pub struct ArchiveTool {
 
 #[mcp_tool(
     name = "migrate_backlog",
-    description = "Migrate legacy backlog to workmesh/"
+    description = "Migrate legacy backlog to workmesh/ (compat tool)"
 )]
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct MigrateTool {
     pub root: Option<String>,
     pub to: Option<String>,
+}
+
+#[mcp_tool(
+    name = "migrate_audit",
+    description = "Detect deprecated structures and report migration findings."
+)]
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct MigrateAuditTool {
+    pub root: Option<String>,
+}
+
+#[mcp_tool(
+    name = "migrate_plan",
+    description = "Build migration plan from audit findings."
+)]
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct MigratePlanTool {
+    pub root: Option<String>,
+    pub include: Option<ListInput>,
+    pub exclude: Option<ListInput>,
+}
+
+#[mcp_tool(
+    name = "migrate_apply",
+    description = "Apply migration plan (dry-run by default)."
+)]
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct MigrateApplyTool {
+    pub root: Option<String>,
+    #[serde(default)]
+    pub include: Option<ListInput>,
+    #[serde(default)]
+    pub exclude: Option<ListInput>,
+    #[serde(default)]
+    pub apply: bool,
+    #[serde(default)]
+    pub backup: bool,
 }
 
 #[mcp_tool(name = "claim_task", description = "Claim a task lease.")]
@@ -1117,6 +1220,9 @@ tool_box!(
         VersionTool,
         ReadmeTool,
         DoctorTool,
+        ContextShowTool,
+        ContextSetTool,
+        ContextClearTool,
         FocusShowTool,
         FocusSetTool,
         FocusClearTool,
@@ -1144,6 +1250,9 @@ tool_box!(
         BulkAddNoteTool,
         ArchiveTool,
         MigrateTool,
+        MigrateAuditTool,
+        MigratePlanTool,
+        MigrateApplyTool,
         ClaimTaskTool,
         ReleaseTaskTool,
         AddNoteTool,
@@ -1210,6 +1319,9 @@ impl ServerHandler for WorkmeshServerHandler {
             WorkmeshTools::VersionTool(tool) => tool.call(&self.context),
             WorkmeshTools::ReadmeTool(tool) => tool.call(&self.context),
             WorkmeshTools::DoctorTool(tool) => tool.call(&self.context),
+            WorkmeshTools::ContextShowTool(tool) => tool.call(&self.context),
+            WorkmeshTools::ContextSetTool(tool) => tool.call(&self.context),
+            WorkmeshTools::ContextClearTool(tool) => tool.call(&self.context),
             WorkmeshTools::FocusShowTool(tool) => tool.call(&self.context),
             WorkmeshTools::FocusSetTool(tool) => tool.call(&self.context),
             WorkmeshTools::FocusClearTool(tool) => tool.call(&self.context),
@@ -1237,6 +1349,9 @@ impl ServerHandler for WorkmeshServerHandler {
             WorkmeshTools::BulkAddNoteTool(tool) => tool.call(&self.context),
             WorkmeshTools::ArchiveTool(tool) => tool.call(&self.context),
             WorkmeshTools::MigrateTool(tool) => tool.call(&self.context),
+            WorkmeshTools::MigrateAuditTool(tool) => tool.call(&self.context),
+            WorkmeshTools::MigratePlanTool(tool) => tool.call(&self.context),
+            WorkmeshTools::MigrateApplyTool(tool) => tool.call(&self.context),
             WorkmeshTools::ClaimTaskTool(tool) => tool.call(&self.context),
             WorkmeshTools::ReleaseTaskTool(tool) => tool.call(&self.context),
             WorkmeshTools::AddNoteTool(tool) => tool.call(&self.context),
@@ -1335,84 +1450,211 @@ impl DoctorTool {
     }
 }
 
+fn call_context_show(
+    context: &McpContext,
+    root: Option<&str>,
+    format: &str,
+    payload_key: &str,
+    legacy_focus: bool,
+) -> Result<CallToolResult, CallToolError> {
+    let backlog_dir = match resolve_root(context, root) {
+        Ok(dir) => dir,
+        Err(err) => return ok_json(err),
+    };
+    let loaded = load_context_state(&backlog_dir);
+    if format == "text" {
+        if let Some(ctx) = loaded {
+            return ok_text(format!(
+                "project_id: {}\nobjective: {}\nscope.mode: {:?}\nscope.epic_id: {}\nscope.task_ids: {}\n",
+                ctx.project_id.unwrap_or_else(|| "(none)".into()),
+                ctx.objective.unwrap_or_else(|| "(none)".into()),
+                ctx.scope.mode,
+                ctx.scope.epic_id.unwrap_or_else(|| "(none)".into()),
+                if ctx.scope.task_ids.is_empty() {
+                    "(empty)".into()
+                } else {
+                    ctx.scope.task_ids.join(", ")
+                }
+            ));
+        }
+        return ok_text(format!("(no {} set)", payload_key));
+    }
+    let mut payload = serde_json::json!({
+        "path": context_path(&backlog_dir)
+    });
+    payload[payload_key] = if legacy_focus {
+        match loaded.as_ref() {
+            Some(state) => legacy_focus_payload(state),
+            None => serde_json::Value::Null,
+        }
+    } else {
+        serde_json::to_value(&loaded).map_err(|err| CallToolError::from_message(err.to_string()))?
+    };
+    ok_json(payload)
+}
+
+fn call_context_set(
+    context: &McpContext,
+    root: Option<&str>,
+    project_id: Option<String>,
+    epic_id: Option<String>,
+    objective: Option<String>,
+    tasks: Option<ListInput>,
+    audit_action: &str,
+    payload_key: &str,
+    legacy_focus: bool,
+) -> Result<CallToolResult, CallToolError> {
+    let backlog_dir = match resolve_root(context, root) {
+        Ok(dir) => dir,
+        Err(err) => return ok_json(err),
+    };
+    let repo_root = resolve_repo_root(context, root);
+    let inferred_project = infer_project_id(&repo_root);
+    let task_ids = parse_list_input(tasks);
+    let scope = if epic_id
+        .as_deref()
+        .map(|id| !id.trim().is_empty())
+        .unwrap_or(false)
+    {
+        ContextScope {
+            mode: ContextScopeMode::Epic,
+            epic_id: epic_id.clone(),
+            task_ids: Vec::new(),
+        }
+    } else if !task_ids.is_empty() {
+        ContextScope {
+            mode: ContextScopeMode::Tasks,
+            epic_id: None,
+            task_ids: task_ids.clone(),
+        }
+    } else {
+        ContextScope {
+            mode: ContextScopeMode::None,
+            epic_id: None,
+            task_ids: Vec::new(),
+        }
+    };
+    let state = ContextState {
+        version: 1,
+        project_id: project_id.or(inferred_project),
+        objective,
+        scope,
+        updated_at: None,
+    };
+    let path = save_context(&backlog_dir, state.clone())
+        .map_err(|err| CallToolError::from_message(err.to_string()))?;
+    audit_event(
+        &backlog_dir,
+        audit_action,
+        state.scope.epic_id.as_deref(),
+        serde_json::json!({
+            "project_id": state.project_id.clone(),
+            "objective": state.objective.clone(),
+            "scope": state.scope.clone()
+        }),
+    )?;
+    let mut payload = serde_json::json!({
+        "ok": true,
+        "path": path
+    });
+    payload[payload_key] = if legacy_focus {
+        legacy_focus_payload(&state)
+    } else {
+        serde_json::to_value(&state).map_err(|err| CallToolError::from_message(err.to_string()))?
+    };
+    ok_json(payload)
+}
+
+fn call_context_clear(
+    context: &McpContext,
+    root: Option<&str>,
+    audit_action: &str,
+) -> Result<CallToolResult, CallToolError> {
+    let backlog_dir = match resolve_root(context, root) {
+        Ok(dir) => dir,
+        Err(err) => return ok_json(err),
+    };
+    let cleared =
+        clear_context(&backlog_dir).map_err(|err| CallToolError::from_message(err.to_string()))?;
+    if cleared {
+        audit_event(&backlog_dir, audit_action, None, serde_json::json!({}))?;
+    }
+    ok_json(serde_json::json!({"ok": true, "cleared": cleared}))
+}
+
+fn legacy_focus_payload(state: &ContextState) -> serde_json::Value {
+    let (epic_id, working_set) = match state.scope.mode {
+        ContextScopeMode::Epic => (state.scope.epic_id.clone(), Vec::new()),
+        ContextScopeMode::Tasks => (None, state.scope.task_ids.clone()),
+        ContextScopeMode::None => (None, Vec::new()),
+    };
+    serde_json::json!({
+        "project_id": state.project_id.clone(),
+        "epic_id": epic_id,
+        "objective": state.objective.clone(),
+        "working_set": working_set
+    })
+}
+
+impl ContextShowTool {
+    fn call(&self, context: &McpContext) -> Result<CallToolResult, CallToolError> {
+        call_context_show(
+            context,
+            self.root.as_deref(),
+            &self.format,
+            "context",
+            false,
+        )
+    }
+}
+
+impl ContextSetTool {
+    fn call(&self, context: &McpContext) -> Result<CallToolResult, CallToolError> {
+        call_context_set(
+            context,
+            self.root.as_deref(),
+            self.project_id.clone(),
+            self.epic_id.clone(),
+            self.objective.clone(),
+            self.tasks.clone(),
+            "context_set",
+            "context",
+            false,
+        )
+    }
+}
+
+impl ContextClearTool {
+    fn call(&self, context: &McpContext) -> Result<CallToolResult, CallToolError> {
+        call_context_clear(context, self.root.as_deref(), "context_clear")
+    }
+}
+
 impl FocusShowTool {
     fn call(&self, context: &McpContext) -> Result<CallToolResult, CallToolError> {
-        let backlog_dir = match resolve_root(context, self.root.as_deref()) {
-            Ok(dir) => dir,
-            Err(err) => return ok_json(err),
-        };
-        let repo_root = resolve_repo_root(context, self.root.as_deref());
-        let inferred_project = infer_project_id(&repo_root);
-        let loaded =
-            load_focus(&backlog_dir).map_err(|err| CallToolError::from_message(err.to_string()))?;
-        if self.format == "text" {
-            if let Some(focus) = loaded {
-                return ok_text(format!(
-                    "project_id: {}\nepic_id: {}\nobjective: {}\nworking_set: {}\n",
-                    focus.project_id.unwrap_or_else(|| "(none)".into()),
-                    focus.epic_id.unwrap_or_else(|| "(none)".into()),
-                    focus.objective.unwrap_or_else(|| "(none)".into()),
-                    if focus.working_set.is_empty() {
-                        "(empty)".into()
-                    } else {
-                        focus.working_set.join(", ")
-                    }
-                ));
-            }
-            return ok_text("(no focus set)".to_string());
-        }
-        ok_json(serde_json::json!({
-            "focus": loaded,
-            "inferred": { "project_id": inferred_project }
-        }))
+        call_context_show(context, self.root.as_deref(), &self.format, "focus", true)
     }
 }
 
 impl FocusSetTool {
     fn call(&self, context: &McpContext) -> Result<CallToolResult, CallToolError> {
-        let backlog_dir = match resolve_root(context, self.root.as_deref()) {
-            Ok(dir) => dir,
-            Err(err) => return ok_json(err),
-        };
-        let repo_root = resolve_repo_root(context, self.root.as_deref());
-        let inferred_project = infer_project_id(&repo_root);
-        let working_set = parse_list_input(self.tasks.clone());
-        let state = FocusState {
-            project_id: self.project_id.clone().or(inferred_project),
-            epic_id: self.epic_id.clone(),
-            objective: self.objective.clone(),
-            working_set,
-            updated_at: None,
-        };
-        let path = save_focus(&backlog_dir, state.clone())
-            .map_err(|err| CallToolError::from_message(err.to_string()))?;
-        audit_event(
-            &backlog_dir,
+        call_context_set(
+            context,
+            self.root.as_deref(),
+            self.project_id.clone(),
+            self.epic_id.clone(),
+            self.objective.clone(),
+            self.tasks.clone(),
             "focus_set",
-            state.epic_id.as_deref(),
-            serde_json::json!({
-                "project_id": state.project_id.clone(),
-                "epic_id": state.epic_id.clone(),
-                "objective": state.objective.clone(),
-                "working_set": state.working_set.clone()
-            }),
-        )?;
-        ok_json(serde_json::json!({"ok": true, "path": path, "focus": state}))
+            "focus",
+            true,
+        )
     }
 }
 
 impl FocusClearTool {
     fn call(&self, context: &McpContext) -> Result<CallToolResult, CallToolError> {
-        let backlog_dir = match resolve_root(context, self.root.as_deref()) {
-            Ok(dir) => dir,
-            Err(err) => return ok_json(err),
-        };
-        let cleared = clear_focus(&backlog_dir)
-            .map_err(|err| CallToolError::from_message(err.to_string()))?;
-        if cleared {
-            audit_event(&backlog_dir, "focus_clear", None, serde_json::json!({}))?;
-        }
-        ok_json(serde_json::json!({"ok": true, "cleared": cleared}))
+        call_context_clear(context, self.root.as_deref(), "focus_clear")
     }
 }
 
@@ -1528,9 +1770,8 @@ impl NextTaskTool {
             Err(err) => return ok_json(err),
         };
         let tasks = load_tasks(&backlog_dir);
-        let focus =
-            load_focus(&backlog_dir).map_err(|err| CallToolError::from_message(err.to_string()))?;
-        let recommended = recommend_next_tasks_with_focus(&tasks, focus.as_ref());
+        let context_state = load_context_state(&backlog_dir);
+        let recommended = recommend_next_tasks_with_context(&tasks, context_state.as_ref());
         let Some(task) = recommended.first() else {
             return ok_json(serde_json::json!({"error": "No ready tasks"}));
         };
@@ -1548,9 +1789,8 @@ impl NextTasksTool {
             Err(err) => return ok_json(err),
         };
         let tasks = load_tasks(&backlog_dir);
-        let focus =
-            load_focus(&backlog_dir).map_err(|err| CallToolError::from_message(err.to_string()))?;
-        let mut next_tasks = recommend_next_tasks_with_focus(&tasks, focus.as_ref());
+        let context_state = load_context_state(&backlog_dir);
+        let mut next_tasks = recommend_next_tasks_with_context(&tasks, context_state.as_ref());
         if next_tasks.is_empty() {
             return ok_json(serde_json::json!({"error": "No ready tasks"}));
         }
@@ -1624,12 +1864,14 @@ impl BoardTool {
             }
         };
 
-        let focus = if self.focus {
-            load_focus(&backlog_dir).map_err(|err| CallToolError::from_message(err.to_string()))?
+        let context_state = if self.focus {
+            load_context_state(&backlog_dir)
         } else {
             None
         };
-        let scope_ids = focus.as_ref().and_then(|f| scope_ids_from_focus(&tasks, f));
+        let scope_ids = context_state
+            .as_ref()
+            .and_then(|c| scope_ids_from_context(&tasks, c));
         let lanes = board_lanes(&tasks, by, scope_ids.as_ref());
 
         if self.format == "text" {
@@ -1674,9 +1916,9 @@ impl BlockersTool {
         } else {
             load_tasks(&backlog_dir)
         };
-        let focus =
-            load_focus(&backlog_dir).map_err(|err| CallToolError::from_message(err.to_string()))?;
-        let report = blockers_report(&tasks, focus.as_ref(), self.epic_id.as_deref());
+        let context_state = load_context_state(&backlog_dir);
+        let report =
+            blockers_report_with_context(&tasks, context_state.as_ref(), self.epic_id.as_deref());
 
         if self.format == "text" {
             let mut out = String::new();
@@ -1797,25 +2039,6 @@ impl SetStatusTool {
             serde_json::json!({ "status": self.status.clone() }),
         )?;
         refresh_index_best_effort(&backlog_dir);
-        if update_focus_for_task_mutation(&backlog_dir, &task.id, Some(&self.status), None)
-            .unwrap_or(false)
-        {
-            audit_event(
-                &backlog_dir,
-                "focus_auto_update",
-                Some(&task.id),
-                serde_json::json!({ "status": self.status.clone() }),
-            )?;
-        }
-        let tasks_after = load_tasks(&backlog_dir);
-        if maybe_auto_clean_focus(&backlog_dir, &tasks_after).unwrap_or(false) {
-            audit_event(
-                &backlog_dir,
-                "focus_auto_clean",
-                None,
-                serde_json::json!({ "reason": "focused epic completed" }),
-            )?;
-        }
         maybe_auto_checkpoint(&backlog_dir);
         ok_json(serde_json::json!({"ok": true, "id": task.id, "status": self.status.clone()}))
     }
@@ -1949,28 +2172,9 @@ impl BulkSetStatusTool {
                 Some(&task.id),
                 serde_json::json!({ "status": self.status.clone() }),
             )?;
-            if update_focus_for_task_mutation(&backlog_dir, &task.id, Some(&self.status), None)
-                .unwrap_or(false)
-            {
-                audit_event(
-                    &backlog_dir,
-                    "focus_auto_update",
-                    Some(&task.id),
-                    serde_json::json!({ "status": self.status.clone() }),
-                )?;
-            }
             updated.push(task.id.clone());
         }
         refresh_index_best_effort(&backlog_dir);
-        let tasks_after = load_tasks(&backlog_dir);
-        if maybe_auto_clean_focus(&backlog_dir, &tasks_after).unwrap_or(false) {
-            audit_event(
-                &backlog_dir,
-                "focus_auto_clean",
-                None,
-                serde_json::json!({ "reason": "focused epic completed" }),
-            )?;
-        }
         maybe_auto_checkpoint(&backlog_dir);
         ok_json(bulk_result(updated, missing))
     }
@@ -2257,6 +2461,45 @@ impl MigrateTool {
     }
 }
 
+impl MigrateAuditTool {
+    fn call(&self, context: &McpContext) -> Result<CallToolResult, CallToolError> {
+        let repo_root = resolve_repo_root(context, self.root.as_deref());
+        let report = audit_deprecations(&repo_root).map_err(CallToolError::new)?;
+        ok_json(serde_json::to_value(report).unwrap_or_default())
+    }
+}
+
+impl MigratePlanTool {
+    fn call(&self, context: &McpContext) -> Result<CallToolResult, CallToolError> {
+        let repo_root = resolve_repo_root(context, self.root.as_deref());
+        let report = audit_deprecations(&repo_root).map_err(CallToolError::new)?;
+        let include = parse_list_input(self.include.clone());
+        let exclude = parse_list_input(self.exclude.clone());
+        let plan = plan_migrations(&report, &MigrationPlanOptions { include, exclude });
+        ok_json(serde_json::to_value(plan).unwrap_or_default())
+    }
+}
+
+impl MigrateApplyTool {
+    fn call(&self, context: &McpContext) -> Result<CallToolResult, CallToolError> {
+        let repo_root = resolve_repo_root(context, self.root.as_deref());
+        let report = audit_deprecations(&repo_root).map_err(CallToolError::new)?;
+        let include = parse_list_input(self.include.clone());
+        let exclude = parse_list_input(self.exclude.clone());
+        let plan = plan_migrations(&report, &MigrationPlanOptions { include, exclude });
+        let result = apply_migration_plan(
+            &repo_root,
+            &plan,
+            &MigrationApplyOptions {
+                dry_run: !self.apply,
+                backup: self.backup,
+            },
+        )
+        .map_err(CallToolError::new)?;
+        ok_json(serde_json::to_value(result).unwrap_or_default())
+    }
+}
+
 impl ClaimTaskTool {
     fn call(&self, context: &McpContext) -> Result<CallToolResult, CallToolError> {
         let backlog_dir = match resolve_root(context, self.root.as_deref()) {
@@ -2300,16 +2543,6 @@ impl ClaimTaskTool {
             }),
         )?;
         refresh_index_best_effort(&backlog_dir);
-        if update_focus_for_task_mutation(&backlog_dir, &task.id, None, Some(&lease.owner))
-            .unwrap_or(false)
-        {
-            audit_event(
-                &backlog_dir,
-                "focus_auto_update",
-                Some(&task.id),
-                serde_json::json!({ "lease_owner": lease.owner.clone() }),
-            )?;
-        }
         maybe_auto_checkpoint(&backlog_dir);
         ok_json(serde_json::json!({"ok": true, "id": task.id, "owner": lease.owner.clone()}))
     }
@@ -2344,22 +2577,6 @@ impl ReleaseTaskTool {
             serde_json::json!({}),
         )?;
         refresh_index_best_effort(&backlog_dir);
-        let task_after = workmesh_core::task::parse_task_file(path).ok();
-        let status_after = task_after.as_ref().map(|t| t.status.as_str());
-        let owner_after = task_after
-            .as_ref()
-            .and_then(|t| t.lease.as_ref())
-            .map(|l| l.owner.as_str());
-        if update_focus_for_task_mutation(&backlog_dir, &task.id, status_after, owner_after)
-            .unwrap_or(false)
-        {
-            audit_event(
-                &backlog_dir,
-                "focus_auto_update",
-                Some(&task.id),
-                serde_json::json!({ "event": "release" }),
-            )?;
-        }
         maybe_auto_checkpoint(&backlog_dir);
         ok_json(serde_json::json!({"ok": true, "id": task.id}))
     }
@@ -2941,10 +3158,7 @@ impl SessionSaveTool {
             let rr = repo_root_from_backlog(&backlog_dir);
             repo_root = Some(rr.to_string_lossy().to_string());
             let repo_tasks = load_tasks(&backlog_dir);
-            epic_id = load_focus(&backlog_dir)
-                .ok()
-                .flatten()
-                .and_then(|f| f.epic_id);
+            epic_id = load_context_state(&backlog_dir).and_then(|c| c.scope.epic_id);
 
             if project_id.is_none() {
                 project_id = Some(resolve_project_id(
@@ -2999,6 +3213,7 @@ impl SessionSaveTool {
             git,
             checkpoint,
             recent_changes,
+            handoff: None,
         };
 
         append_session_saved(&home, session.clone())
@@ -3225,6 +3440,9 @@ fn render_session_detail(session: &AgentSession) -> String {
     if let Some(project_id) = session.project_id.as_deref() {
         lines.push(format!("project_id: {}", project_id));
     }
+    if let Some(epic_id) = session.epic_id.as_deref() {
+        lines.push(format!("epic_id: {}", epic_id));
+    }
     lines.push(format!("objective: {}", session.objective));
     if !session.working_set.is_empty() {
         lines.push(format!("working_set: {}", session.working_set.join(", ")));
@@ -3249,12 +3467,47 @@ fn render_session_detail(session: &AgentSession) -> String {
     if let Some(checkpoint) = session.checkpoint.as_ref() {
         lines.push(format!("checkpoint: {}", checkpoint.path));
     }
+    if let Some(handoff) = session.handoff.as_ref() {
+        if !handoff.completed.is_empty() {
+            lines.push(format!(
+                "handoff.completed: {}",
+                handoff.completed.join(" | ")
+            ));
+        }
+        if !handoff.remaining.is_empty() {
+            lines.push(format!(
+                "handoff.remaining: {}",
+                handoff.remaining.join(" | ")
+            ));
+        }
+        if !handoff.decisions.is_empty() {
+            lines.push(format!(
+                "handoff.decisions: {}",
+                handoff.decisions.join(" | ")
+            ));
+        }
+        if !handoff.unknowns.is_empty() {
+            lines.push(format!(
+                "handoff.unknowns: {}",
+                handoff.unknowns.join(" | ")
+            ));
+        }
+        if let Some(next_step) = handoff.next_step.as_deref() {
+            if !next_step.trim().is_empty() {
+                lines.push(format!("handoff.next_step: {}", next_step));
+            }
+        }
+    }
     lines.join("\n")
 }
 
 fn resume_script(session: &AgentSession) -> Vec<String> {
     let mut lines = Vec::new();
     lines.push(format!("cd {}", session.cwd));
+
+    if let Some(repo_root) = session.repo_root.as_deref() {
+        lines.push(format!("workmesh --root {} context show", repo_root));
+    }
 
     if let (Some(repo_root), Some(project_id)) =
         (session.repo_root.as_deref(), session.project_id.as_deref())
@@ -3757,10 +4010,7 @@ fn auto_update_current_session(backlog_dir: &Path, tasks: &[Task]) -> Result<(),
     let rr = repo_root_from_backlog(backlog_dir);
     let repo_root = rr.to_string_lossy().to_string();
     let project_id = resolve_project_id(&rr, tasks, None);
-    let epic_id = load_focus(backlog_dir)
-        .ok()
-        .flatten()
-        .and_then(|f| f.epic_id);
+    let epic_id = load_context_state(backlog_dir).and_then(|c| c.scope.epic_id);
 
     let working_set: Vec<String> = tasks
         .iter()
@@ -3799,6 +4049,7 @@ fn auto_update_current_session(backlog_dir: &Path, tasks: &[Task]) -> Result<(),
         git: Some(best_effort_git_snapshot(&rr)),
         checkpoint,
         recent_changes,
+        handoff: existing.handoff.clone(),
     };
 
     append_session_saved(&home, updated.clone())?;
@@ -4012,20 +4263,13 @@ Body\n",
             "P1",
             "Phase1",
         );
-        // Focus: working set should win even if the task is otherwise lower priority.
-        let focus_path = temp.path().join("workmesh").join("focus.json");
-        let focus = FocusState {
-            project_id: None,
-            epic_id: None,
-            objective: None,
-            working_set: vec!["task-010".to_string()],
-            updated_at: None,
-        };
+        // Context: explicit task scope should win even if otherwise lower priority.
+        let context_path = temp.path().join("workmesh").join("context.json");
         std::fs::write(
-            &focus_path,
-            serde_json::to_string_pretty(&focus).expect("focus json"),
+            &context_path,
+            r#"{"version":1,"project_id":null,"objective":null,"scope":{"mode":"tasks","epic_id":null,"task_ids":["task-010"]}}"#,
         )
-        .expect("write focus");
+        .expect("write context");
 
         let result = NextTasksTool {
             root: Some(root_arg),
@@ -4135,25 +4379,18 @@ Body\n",
     }
 
     #[test]
-    fn mcp_doctor_returns_layout_and_focus() {
+    fn mcp_doctor_returns_layout_and_context() {
         let (temp, root_arg, context) = init_repo();
         let tasks_dir = temp.path().join("workmesh").join("tasks");
         write_task(&tasks_dir, "task-001", "Seed", "To Do");
 
-        // Focus.
-        let focus_path = temp.path().join("workmesh").join("focus.json");
-        let focus = FocusState {
-            project_id: Some("demo".to_string()),
-            epic_id: Some("task-001".to_string()),
-            objective: Some("Ship".to_string()),
-            working_set: vec!["task-001".to_string()],
-            updated_at: None,
-        };
+        // Context.
+        let context_path = temp.path().join("workmesh").join("context.json");
         std::fs::write(
-            &focus_path,
-            serde_json::to_string_pretty(&focus).expect("focus"),
+            &context_path,
+            r#"{"version":1,"project_id":"demo","objective":"Ship","scope":{"mode":"epic","epic_id":"task-001","task_ids":[]}}"#,
         )
-        .expect("write focus");
+        .expect("write context");
 
         // Derived index file.
         let index_dir = temp.path().join("workmesh").join(".index");
@@ -4167,33 +4404,26 @@ Body\n",
         let result = tool.call(&context).expect("doctor");
         let parsed: serde_json::Value = serde_json::from_str(&text_payload(result)).expect("json");
         assert_eq!(parsed["layout"].as_str(), Some("workmesh"));
-        assert_eq!(parsed["focus"]["project_id"].as_str(), Some("demo"));
+        assert_eq!(parsed["context"]["project_id"].as_str(), Some("demo"));
         assert_eq!(parsed["index"]["present"].as_bool(), Some(true));
         assert_eq!(parsed["index"]["entries"].as_i64(), Some(1));
     }
 
     #[test]
-    fn mcp_board_can_scope_to_focus_working_set() {
+    fn mcp_board_can_scope_to_context_task_scope() {
         let (temp, root_arg, context) = init_repo();
         let tasks_dir = temp.path().join("workmesh").join("tasks");
         write_task(&tasks_dir, "task-001", "A", "To Do");
         write_task(&tasks_dir, "task-002", "B", "To Do");
         write_task(&tasks_dir, "task-003", "C", "In Progress");
 
-        // Focus: scope to task-003 only (no epic_id set).
-        let focus_path = temp.path().join("workmesh").join("focus.json");
-        let focus = FocusState {
-            project_id: Some("demo".to_string()),
-            epic_id: None,
-            objective: None,
-            working_set: vec!["task-003".to_string()],
-            updated_at: None,
-        };
+        // Context: scope to task-003 only (no epic scope).
+        let context_path = temp.path().join("workmesh").join("context.json");
         std::fs::write(
-            &focus_path,
-            serde_json::to_string_pretty(&focus).expect("focus"),
+            &context_path,
+            r#"{"version":1,"project_id":"demo","objective":null,"scope":{"mode":"tasks","epic_id":null,"task_ids":["task-003"]}}"#,
         )
-        .expect("write focus");
+        .expect("write context");
 
         let tool = BoardTool {
             root: Some(root_arg),
@@ -4219,7 +4449,7 @@ Body\n",
     }
 
     #[test]
-    fn mcp_blockers_scopes_to_focus_epic() {
+    fn mcp_blockers_scopes_to_context_epic() {
         let (temp, root_arg, context) = init_repo();
         let tasks_dir = temp.path().join("workmesh").join("tasks");
 
@@ -4301,20 +4531,13 @@ assignee: []\n\
         )
         .expect("other");
 
-        // Focus epic.
-        let focus_path = temp.path().join("workmesh").join("focus.json");
-        let focus = FocusState {
-            project_id: Some("demo".to_string()),
-            epic_id: Some("task-100".to_string()),
-            objective: None,
-            working_set: vec![],
-            updated_at: None,
-        };
+        // Context epic.
+        let context_path = temp.path().join("workmesh").join("context.json");
         std::fs::write(
-            &focus_path,
-            serde_json::to_string_pretty(&focus).expect("focus"),
+            &context_path,
+            r#"{"version":1,"project_id":"demo","objective":null,"scope":{"mode":"epic","epic_id":"task-100","task_ids":[]}}"#,
         )
-        .expect("write focus");
+        .expect("write context");
 
         let tool = BlockersTool {
             root: Some(root_arg),

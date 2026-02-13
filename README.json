@@ -75,11 +75,11 @@
       "bootstrap_repo": [
         { "tool": "skill_content", "name": "workmesh-mcp", "format": "text" },
         { "tool": "quickstart", "project_id": "<project-id>", "agents_snippet": true, "format": "json" },
-        { "tool": "focus_set", "project_id": "<project-id>", "epic_id": "task-<init>-001", "objective": "Ship v0.3", "format": "json" },
+        { "tool": "context_set", "project_id": "<project-id>", "epic_id": "task-<init>-001", "objective": "Ship v0.3", "format": "json" },
         { "tool": "next_tasks", "format": "json", "limit": 10 }
       ],
       "daily_loop": [
-        { "tool": "focus_show", "format": "json" },
+        { "tool": "context_show", "format": "json" },
         { "tool": "next_tasks", "format": "json", "limit": 10 },
         { "tool": "claim_task", "task_id": "task-<init>-001", "owner": "me", "minutes": 60, "touch": true },
         { "tool": "set_status", "task_id": "task-<init>-001", "status": "In Progress", "touch": true },
@@ -88,7 +88,7 @@
     },
     "cli_appendix": [
       "workmesh --root . quickstart <project-id> --agents-snippet",
-      "workmesh --root . focus set --project-id <project-id> --epic-id task-<init>-001 --objective \"Ship v0.3\"",
+      "workmesh --root . context set --project <project-id> --epic task-<init>-001 --objective \"Ship v0.3\"",
       "workmesh --root . list --status \"To Do\"",
       "workmesh --root . next"
     ],
@@ -135,30 +135,37 @@
       "recommended": ["epic", "story", "task", "bug", "subtask", "incident", "spike"],
       "epic_done_rule": "When kind=epic, WorkMesh refuses to set status Done unless dependencies, blocked_by, and all children (inferred via relationships.parent and explicit relationships.child) are Done."
     },
-    "focus": {
-      "path": "workmesh/focus.json",
-      "purpose": "Repo-local pointer for project/epic/objective to keep agents scoped and reduce thrash.",
+    "context": {
+      "path": "workmesh/context.json",
+      "purpose": "Repo-local orchestration state for project/objective/scope (epic or task list).",
       "commands": [
-        "workmesh --root . focus show [--json]",
-        "workmesh --root . focus set --project-id <pid> [--epic-id task-123] [--objective \"...\"]",
-        "workmesh --root . focus clear"
-      ],
-      "auto_updates": [
-        "When focus exists, mutating commands keep focus.working_set in sync: set-status(In Progress) adds; set-status(To Do/Done) removes; claim adds.",
-        "When focus.epic_id is set and that epic becomes fully complete, WorkMesh auto-cleans focus by clearing epic_id and working_set (project_id is preserved).",
-        "Focus changes (manual and auto) are recorded in .audit.log (ignored by default; optionally commit for a full repo-local PM history)."
+        "workmesh --root . context show [--json]",
+        "workmesh --root . context set --project <pid> [--epic task-123] [--objective \"...\"] [--tasks task-001,task-002]",
+        "workmesh --root . context clear"
       ],
       "integration": [
-        "session save captures epic_id from focus (fallback: parse task-123 from git branch).",
-        "session resume resume-script includes focus show.",
-        "next/next_task/next_tasks are focus-aware: focus.working_set tasks are recommended first; active work (In Progress / leased) in the working set is prioritized before unrelated ready To Do tasks."
+        "session save captures epic_id from context epic scope (fallback: parse task-123 from git branch).",
+        "session resume resume-script includes context show.",
+        "next/next_task/next_tasks are context-aware: epic scope prioritizes subtree; task scope prioritizes listed ids; active work is still prioritized first."
+      ]
+    },
+    "focus_alias": {
+      "status": "deprecated compatibility alias",
+      "commands": [
+        "workmesh --root . focus show [--json]",
+        "workmesh --root . focus set ...",
+        "workmesh --root . focus clear"
+      ],
+      "notes": [
+        "focus commands/tools read and write context under the hood.",
+        "Legacy workmesh/focus.json should be migrated to workmesh/context.json."
       ]
     },
     "views_and_diagnostics": {
       "doctor": {
         "cli": "workmesh --root . doctor --json",
         "mcp_tool": "doctor",
-        "purpose": "One-shot diagnostics for layout, focus, index, skills, and versions."
+        "purpose": "One-shot diagnostics for layout, context, legacy focus presence, index, skills, and versions."
       },
       "board": {
         "cli": ["workmesh --root . board", "workmesh --root . board --by phase", "workmesh --root . board --focus"],
@@ -168,7 +175,7 @@
       "blockers": {
         "cli": ["workmesh --root . blockers", "workmesh --root . blockers --epic-id task-123"],
         "mcp_tool": "blockers",
-        "purpose": "Show blocked work and top blockers (focus epic by default)."
+        "purpose": "Show blocked work and top blockers (context epic by default)."
       }
     },
     "index": {
@@ -197,6 +204,17 @@
         "workmesh --root . archive --before 2024-12-31",
         "workmesh --root . archive --before 0d"
       ]
+    },
+    "migration": {
+      "purpose": "Detect and migrate deprecated structures (legacy layout, focus.json, config flags, session handoff fields).",
+      "cli": [
+        "workmesh --root . migrate audit",
+        "workmesh --root . migrate plan",
+        "workmesh --root . migrate apply (dry-run)",
+        "workmesh --root . migrate apply --apply",
+        "workmesh --root . migrate apply --apply --backup"
+      ],
+      "mcp_tools": ["migrate_audit", "migrate_plan", "migrate_apply"]
     },
     "sessions": {
       "repo_local": {

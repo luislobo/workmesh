@@ -122,7 +122,7 @@ If you interact via an agent, the first verification loop is:
 1. Call MCP tool `version`
 2. Call MCP tool `readme`
 3. Call MCP tool `doctor`
-4. Quickstart a repo with MCP tool `quickstart`, then set focus via `focus_set`
+4. Quickstart a repo with MCP tool `quickstart`, then set context via `context_set`
 
 The guided, agent-first prompts are in: `docs/getting-started.md`
 
@@ -149,8 +149,8 @@ cargo build -p workmesh-mcp
 # create docs + workmesh + seed task
 workmesh --root . quickstart workmesh --agents-snippet
 
-# optionally set focus (recommended for agents)
-workmesh --root . focus set --project-id workmesh --epic-id task-<init>-001 --objective "Ship v0.3"
+# optionally set context (recommended for agents)
+workmesh --root . context set --project workmesh --epic task-<init>-001 --objective "Ship v0.3"
 
 # list tasks
 workmesh --root . list --status "To Do"
@@ -181,40 +181,35 @@ workmesh/
     task-<init>-001 - seed task.md
 ```
 
-## Focus (keep agents scoped)
-`focus` is a repo-local "what we are doing right now" pointer for humans and agents. It is used to
-reduce thrash across sessions and help WorkMesh infer context when saving global sessions.
+## Context (primary orchestration state)
+`context` is the repo-local "what we are doing now" pointer for humans and agents.
+It keeps project/objective/scope explicit, reduces session thrash, and powers scoped views/recommendations.
 
-It lives at: `workmesh/focus.json` (inside your repo, versionable if you want).
+It lives at: `workmesh/context.json`.
 
 Common workflow:
 ```bash
-# set focus explicitly (best for agents)
-workmesh --root . focus set --project-id workmesh --epic-id task-<init>-001 --objective "Ship v0.3"
+# set context explicitly (best for agents)
+workmesh --root . context set --project workmesh --epic task-<init>-001 --objective "Ship v0.3"
 
-# inspect current focus
-workmesh --root . focus show
+# inspect current context
+workmesh --root . context show
 
-# clear focus
-workmesh --root . focus clear
+# clear context
+workmesh --root . context clear
 ```
 
-Integration points:
-- `session save` captures `epic_id` from `focus` (or best-effort from git branch like `task-123`).
-- `session resume` prints a resume script that includes `focus show` as the first step.
-- `next` (CLI) and `next_task` / `next_tasks` (MCP) are focus-aware. If `focus.working_set` contains task ids,
-  those tasks are recommended first. Active work (`In Progress` / leased) in the working set is prioritized
-  before unrelated ready `To Do` tasks.
+Deprecated compatibility:
+- `focus` commands and MCP tools still work as aliases (`focus show|set|clear`, `focus_show|set|clear`).
+- New writes go to `context.json`; `focus.json` is considered legacy and should be migrated away.
 
-Auto-updates (DX):
-- When focus exists, mutating commands keep `focus.working_set` in sync:
-  - `set-status "In Progress"` adds the task
-  - `set-status "To Do"` / `Done` removes the task
-  - `claim` adds the task (active lease implies active work)
-- When `focus.epic_id` is set and that epic becomes fully complete, WorkMesh auto-cleans focus by clearing
-  `epic_id` and `working_set` (project_id is preserved).
-- Focus changes are recorded in `.audit.log` (ignored by default; you can commit it if you want a full,
-  versioned PM history inside the repo).
+Integration points:
+- `session save` captures `epic_id` from context epic scope (or best-effort from git branch like `task-123`).
+- `session resume` prints a resume script that includes `context show` as the first step.
+- `next` (CLI) and `next_task` / `next_tasks` (MCP) are context-aware:
+  - epic scope: prioritizes the epic subtree
+  - task scope: prioritizes listed task ids
+  - active work (`In Progress` / leased) stays first within scope
 
 ## Views and diagnostics
 These commands are meant to be "high leverage" in human+agent workflows.
@@ -231,7 +226,7 @@ workmesh --root . board --by phase
 workmesh --root . board --focus
 ```
 
-Blocked work and top blockers (scoped to focus epic by default):
+Blocked work and top blockers (scoped to context epic by default):
 ```bash
 workmesh --root . blockers
 workmesh --root . blockers --epic-id task-<init>-001
@@ -403,8 +398,20 @@ do_not_migrate = true
 
 You can migrate later at any time:
 ```bash
-workmesh --root . migrate
+workmesh --root . migrate audit
+workmesh --root . migrate plan
+
+# dry-run by default (reports what would change)
+workmesh --root . migrate apply
+
+# apply changes
+workmesh --root . migrate apply --apply
+
+# optional backups for migrated files
+workmesh --root . migrate apply --apply --backup
 ```
+
+Migration audit/plan/apply also detects deprecated structures (for example legacy `focus.json`) and proposes the required conversions to current `context.json` orchestration.
 
 ## Archive (date-based)
 Archive moves tasks into `workmesh/archive/YYYY-MM/` when:
@@ -563,8 +570,12 @@ Bulk:
 - Alias group: `bulk set-status|set-field|label-add|label-remove|dep-add|dep-remove|note`
 
 Docs/Scaffold:
-- `project-init`, `quickstart`, `validate`, `migrate`, `archive`
+- `project-init`, `quickstart`, `validate`, `migrate audit|plan|apply`, `archive`
 - `fix list`, `fix uid|deps|ids`, `fix all`
+
+Context:
+- `context set|show|clear` (primary)
+- `focus set|show|clear` (deprecated alias)
 
 Index:
 - `index-rebuild`, `index-refresh`, `index-verify`

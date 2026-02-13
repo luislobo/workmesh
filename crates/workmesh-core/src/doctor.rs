@@ -5,7 +5,8 @@ use serde_json::json;
 
 use crate::backlog::{resolve_backlog, BacklogLayout};
 use crate::config::{config_filename_candidates, find_config_root};
-use crate::focus::{focus_path, load_focus};
+use crate::context::{context_path, load_context};
+use crate::focus::focus_path;
 use crate::index::index_path;
 use crate::skills::{detect_user_agents_in_home, embedded_skill_ids, SkillAgent};
 
@@ -114,17 +115,23 @@ pub fn doctor_report(root: &Path, running_binary: &str) -> serde_json::Value {
             .collect::<Vec<_>>()
     });
 
-    let focus_path = focus_path(&backlog_dir);
-    let focus = load_focus(&backlog_dir).ok().flatten().map(|f| {
+    let context_file = context_path(&backlog_dir);
+    let context = load_context(&backlog_dir).ok().flatten().map(|c| {
         json!({
-            "path": focus_path.to_string_lossy().to_string(),
-            "project_id": f.project_id,
-            "epic_id": f.epic_id,
-            "objective": f.objective,
-            "working_set_count": f.working_set.len(),
-            "updated_at": f.updated_at,
+            "path": context_file.to_string_lossy().to_string(),
+            "project_id": c.project_id,
+            "objective": c.objective,
+            "scope": c.scope,
+            "updated_at": c.updated_at,
         })
     });
+    let legacy_focus = {
+        let path = focus_path(&backlog_dir);
+        json!({
+            "path": path.to_string_lossy().to_string(),
+            "present": path.exists(),
+        })
+    };
 
     let idx_path = index_path(&backlog_dir);
     let index = json!({
@@ -188,13 +195,15 @@ pub fn doctor_report(root: &Path, running_binary: &str) -> serde_json::Value {
             "root": config_root.as_ref().map(|p| p.to_string_lossy().to_string()),
             "files": config_files,
         },
-        "focus": focus,
+        "context": context,
+        "legacy_focus": legacy_focus,
         "index": index,
         "versions": versions,
         "skills": skills,
         "notes": [
             "Index files under workmesh/.index are derived and rebuildable.",
-            "If focus exists, next/next_task/next_tasks prefer active work inside focus.working_set."
+            "Context is primary orchestration state (workmesh/context.json).",
+            "Legacy focus.json is deprecated and should be migrated."
         ],
     })
 }
@@ -244,7 +253,7 @@ mod tests {
     }
 
     #[test]
-    fn doctor_report_includes_backlog_focus_and_index() {
+    fn doctor_report_includes_backlog_context_and_index() {
         with_env_lock(|| {
             let temp = TempDir::new().expect("tempdir");
             let repo = temp.path();
@@ -259,12 +268,12 @@ mod tests {
             )
             .expect("write task");
 
-            // Focus file.
+            // Context file.
             std::fs::write(
-                repo.join("workmesh").join("focus.json"),
-                r#"{"project_id":"demo","epic_id":"task-test-001","objective":"Ship","working_set":["task-test-001"],"updated_at":"2026-02-09T00:00:00Z"}"#,
+                repo.join("workmesh").join("context.json"),
+                r#"{"version":1,"project_id":"demo","objective":"Ship","scope":{"mode":"epic","epic_id":"task-test-001","task_ids":[]},"updated_at":"2026-02-09T00:00:00Z"}"#,
             )
-            .expect("write focus");
+            .expect("write context");
 
             // Index file (derived).
             let index_dir = repo.join("workmesh").join(".index");
@@ -291,7 +300,8 @@ mod tests {
 
             let report = doctor_report(repo, "workmesh");
             assert_eq!(report["layout"], "workmesh");
-            assert_eq!(report["focus"]["project_id"].as_str(), Some("demo"));
+            assert_eq!(report["context"]["project_id"].as_str(), Some("demo"));
+            assert_eq!(report["legacy_focus"]["present"], false);
             assert_eq!(report["index"]["present"], true);
             assert_eq!(report["index"]["entries"], 1);
             assert!(report["skills"]["embedded"].is_array());
@@ -310,7 +320,7 @@ mod tests {
 
             let report = doctor_report(repo, "unknown-binary");
             assert_eq!(report["layout"], "unresolved");
-            assert_eq!(report["focus"].is_null(), true);
+            assert_eq!(report["context"].is_null(), true);
             assert_eq!(report["index"]["present"], false);
             assert_eq!(report["versions"]["running"].as_str().is_some(), true);
 

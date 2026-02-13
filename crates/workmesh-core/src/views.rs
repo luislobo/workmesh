@@ -2,6 +2,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 
 use serde::{Deserialize, Serialize};
 
+use crate::context::{ContextScopeMode, ContextState};
 use crate::focus::FocusState;
 use crate::task::Task;
 
@@ -185,6 +186,37 @@ pub fn scope_ids_from_focus(tasks: &[Task], focus: &FocusState) -> Option<HashSe
     None
 }
 
+pub fn scope_ids_from_context(tasks: &[Task], context: &ContextState) -> Option<HashSet<String>> {
+    match context.scope.mode {
+        ContextScopeMode::Epic => context
+            .scope
+            .epic_id
+            .as_deref()
+            .map(|id| id.trim())
+            .filter(|id| !id.is_empty())
+            .map(|id| scope_ids_for_epic(tasks, id)),
+        ContextScopeMode::Tasks => {
+            if context.scope.task_ids.is_empty() {
+                return None;
+            }
+            let mut ids = HashSet::new();
+            for id in context.scope.task_ids.iter() {
+                let trimmed = id.trim();
+                if trimmed.is_empty() {
+                    continue;
+                }
+                ids.insert(trimmed.to_lowercase());
+            }
+            if ids.is_empty() {
+                None
+            } else {
+                Some(ids)
+            }
+        }
+        ContextScopeMode::None => None,
+    }
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct BlockedTaskEntry {
     pub id: String,
@@ -219,15 +251,51 @@ pub fn blockers_report(
     focus: Option<&FocusState>,
     epic_id: Option<&str>,
 ) -> BlockersReport {
+    let context = focus.map(|f| ContextState {
+        version: 1,
+        project_id: f.project_id.clone(),
+        objective: f.objective.clone(),
+        scope: crate::context::ContextScope {
+            mode: if f
+                .epic_id
+                .as_deref()
+                .map(|s| !s.trim().is_empty())
+                .unwrap_or(false)
+            {
+                ContextScopeMode::Epic
+            } else if !f.working_set.is_empty() {
+                ContextScopeMode::Tasks
+            } else {
+                ContextScopeMode::None
+            },
+            epic_id: f.epic_id.clone(),
+            task_ids: f.working_set.clone(),
+        },
+        updated_at: f.updated_at.clone(),
+    });
+    blockers_report_with_context(tasks, context.as_ref(), epic_id)
+}
+
+pub fn blockers_report_with_context(
+    tasks: &[Task],
+    context: Option<&ContextState>,
+    epic_id: Option<&str>,
+) -> BlockersReport {
     let mut warnings = Vec::new();
     let chosen_epic = epic_id
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty())
-        .or_else(|| focus.and_then(|f| f.epic_id.clone()));
+        .or_else(|| {
+            context
+                .filter(|c| c.scope.mode == ContextScopeMode::Epic)
+                .and_then(|c| c.scope.epic_id.clone())
+        });
 
-    let scope_ids = chosen_epic
-        .as_deref()
-        .map(|id| scope_ids_for_epic(tasks, id));
+    let scope_ids = if let Some(epic) = chosen_epic.as_deref() {
+        Some(scope_ids_for_epic(tasks, epic))
+    } else {
+        context.and_then(|c| scope_ids_from_context(tasks, c))
+    };
 
     if let Some(epic) = chosen_epic.as_deref() {
         let exists = tasks.iter().any(|t| t.id.eq_ignore_ascii_case(epic));
@@ -316,6 +384,16 @@ pub fn blockers_report(
 
     let scope = if let Some(epic) = chosen_epic.as_deref() {
         serde_json::json!({"type": "epic", "epic_id": epic})
+    } else if let Some(ctx) = context {
+        match ctx.scope.mode {
+            ContextScopeMode::Tasks => {
+                serde_json::json!({"type": "tasks", "task_ids": ctx.scope.task_ids})
+            }
+            ContextScopeMode::Epic => {
+                serde_json::json!({"type": "epic", "epic_id": ctx.scope.epic_id})
+            }
+            ContextScopeMode::None => serde_json::json!({"type": "repo"}),
+        }
     } else {
         serde_json::json!({"type": "repo"})
     };

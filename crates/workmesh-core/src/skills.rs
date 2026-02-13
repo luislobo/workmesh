@@ -361,6 +361,7 @@ fn home_dir() -> Option<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::ffi::OsString;
     use std::sync::{Mutex, OnceLock};
     use tempfile::TempDir;
 
@@ -368,26 +369,45 @@ mod tests {
 
     fn with_env_lock<T>(f: impl FnOnce() -> T) -> T {
         let lock = ENV_LOCK.get_or_init(|| Mutex::new(()));
-        let _guard = lock.lock().expect("env lock");
+        let _guard = lock.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
         f()
+    }
+
+    struct EnvGuard {
+        home: Option<OsString>,
+        userprofile: Option<OsString>,
+    }
+
+    impl EnvGuard {
+        fn capture() -> Self {
+            Self {
+                home: std::env::var_os("HOME"),
+                userprofile: std::env::var_os("USERPROFILE"),
+            }
+        }
+    }
+
+    impl Drop for EnvGuard {
+        fn drop(&mut self) {
+            if let Some(home) = self.home.as_ref() {
+                std::env::set_var("HOME", home);
+            } else {
+                std::env::remove_var("HOME");
+            }
+            if let Some(profile) = self.userprofile.as_ref() {
+                std::env::set_var("USERPROFILE", profile);
+            } else {
+                std::env::remove_var("USERPROFILE");
+            }
+        }
     }
 
     fn with_home<T>(home: &Path, f: impl FnOnce() -> T) -> T {
         with_env_lock(|| {
-            let old_home = std::env::var("HOME").ok();
-            let old_profile = std::env::var("USERPROFILE").ok();
+            let _env_guard = EnvGuard::capture();
             std::env::set_var("HOME", home);
             std::env::remove_var("USERPROFILE");
-            let out = f();
-            match old_home {
-                Some(v) => std::env::set_var("HOME", v),
-                None => std::env::remove_var("HOME"),
-            }
-            match old_profile {
-                Some(v) => std::env::set_var("USERPROFILE", v),
-                None => std::env::remove_var("USERPROFILE"),
-            }
-            out
+            f()
         })
     }
 
