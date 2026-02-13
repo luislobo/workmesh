@@ -101,7 +101,10 @@ MCP:
 CLI:
 - `archive [--before 30d|YYYY-MM-DD] [--status Done] [--json]`
 - `validate [--json]`
-- `fix-ids [--apply] [--json]`
+- `fix list [--json]`
+- `fix uid|deps|ids [--check|--apply] [--json]`
+- `fix all [--only uid,deps,ids] [--exclude uid,deps,ids] [--check|--apply] [--json]`
+- `fix-ids [--apply] [--json]` (legacy alias for id-only fixer)
 
 MCP:
 - `archive_tasks`
@@ -169,10 +172,12 @@ MCP:
 ## Skills (Agent Skills standard)
 CLI:
 - `install --skills [--profile hybrid|cli|mcp|all] [--scope project|user] [--agent codex|claude|cursor|all] [--force] [--json]`
+- `uninstall --skills [--profile hybrid|cli|mcp|all] [--scope project|user] [--agent codex|claude|cursor|all] [--json]`
 - `skill show [--name workmesh] [--json]`
 - `skill install [--scope user|project] [--agent codex|claude|cursor|all] [--force] [--json]`
+- `skill uninstall [--scope user|project] [--agent codex|claude|cursor|all] [--json]`
 - `skill install-global [--force] [--json]`
-- `skill install-global-auto [--force] [--json]`
+- `skill uninstall-global [--json]`
 
 Skill names:
 - `workmesh` (router)

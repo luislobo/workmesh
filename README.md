@@ -275,9 +275,12 @@ Details:
 If you merge branches and end up with duplicate task IDs, use:
 ```bash
 # dry-run (default)
-workmesh --root . fix-ids
+workmesh --root . fix ids
 
 # apply changes (renames the duplicate tasks)
+workmesh --root . fix ids --apply
+
+# optional legacy alias (same behavior)
 workmesh --root . fix-ids --apply
 ```
 
@@ -482,7 +485,7 @@ WorkMesh ships with three embedded skill profiles:
 - `workmesh-cli` (CLI-first workflows)
 - `workmesh` (router profile that selects mode)
 
-Playwright-style convenience install:
+Convenience install:
 ```bash
 # install all profiles (router + cli + mcp) for this project
 workmesh --root . install --skills --profile all --scope project
@@ -494,11 +497,26 @@ workmesh --root . install --skills --profile mcp --scope project
 workmesh --root . install --skills --profile cli --scope project
 ```
 
+Convenience uninstall:
+```bash
+# uninstall all profiles (router + cli + mcp) for this project
+workmesh --root . uninstall --skills --profile all --scope project
+
+# uninstall only MCP profile
+workmesh --root . uninstall --skills --profile mcp --scope project
+
+# uninstall only CLI profile
+workmesh --root . uninstall --skills --profile cli --scope project
+```
+
 You can still use the explicit skill subcommands:
 ```bash
 workmesh --root . skill install --name workmesh-mcp --scope project --agent all --force
 workmesh --root . skill install --name workmesh-cli --scope project --agent all --force
 workmesh --root . skill install-global --name workmesh --force
+workmesh --root . skill uninstall --name workmesh-mcp --scope project --agent all
+workmesh --root . skill uninstall --name workmesh-cli --scope project --agent all
+workmesh --root . skill uninstall-global --name workmesh
 ```
 
 Where agents discover skills:
@@ -534,6 +552,7 @@ Bulk:
 
 Docs/Scaffold:
 - `project-init`, `quickstart`, `validate`, `migrate`, `archive`
+- `fix list`, `fix uid|deps|ids`, `fix all`
 
 Index:
 - `index-rebuild`, `index-refresh`, `index-verify`

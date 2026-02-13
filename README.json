@@ -122,7 +122,11 @@
       },
       "repair": {
         "purpose": "After merges, detect and rekey duplicate task ids.",
-        "cli": ["workmesh --root . fix-ids (dry-run)", "workmesh --root . fix-ids --apply"],
+        "cli": [
+          "workmesh --root . fix ids (dry-run)",
+          "workmesh --root . fix ids --apply",
+          "workmesh --root . fix-ids --apply (legacy alias)"
+        ],
         "mcp_tool": "fix_ids"
       }
     },
@@ -220,7 +224,7 @@
       "workmesh-mcp": "MCP-first workflows (tool call oriented)."
     },
     "install": {
-      "playwright_style": "workmesh --root . install --skills --profile all --scope project",
+      "recommended": "workmesh --root . install --skills --profile all --scope project",
       "profile_examples": [
         "workmesh --root . install --skills --profile cli --scope project",
         "workmesh --root . install --skills --profile mcp --scope project",
@@ -229,6 +233,19 @@
       "explicit": [
         "workmesh --root . skill install --name workmesh-cli --scope project --agent all --force",
         "workmesh --root . skill install --name workmesh-mcp --scope project --agent all --force"
+      ]
+    },
+    "uninstall": {
+      "recommended": "workmesh --root . uninstall --skills --profile all --scope project",
+      "profile_examples": [
+        "workmesh --root . uninstall --skills --profile cli --scope project",
+        "workmesh --root . uninstall --skills --profile mcp --scope project",
+        "workmesh --root . uninstall --skills --profile hybrid --scope project"
+      ],
+      "explicit": [
+        "workmesh --root . skill uninstall --name workmesh-cli --scope project --agent all",
+        "workmesh --root . skill uninstall --name workmesh-mcp --scope project --agent all",
+        "workmesh --root . skill uninstall-global --name workmesh"
       ]
     },
     "mcp_tools": {
