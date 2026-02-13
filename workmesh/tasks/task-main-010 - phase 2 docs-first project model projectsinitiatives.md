@@ -12,6 +12,7 @@ dependencies:
 assignee: []
 prd: docs/projects/workmesh/prds/phase-2-docs-model.md
 title: 'Phase 2: Docs-first project model (projects/initiatives)'
+uid: 01KH5KY52V01T94R33VBMVDE67
 ---
 Description:
 --------------------------------------------------

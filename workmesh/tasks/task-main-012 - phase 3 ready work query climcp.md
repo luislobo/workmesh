@@ -14,6 +14,7 @@ status: Done
 assignee: []
 updated_date: 2026-02-04 12:10
 title: 'Phase 3: Ready work query (CLI/MCP)'
+uid: 01KH5KY55AFQ9YJAG94X30YBA3
 ---
 Description:
 --------------------------------------------------
