@@ -3,6 +3,7 @@
 pub mod archive;
 pub mod audit;
 pub mod backlog;
+pub mod bootstrap;
 pub mod config;
 pub mod context;
 pub mod doctor;

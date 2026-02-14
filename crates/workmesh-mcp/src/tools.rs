@@ -20,6 +20,7 @@ use workmesh_core::audit::{append_audit_event, AuditEvent};
 use workmesh_core::backlog::{
     locate_backlog_dir, resolve_backlog, resolve_backlog_dir, BacklogError,
 };
+use workmesh_core::bootstrap::{bootstrap_repo, BootstrapOptions, BootstrapResult};
 use workmesh_core::config::resolve_auto_session_default;
 use workmesh_core::context::{
     clear_context, context_path, extract_task_id_from_branch, infer_project_id, load_context,
@@ -325,6 +326,7 @@ fn tool_catalog() -> Vec<serde_json::Value> {
         serde_json::json!({"name": "version", "summary": "Return WorkMesh version information."}),
         serde_json::json!({"name": "readme", "summary": "Return README.json (agent-friendly repo docs)."}),
         serde_json::json!({"name": "doctor", "summary": "Diagnostics report for repo layout, context, index, skills, and versions."}),
+        serde_json::json!({"name": "bootstrap", "summary": "Bootstrap WorkMesh by detecting repo state and applying setup/migration."}),
         serde_json::json!({"name": "context_show", "summary": "Show repo-local context (project/objective/scope)."}),
         serde_json::json!({"name": "context_set", "summary": "Set repo-local context (project/objective/scope)."}),
         serde_json::json!({"name": "context_clear", "summary": "Clear repo-local context."}),
@@ -1101,6 +1103,20 @@ pub struct ProjectInitTool {
 }
 
 #[mcp_tool(
+    name = "bootstrap",
+    description = "Bootstrap WorkMesh by detecting repo state and applying setup/migration."
+)]
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct BootstrapTool {
+    pub root: Option<String>,
+    pub project_id: Option<String>,
+    pub feature: Option<String>,
+    pub objective: Option<String>,
+    #[serde(default = "default_format")]
+    pub format: String,
+}
+
+#[mcp_tool(
     name = "quickstart",
     description = "Scaffold docs + backlog + seed task."
 )]
@@ -1518,6 +1534,7 @@ tool_box!(
         AddTaskTool,
         AddDiscoveredTool,
         ProjectInitTool,
+        BootstrapTool,
         QuickstartTool,
         ValidateTool,
         FixIdsTool,
@@ -1576,6 +1593,7 @@ impl ServerHandler for WorkmeshServerHandler {
             WorkmeshTools::VersionTool(tool) => tool.call(&self.context),
             WorkmeshTools::ReadmeTool(tool) => tool.call(&self.context),
             WorkmeshTools::DoctorTool(tool) => tool.call(&self.context),
+            WorkmeshTools::BootstrapTool(tool) => tool.call(&self.context),
             WorkmeshTools::ContextShowTool(tool) => tool.call(&self.context),
             WorkmeshTools::ContextSetTool(tool) => tool.call(&self.context),
             WorkmeshTools::ContextClearTool(tool) => tool.call(&self.context),
@@ -3690,6 +3708,66 @@ impl ProjectInitTool {
     }
 }
 
+fn render_bootstrap_summary(result: &BootstrapResult) -> String {
+    let mut lines = Vec::new();
+    lines.push(format!("state: {}", result.state.as_str()));
+    lines.push(format!("repo_root: {}", result.repo_root.display()));
+    lines.push(format!("backlog_dir: {}", result.backlog_dir.display()));
+    lines.push(format!("project_id: {}", result.project_id));
+    if result.quickstart.is_some() {
+        lines.push("initialized: true".to_string());
+    }
+    if !result.migration_applied.is_empty() {
+        lines.push(format!(
+            "migration_applied: {}",
+            result.migration_applied.join(" | ")
+        ));
+    }
+    if !result.migration_warnings.is_empty() {
+        lines.push(format!(
+            "migration_warnings: {}",
+            result.migration_warnings.join(" | ")
+        ));
+    }
+    lines.push(format!("context_seeded: {}", result.context_seeded));
+    lines.push(format!("context_path: {}", result.context_path.display()));
+    if !result.next_task_ids.is_empty() {
+        lines.push(format!(
+            "next_task_ids: {}",
+            result.next_task_ids.join(", ")
+        ));
+    }
+    if !result.recommendations.is_empty() {
+        lines.push(format!(
+            "recommendations: {}",
+            result.recommendations.join(" | ")
+        ));
+    }
+    lines.join("\n")
+}
+
+impl BootstrapTool {
+    fn call(&self, context: &McpContext) -> Result<CallToolResult, CallToolError> {
+        let repo_root = resolve_repo_root(context, self.root.as_deref());
+        let result = bootstrap_repo(
+            &repo_root,
+            &BootstrapOptions {
+                project_id: self.project_id.clone(),
+                project_name: None,
+                feature: self.feature.clone(),
+                objective: self.objective.clone(),
+                agents_snippet: true,
+            },
+        )
+        .map_err(CallToolError::new)?;
+        if self.format == "json" {
+            ok_json(serde_json::to_value(result).unwrap_or_default())
+        } else {
+            ok_text(render_bootstrap_summary(&result))
+        }
+    }
+}
+
 impl QuickstartTool {
     fn call(&self, context: &McpContext) -> Result<CallToolResult, CallToolError> {
         let repo_root = resolve_repo_root(context, self.root.as_deref());
@@ -5166,6 +5244,31 @@ Body\n",
             default_root: Some(repo_root.clone()),
         };
         (temp, root_arg, context)
+    }
+
+    #[test]
+    fn mcp_bootstrap_initializes_new_repo() {
+        let temp = TempDir::new().expect("tempdir");
+        let root_arg = temp.path().to_string_lossy().to_string();
+        let context = McpContext {
+            default_root: Some(temp.path().to_path_buf()),
+        };
+
+        let result = BootstrapTool {
+            root: Some(root_arg),
+            project_id: Some("alpha".to_string()),
+            feature: Some("Alpha Integration".to_string()),
+            objective: Some("Ship alpha".to_string()),
+            format: "json".to_string(),
+        }
+        .call(&context)
+        .expect("bootstrap");
+
+        let parsed: serde_json::Value = serde_json::from_str(&text_payload(result)).expect("json");
+        assert_eq!(parsed["state"].as_str(), Some("new_repo"));
+        assert_eq!(parsed["project_id"].as_str(), Some("alpha"));
+        assert!(temp.path().join("workmesh").join("tasks").is_dir());
+        assert!(temp.path().join("workmesh").join("context.json").is_file());
     }
 
     #[test]

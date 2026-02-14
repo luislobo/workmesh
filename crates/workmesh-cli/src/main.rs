@@ -11,6 +11,7 @@ mod version;
 use workmesh_core::archive::{archive_tasks, ArchiveOptions};
 use workmesh_core::audit::{append_audit_event, AuditEvent};
 use workmesh_core::backlog::{locate_backlog_dir, resolve_backlog, BacklogResolution};
+use workmesh_core::bootstrap::{bootstrap_repo, BootstrapOptions};
 use workmesh_core::config::{
     global_config_path, resolve_auto_session_default, update_do_not_migrate,
 };
@@ -651,6 +652,20 @@ enum Command {
         project_id: String,
         #[arg(long)]
         name: Option<String>,
+    },
+    /// Bootstrap WorkMesh by auto-detecting repo state and applying setup/migration
+    Bootstrap {
+        /// Project id to use when initializing a new repo or seeding missing context
+        #[arg(long)]
+        project_id: Option<String>,
+        /// Feature phrase for seed task initiative naming
+        #[arg(long)]
+        feature: Option<String>,
+        /// Objective to set when context is missing
+        #[arg(long)]
+        objective: Option<String>,
+        #[arg(long, action = ArgAction::SetTrue)]
+        json: bool,
     },
     /// Quickstart: scaffold docs + backlog + seed task
     Quickstart {
@@ -1902,6 +1917,58 @@ fn auto_update_current_session(backlog_dir: &Path) -> Result<()> {
 
 fn main() -> Result<()> {
     let cli = Cli::parse();
+    if let Command::Bootstrap {
+        project_id,
+        feature,
+        objective,
+        json,
+    } = &cli.command
+    {
+        let repo_root = repo_root_from_backlog(&cli.root);
+        let result = bootstrap_repo(
+            &repo_root,
+            &BootstrapOptions {
+                project_id: project_id.clone(),
+                project_name: None,
+                feature: feature.clone(),
+                objective: objective.clone(),
+                agents_snippet: true,
+            },
+        )?;
+        if *json {
+            println!("{}", serde_json::to_string_pretty(&result)?);
+        } else {
+            println!("Bootstrap state: {}", result.state.as_str());
+            println!("Repo root: {}", result.repo_root.display());
+            println!("WorkMesh: {}", result.backlog_dir.display());
+            println!("Project: {}", result.project_id);
+            if result.quickstart.is_some() {
+                println!("Initialized WorkMesh layout and seed task.");
+            }
+            if !result.migration_applied.is_empty() {
+                println!("Applied migration steps:");
+                for step in &result.migration_applied {
+                    println!("  - {}", step);
+                }
+            }
+            for warning in &result.migration_warnings {
+                println!("warning: {}", warning);
+            }
+            if result.context_seeded {
+                println!("Seeded context: {}", result.context_path.display());
+            } else {
+                println!("Context already present: {}", result.context_path.display());
+            }
+            if !result.next_task_ids.is_empty() {
+                println!("Next tasks: {}", result.next_task_ids.join(", "));
+            }
+            for hint in &result.recommendations {
+                println!("hint: {}", hint);
+            }
+        }
+        return Ok(());
+    }
+
     if let Command::Quickstart {
         project_id,
         name,
@@ -4173,6 +4240,9 @@ fn main() -> Result<()> {
         }
         Command::Quickstart { .. } => {
             unreachable!("quickstart handled before backlog resolution");
+        }
+        Command::Bootstrap { .. } => {
+            unreachable!("bootstrap handled before backlog resolution");
         }
         Command::Install { .. } => {
             unreachable!("install handled before backlog resolution");

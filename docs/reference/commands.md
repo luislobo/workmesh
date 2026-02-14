@@ -15,7 +15,6 @@ Global config:
 
 Project config:
 - `.workmesh.toml` (preferred)
-- `.workmeshrc` (legacy alias)
 
 Keys:
 - `worktrees_default = true|false`
@@ -34,12 +33,14 @@ Environment overrides:
 
 ## Bootstrap and diagnostics
 CLI:
+- `bootstrap [--project-id <id>] [--feature "..."] [--objective "..."] [--json]`
 - `quickstart <project-id> [--name "..."] [--feature "..."] [--agents-snippet]`
 - `project-init <project-id> [--name "..."]`
 - `doctor [--json]`
 - `validate [--json]`
 
 MCP:
+- `bootstrap`
 - `quickstart`
 - `project_init`
 - `doctor`

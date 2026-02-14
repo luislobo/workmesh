@@ -33,16 +33,17 @@ The phase separators indicate when a command is typically used.
 end note
 
 == Phase 1: Bootstrap (run once per repo) ==
-A -> W : quickstart <project-id> [--agents-snippet]
-W -> R : create docs/projects/<project-id>/ + workmesh/tasks/
+A -> W : bootstrap [--project-id <id>] [--feature "..."]
+W -> R : detect state, then initialize or migrate to workmesh/
 note right of R
-Creates:
+Creates/updates:
 - docs/projects/<project-id>/
 - workmesh/tasks/task-001 - ...
+- workmesh/context.json
 end note
 A -> W : index-rebuild (optional, first run)
 W -> R : write workmesh/.index/tasks.jsonl
-A -> W : context set (recommended for agents)
+A -> W : context set (optional override)
 W -> R : write workmesh/context.json
 A -> W : truth propose / truth accept (as decisions solidify)
 W -> R : append workmesh/truth/events.jsonl

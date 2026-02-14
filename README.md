@@ -42,6 +42,15 @@ After bootstrap, you can stay in normal conversation and be explicit once:
 
 Codex should then operate with WorkMesh continuously while you discuss implementation.
 
+## CLI Fallback (Single Command)
+If you want direct CLI execution instead of chat orchestration:
+
+```bash
+workmesh --root . bootstrap --project-id <project-id> --feature "<feature-name>" --json
+```
+
+`bootstrap` detects repo state (new/modern/legacy), initializes or migrates as needed, seeds missing context, and returns next-task recommendations.
+
 ## Install
 
 ### Prebuilt binaries (recommended)
@@ -76,7 +85,6 @@ Global config:
 
 Project config:
 - `.workmesh.toml` (preferred)
-- `.workmeshrc` (legacy alias)
 
 Keys:
 - `worktrees_default = true|false`
@@ -95,7 +103,9 @@ Auto session behavior:
 - Documentation index: [`docs/README.md`](docs/README.md)
 
 ## Legacy Note
-If a repo still has old `backlog/` or `focus.json` structures:
+`bootstrap` already handles legacy `backlog/` / `focus.json` structures automatically.
+
+If you need explicit migration controls:
 ```bash
 workmesh --root . migrate audit
 workmesh --root . migrate plan

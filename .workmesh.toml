@@ -1,8 +1,0 @@
-initiatives = [
-    "main",
-    "migr",
-]
-
-[branch_initiatives]
-main = "main"
-"feat/migrate-deprecated-structures" = "migr"

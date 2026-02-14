@@ -22,6 +22,10 @@
     "long_lived_clone_workflow": "keep work moving now and recommend migration to canonical repo + worktrees"
   },
   "feature_prompt": "Use WorkMesh for this feature. Create/update PRD, break down tasks with acceptance criteria and definition of done, keep context current, and track decisions in Truth Ledger.",
+  "cli_fallback": {
+    "bootstrap_command": "workmesh --root . bootstrap --project-id <project-id> --feature \"<feature-name>\" --json",
+    "behavior": "detect repo state (new/modern/legacy), initialize or migrate as needed, seed missing context, and suggest next tasks"
+  },
   "install": {
     "verify": [
       "workmesh --version",
@@ -44,8 +48,7 @@
   "defaults": {
     "global_config": "~/.workmesh/config.toml (or $WORKMESH_HOME/config.toml)",
     "project_config": [
-      ".workmesh.toml",
-      ".workmeshrc"
+      ".workmesh.toml"
     ],
     "keys": [
       "worktrees_default = true|false",
@@ -69,6 +72,7 @@
     "index": "docs/README.md"
   },
   "legacy_note": {
+    "automatic": "bootstrap already handles legacy backlog/focus structures",
     "commands": [
       "workmesh --root . migrate audit",
       "workmesh --root . migrate plan",

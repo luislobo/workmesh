@@ -77,7 +77,7 @@ This migration is operationally helpful, but it should not block you from featur
 ## Manual Commands (Appendix)
 Only use this if you explicitly want direct CLI execution.
 
-- Bootstrap: `workmesh --root . quickstart <project-id> --feature "<feature-name>" --agents-snippet`
+- Bootstrap: `workmesh --root . bootstrap --project-id <project-id> --feature "<feature-name>" --json`
 - Context: `workmesh --root . context set --project <project-id> --epic <epic-id> --objective "<objective>"`
 - Next task: `workmesh --root . next --json`
 - Session resume: `workmesh --root . session resume --json`
