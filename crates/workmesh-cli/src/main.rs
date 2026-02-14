@@ -11,7 +11,7 @@ mod version;
 use workmesh_core::archive::{archive_tasks, ArchiveOptions};
 use workmesh_core::audit::{append_audit_event, AuditEvent};
 use workmesh_core::backlog::{locate_backlog_dir, resolve_backlog, BacklogResolution};
-use workmesh_core::config::update_do_not_migrate;
+use workmesh_core::config::{global_config_path, update_do_not_migrate};
 use workmesh_core::context::{
     clear_context, context_path, extract_task_id_from_branch, infer_project_id, load_context,
     save_context, ContextScope, ContextScopeMode, ContextState,
@@ -1918,6 +1918,35 @@ fn main() -> Result<()> {
             }
             if result.agents_snippet_written {
                 println!("AGENTS.md updated");
+            }
+            if result.worktrees_default {
+                println!(
+                    "Worktree defaults: enabled (source: {}).",
+                    result.worktrees_default_source
+                );
+                if let Some(hint) = result.worktree_hint.as_deref() {
+                    println!("Recommended for parallel streams:");
+                    println!("  {}", hint);
+                }
+                if let Some(path) = global_config_path() {
+                    println!(
+                        "Disable globally by setting `worktrees_default = false` in {}",
+                        path.display()
+                    );
+                } else {
+                    println!(
+                        "Disable globally by setting `worktrees_default = false` in $WORKMESH_HOME/config.toml"
+                    );
+                }
+                println!(
+                    "Per-repo override: set `worktrees_default = true|false` in `.workmesh.toml`."
+                );
+            } else {
+                println!(
+                    "Worktree defaults: disabled (source: {}).",
+                    result.worktrees_default_source
+                );
+                println!("Enable for this repo with `.workmesh.toml`: `worktrees_default = true`.");
             }
         }
         return Ok(());

@@ -61,6 +61,11 @@ Parallel worktree loop:
 worktree create -> worktree attach -> context set -> next -> claim
 ```
 
+Worktree defaults:
+- Worktree guidance is default-on.
+- Global opt-out: `~/.workmesh/config.toml` with `worktrees_default = false`.
+- Repo override: `.workmesh.toml` with `worktrees_default = true|false`.
+
 Truth loop:
 ```text
 decision emerges -> truth propose -> review -> truth accept|reject -> (if replaced) truth supersede

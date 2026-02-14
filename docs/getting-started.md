@@ -220,6 +220,12 @@ git worktrees), the minimal loop that keeps you sane is:
 
 This keeps "what we were doing" recorded on disk, so a fresh agent session can pick up reliably.
 
+Worktree defaults:
+1. WorkMesh promotes worktree-based parallel streams by default.
+2. Disable globally with `~/.workmesh/config.toml` (or `$WORKMESH_HOME/config.toml`): `worktrees_default = false`
+3. Override per repo with `.workmesh.toml`: `worktrees_default = true|false`
+4. Precedence is `project config > global config > default(true)`.
+
 ## Troubleshooting
 Start with:
 ```bash

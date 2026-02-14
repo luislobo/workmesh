@@ -97,6 +97,12 @@
       "<init> prefers an acronym-like key from --feature, then --name, then <project-id>.",
       "Deduplication uses the repo's known initiative keys in .workmesh.toml."
     ],
+    "worktree_defaults": [
+      "Quickstart promotes worktree-based parallel streams by default.",
+      "Disable globally with ~/.workmesh/config.toml (or $WORKMESH_HOME/config.toml): worktrees_default = false",
+      "Override per repo with .workmesh.toml: worktrees_default = true|false",
+      "Precedence: project config > global config > default(true)."
+    ],
     "creates": {
       "docs": ["docs/projects/<project-id>/README.md", "docs/projects/<project-id>/prds/", "docs/projects/<project-id>/updates/"],
       "workmesh": ["workmesh/tasks/task-<init>-001 - seed task.md"]
@@ -288,6 +294,7 @@
       },
       "global": {
         "home_env": "WORKMESH_HOME (default: ~/.workmesh)",
+        "config_path": "WORKMESH_HOME/config.toml",
         "files": {
           "events": "WORKMESH_HOME/sessions/events.jsonl (append-only)",
           "current": "WORKMESH_HOME/sessions/current.json",
@@ -296,6 +303,18 @@
         "tools": ["session save", "session list", "session show", "session resume"],
         "purpose": "Cross-repo continuity (reboot/OS switch/machine switch), including optional worktree bindings."
       }
+    },
+    "configuration": {
+      "project": {
+        "files": [".workmesh.toml", ".workmeshrc"],
+        "example_fields": ["root_dir", "worktrees_default", "branch_initiatives", "initiatives"]
+      },
+      "global": {
+        "file": "~/.workmesh/config.toml",
+        "respects_env": "WORKMESH_HOME",
+        "example_fields": ["worktrees_default"]
+      },
+      "precedence": "project config > global config > built-in defaults"
     },
     "leases": {
       "tools": ["claim", "release"],

@@ -28,6 +28,11 @@ MCP:
 - `migrate_plan`
 - `migrate_apply`
 
+Config defaults:
+- Global config path: `~/.workmesh/config.toml` (or `$WORKMESH_HOME/config.toml`)
+- Project config paths: `.workmesh.toml` (preferred), `.workmeshrc`
+- `worktrees_default` precedence: project config > global config > default(`true`)
+
 ## Read views (pick the next work)
 CLI:
 - `list [--status "To Do"] [--kind bug] [--search "..."] [--sort id] [--all] [--json]`

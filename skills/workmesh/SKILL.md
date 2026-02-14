@@ -30,6 +30,7 @@ workmesh --root . install --skills --profile mcp --scope project
 - Record dependencies and blockers so ready work is queryable.
 - Use context to scope work and reduce thrash between sessions.
 - For parallel agent work, prefer separate git worktrees and attach sessions to those worktrees.
+- Worktree guidance is default-on; users can disable globally via `~/.workmesh/config.toml` (`worktrees_default = false`) and override per repo in `.workmesh.toml`.
 - Claim before changes in multi-agent workflows.
 - Capture stable feature decisions in the Truth Ledger (`truth propose|accept|supersede`) so knowledge survives session/worktree churn.
 - On resume, rehydrate accepted truths for the active scope before coding (`truth list --state accepted ...`).

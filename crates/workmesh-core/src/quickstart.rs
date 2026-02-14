@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 use serde::Serialize;
 use thiserror::Error;
 
+use crate::config::resolve_worktrees_default_with_source;
 use crate::initiative::{
     best_effort_git_branch, ensure_branch_initiative_with_hint, initiative_key_from_hint,
     next_namespaced_task_id,
@@ -29,6 +30,9 @@ pub struct QuickstartResult {
     pub tasks_dir: PathBuf,
     pub created_task: Option<PathBuf>,
     pub agents_snippet_written: bool,
+    pub worktrees_default: bool,
+    pub worktrees_default_source: String,
+    pub worktree_hint: Option<String>,
 }
 
 pub fn quickstart(
@@ -52,6 +56,13 @@ pub fn quickstart(
     } else {
         false
     };
+    let (worktrees_default, worktrees_default_source) =
+        resolve_worktrees_default_with_source(repo_root);
+    let worktree_hint = if worktrees_default {
+        Some(default_worktree_hint(project_id))
+    } else {
+        None
+    };
 
     Ok(QuickstartResult {
         project_dir,
@@ -59,6 +70,9 @@ pub fn quickstart(
         tasks_dir,
         created_task,
         agents_snippet_written,
+        worktrees_default,
+        worktrees_default_source: worktrees_default_source.to_string(),
+        worktree_hint,
     })
 }
 
@@ -130,6 +144,13 @@ fn snippet_marker() -> &'static str {
 
 fn agents_snippet() -> &'static str {
     "# WorkMesh Quickstart\n\n- Tasks live in `workmesh/tasks/`.\n- Run `workmesh --root . next` to find the next task.\n- Run `workmesh --root . ready --json` for ready work.\n- Derived files (`workmesh/.index/`, `workmesh/.audit.log`) should not be committed.\n"
+}
+
+fn default_worktree_hint(project_id: &str) -> String {
+    let stream = "<stream>";
+    format!(
+        "workmesh --root . worktree create --path ../<repo>-{stream} --branch feature/{stream} --project {project_id} --objective \"<objective>\"",
+    )
 }
 
 #[cfg(test)]

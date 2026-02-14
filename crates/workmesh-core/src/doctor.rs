@@ -4,7 +4,10 @@ use std::path::{Path, PathBuf};
 use serde_json::json;
 
 use crate::backlog::{resolve_backlog, BacklogLayout};
-use crate::config::{config_filename_candidates, find_config_root};
+use crate::config::{
+    config_filename_candidates, find_config_root, global_config_path, load_global_config,
+    resolve_workmesh_home_dir, resolve_worktrees_default_with_source,
+};
 use crate::context::{context_path, load_context};
 use crate::focus::focus_path;
 use crate::index::index_path;
@@ -115,6 +118,19 @@ pub fn doctor_report(root: &Path, running_binary: &str) -> serde_json::Value {
             })
             .collect::<Vec<_>>()
     });
+    let global_config = {
+        let path = global_config_path();
+        let loaded = load_global_config();
+        let home = resolve_workmesh_home_dir();
+        json!({
+            "home": home.as_ref().map(|p| p.to_string_lossy().to_string()),
+            "path": path.as_ref().map(|p| p.to_string_lossy().to_string()),
+            "present": path.as_ref().map(|p| p.exists()).unwrap_or(false),
+            "loaded": loaded,
+        })
+    };
+    let (worktrees_default, worktrees_default_source) =
+        resolve_worktrees_default_with_source(&repo_root);
 
     let context_file = context_path(&backlog_dir);
     let context = load_context(&backlog_dir).ok().flatten().map(|c| {
@@ -206,6 +222,12 @@ pub fn doctor_report(root: &Path, running_binary: &str) -> serde_json::Value {
         "config": {
             "root": config_root.as_ref().map(|p| p.to_string_lossy().to_string()),
             "files": config_files,
+            "global": global_config,
+            "effective": {
+                "worktrees_default": worktrees_default,
+                "worktrees_default_source": worktrees_default_source,
+                "precedence": "project > global > default(true)"
+            }
         },
         "context": context,
         "legacy_focus": legacy_focus,

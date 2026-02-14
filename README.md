@@ -188,6 +188,12 @@ Seed task id behavior:
   2. `--name` (project display name)
   3. `<project-id>` fallback
 
+Worktree defaults (DX):
+- Quickstart promotes worktree-based parallel streams by default.
+- Disable globally: set `worktrees_default = false` in `~/.workmesh/config.toml` (or `$WORKMESH_HOME/config.toml`).
+- Override per repo: set `worktrees_default = true|false` in `.workmesh.toml`.
+- Precedence: project config > global config > built-in default (`true`).
+
 ## Context (primary orchestration state)
 `context` is the repo-local "what we are doing now" pointer for humans and agents.
 It keeps project/objective/scope explicit, reduces session thrash, and powers scoped views/recommendations.
@@ -483,6 +489,10 @@ If you choose **No**, it writes an optional config file so you won’t be prompt
 ```toml
 # .workmesh.toml (preferred) or .workmeshrc
 do_not_migrate = true
+
+# Optional: worktree DX default for this repo
+# worktrees_default = true
+
 # Optional: use a different root (e.g., .workmesh)
 # root_dir = ".workmesh"
 ```
