@@ -12,7 +12,7 @@ All examples assume you run from a repo root and pass `--root .` in the CLI.
 
 ## Bootstrap and diagnostics
 CLI:
-- `quickstart <project-id> [--agents-snippet]`
+- `quickstart <project-id> [--name "..."] [--feature "..."] [--agents-snippet]`
 - `project-init <project-id> [--name "..."]`
 - `doctor [--json]`
 - `migrate audit [--json]`

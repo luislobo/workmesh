@@ -58,14 +58,14 @@ use workmesh_core::task_ops::{
     task_to_json_value, tasks_to_jsonl, timestamp_plus_minutes, update_body, update_lease_fields,
     update_task_field, update_task_field_or_section, validate_tasks, FieldValue,
 };
-use workmesh_core::views::{
-    blockers_report_with_context, board_lanes, scope_ids_from_context, BoardBy,
-};
 use workmesh_core::truth::{
     accept_truth, apply_truth_migration, list_truths, propose_truth, reject_truth, show_truth,
     supersede_truth, truth_migration_audit, truth_migration_plan, validate_truth_store,
     TruthContext as CoreTruthContext, TruthProposeInput, TruthQuery, TruthState,
     TruthSupersedeInput, TruthTransitionInput,
+};
+use workmesh_core::views::{
+    blockers_report_with_context, board_lanes, scope_ids_from_context, BoardBy,
 };
 use workmesh_core::worktrees::{
     create_git_worktree, current_branch as current_worktree_branch, doctor_worktrees,
@@ -1147,6 +1147,7 @@ pub struct QuickstartTool {
     pub project_id: String,
     pub root: Option<String>,
     pub name: Option<String>,
+    pub feature: Option<String>,
     #[serde(default)]
     pub agents_snippet: bool,
 }
@@ -2324,7 +2325,9 @@ impl TruthProposeTool {
             .as_ref()
             .and_then(|state| state.project_id.clone())
             .or_else(|| infer_project_id(&repo_root));
-        let inferred_epic = inferred.as_ref().and_then(|state| state.scope.epic_id.clone());
+        let inferred_epic = inferred
+            .as_ref()
+            .and_then(|state| state.scope.epic_id.clone());
 
         let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
         let worktree_binding = resolve_workmesh_home().ok().and_then(|home| {
@@ -2481,10 +2484,11 @@ impl TruthShowTool {
             Ok(dir) => dir,
             Err(err) => return ok_json(err),
         };
-        let Some(record) =
-            show_truth(&backlog_dir, &self.truth_id).map_err(CallToolError::new)?
+        let Some(record) = show_truth(&backlog_dir, &self.truth_id).map_err(CallToolError::new)?
         else {
-            return ok_json(serde_json::json!({"error": format!("truth not found: {}", self.truth_id)}));
+            return ok_json(
+                serde_json::json!({"error": format!("truth not found: {}", self.truth_id)}),
+            );
         };
         if self.format == "text" {
             return ok_text(
@@ -3800,6 +3804,7 @@ impl QuickstartTool {
             &repo_root,
             &self.project_id,
             self.name.as_deref(),
+            self.feature.as_deref(),
             self.agents_snippet,
         )
         .map_err(CallToolError::new)?;
@@ -4117,9 +4122,7 @@ impl SessionSaveTool {
             repo_root = Some(rr.to_string_lossy().to_string());
             let repo_tasks = load_tasks(&backlog_dir);
             let context_state = load_context_state(&backlog_dir);
-            epic_id = context_state
-                .as_ref()
-                .and_then(|c| c.scope.epic_id.clone());
+            epic_id = context_state.as_ref().and_then(|c| c.scope.epic_id.clone());
 
             if project_id.is_none() {
                 project_id = context_state
@@ -4538,7 +4541,10 @@ fn resume_script(session: &AgentSession) -> Vec<String> {
     }
 
     if !session.truth_refs.is_empty() {
-        lines.push(format!("# accepted truths: {}", session.truth_refs.join(", ")));
+        lines.push(format!(
+            "# accepted truths: {}",
+            session.truth_refs.join(", ")
+        ));
     }
 
     lines
@@ -5095,9 +5101,7 @@ fn auto_update_current_session(backlog_dir: &Path, tasks: &[Task]) -> Result<(),
         .as_ref()
         .and_then(|c| c.project_id.clone())
         .unwrap_or_else(|| resolve_project_id(&rr, tasks, None));
-    let epic_id = context_state
-        .as_ref()
-        .and_then(|c| c.scope.epic_id.clone());
+    let epic_id = context_state.as_ref().and_then(|c| c.scope.epic_id.clone());
 
     let working_set: Vec<String> = tasks
         .iter()

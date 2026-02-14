@@ -74,7 +74,7 @@
       ],
       "bootstrap_repo": [
         { "tool": "skill_content", "name": "workmesh-mcp", "format": "text" },
-        { "tool": "quickstart", "project_id": "<project-id>", "agents_snippet": true, "format": "json" },
+        { "tool": "quickstart", "project_id": "<project-id>", "feature": "<feature-name>", "agents_snippet": true, "format": "json" },
         { "tool": "context_set", "project_id": "<project-id>", "epic_id": "task-<init>-001", "objective": "Ship v0.3", "format": "json" },
         { "tool": "next_tasks", "format": "json", "limit": 10 }
       ],
@@ -87,10 +87,15 @@
       ]
     },
     "cli_appendix": [
-      "workmesh --root . quickstart <project-id> --agents-snippet",
+      "workmesh --root . quickstart <project-id> --feature \"<feature-name>\" --agents-snippet",
       "workmesh --root . context set --project <project-id> --epic task-<init>-001 --objective \"Ship v0.3\"",
       "workmesh --root . list --status \"To Do\"",
       "workmesh --root . next"
+    ],
+    "seed_id_policy": [
+      "Quickstart creates task-<init>-001 (namespaced) as the seed task.",
+      "<init> prefers an acronym-like key from --feature, then --name, then <project-id>.",
+      "Deduplication uses the repo's known initiative keys in .workmesh.toml."
     ],
     "creates": {
       "docs": ["docs/projects/<project-id>/README.md", "docs/projects/<project-id>/prds/", "docs/projects/<project-id>/updates/"],

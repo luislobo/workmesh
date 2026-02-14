@@ -330,7 +330,10 @@ pub fn new_truth_id() -> String {
     format!("truth-{}", Ulid::new().to_string().to_lowercase())
 }
 
-pub fn propose_truth(backlog_dir: &Path, input: TruthProposeInput) -> Result<TruthRecord, TruthError> {
+pub fn propose_truth(
+    backlog_dir: &Path,
+    input: TruthProposeInput,
+) -> Result<TruthRecord, TruthError> {
     ensure_truth_dirs(backlog_dir)?;
 
     let truth_id = input
@@ -373,18 +376,21 @@ pub fn propose_truth(backlog_dir: &Path, input: TruthProposeInput) -> Result<Tru
     rebuild_truth_projection(backlog_dir)?;
 
     show_truth(backlog_dir, &truth_id)?.ok_or_else(|| {
-        TruthError::Invalid(format!(
-            "truth {} not found after proposal write",
-            truth_id
-        ))
+        TruthError::Invalid(format!("truth {} not found after proposal write", truth_id))
     })
 }
 
-pub fn accept_truth(backlog_dir: &Path, input: TruthTransitionInput) -> Result<TruthRecord, TruthError> {
+pub fn accept_truth(
+    backlog_dir: &Path,
+    input: TruthTransitionInput,
+) -> Result<TruthRecord, TruthError> {
     apply_transition(backlog_dir, input, true)
 }
 
-pub fn reject_truth(backlog_dir: &Path, input: TruthTransitionInput) -> Result<TruthRecord, TruthError> {
+pub fn reject_truth(
+    backlog_dir: &Path,
+    input: TruthTransitionInput,
+) -> Result<TruthRecord, TruthError> {
     apply_transition(backlog_dir, input, false)
 }
 
@@ -402,9 +408,9 @@ pub fn supersede_truth(
     }
 
     let projected = project_from_events(backlog_dir)?;
-    let source = projected.get(&truth_id).ok_or_else(|| {
-        TruthError::Invalid(format!("unknown truth id: {}", truth_id))
-    })?;
+    let source = projected
+        .get(&truth_id)
+        .ok_or_else(|| TruthError::Invalid(format!("unknown truth id: {}", truth_id)))?;
     if source.state != TruthState::Accepted {
         return Err(TruthError::Invalid(format!(
             "truth {} is {} and cannot be superseded",
@@ -481,7 +487,9 @@ pub fn rebuild_truth_projection(backlog_dir: &Path) -> Result<TruthProjectionSum
     Ok(TruthProjectionSummary {
         events: events.len(),
         records: projected.len(),
-        path: truth_current_path(backlog_dir).to_string_lossy().to_string(),
+        path: truth_current_path(backlog_dir)
+            .to_string_lossy()
+            .to_string(),
     })
 }
 
@@ -606,10 +614,7 @@ pub fn truth_migration_audit(backlog_dir: &Path) -> Result<TruthMigrationAudit, 
                                 feature: session.epic_id.clone(),
                                 session_id: Some(session.id.clone()),
                                 worktree_id: session.worktree.as_ref().and_then(|w| w.id.clone()),
-                                worktree_path: session
-                                    .worktree
-                                    .as_ref()
-                                    .map(|w| w.path.clone()),
+                                worktree_path: session.worktree.as_ref().map(|w| w.path.clone()),
                             },
                         });
                     }
@@ -692,7 +697,12 @@ pub fn apply_truth_migration(
             skipped: plan
                 .skipped
                 .iter()
-                .map(|item| format!("{}:{}", item.candidate.source_type, item.candidate.source_id))
+                .map(|item| {
+                    format!(
+                        "{}:{}",
+                        item.candidate.source_type, item.candidate.source_id
+                    )
+                })
                 .collect(),
         });
     }
@@ -748,9 +758,9 @@ fn apply_transition(
     let truth_id = normalized_non_empty("truth_id", &input.truth_id)?;
 
     let projected = project_from_events(backlog_dir)?;
-    let existing = projected.get(&truth_id).ok_or_else(|| {
-        TruthError::Invalid(format!("unknown truth id: {}", truth_id))
-    })?;
+    let existing = projected
+        .get(&truth_id)
+        .ok_or_else(|| TruthError::Invalid(format!("unknown truth id: {}", truth_id)))?;
 
     if existing.state != TruthState::Proposed {
         return Err(TruthError::Invalid(format!(
@@ -898,7 +908,10 @@ fn apply_event(
         }
         TruthEvent::Accepted { truth_id, .. } => {
             let Some(record) = projected.get_mut(truth_id) else {
-                return Err(format!("accepted event references unknown truth {}", truth_id));
+                return Err(format!(
+                    "accepted event references unknown truth {}",
+                    truth_id
+                ));
             };
             if record.state != TruthState::Proposed {
                 return Err(format!(
@@ -915,7 +928,10 @@ fn apply_event(
         }
         TruthEvent::Rejected { truth_id, .. } => {
             let Some(record) = projected.get_mut(truth_id) else {
-                return Err(format!("rejected event references unknown truth {}", truth_id));
+                return Err(format!(
+                    "rejected event references unknown truth {}",
+                    truth_id
+                ));
             };
             if record.state != TruthState::Proposed {
                 return Err(format!(
@@ -936,10 +952,7 @@ fn apply_event(
             ..
         } => {
             if truth_id.eq_ignore_ascii_case(by_truth_id) {
-                return Err(format!(
-                    "truth {} cannot supersede itself",
-                    truth_id
-                ));
+                return Err(format!("truth {} cannot supersede itself", truth_id));
             }
             let Some(replacement) = projected.get(by_truth_id) else {
                 return Err(format!(
@@ -955,7 +968,10 @@ fn apply_event(
                 ));
             }
             let Some(record) = projected.get_mut(truth_id) else {
-                return Err(format!("superseded event references unknown truth {}", truth_id));
+                return Err(format!(
+                    "superseded event references unknown truth {}",
+                    truth_id
+                ));
             };
             if record.state != TruthState::Accepted {
                 return Err(format!(
@@ -1106,7 +1122,10 @@ fn matches_query(record: &TruthRecord, query: &TruthQuery) -> bool {
     if !matches_opt(&record.context.worktree_id, query.worktree_id.as_deref()) {
         return false;
     }
-    if !matches_opt(&record.context.worktree_path, query.worktree_path.as_deref()) {
+    if !matches_opt(
+        &record.context.worktree_path,
+        query.worktree_path.as_deref(),
+    ) {
         return false;
     }
 
@@ -1438,12 +1457,10 @@ mod tests {
 
         let report = validate_truth_store(backlog).expect("validate");
         assert!(!report.ok);
-        assert!(
-            report
-                .projection_mismatches
-                .iter()
-                .any(|line| line.contains("mismatch:truth-001"))
-        );
+        assert!(report
+            .projection_mismatches
+            .iter()
+            .any(|line| line.contains("mismatch:truth-001")));
     }
 
     #[test]

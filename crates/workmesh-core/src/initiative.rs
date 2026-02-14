@@ -53,6 +53,74 @@ pub fn branch_to_initiative_slug(branch: &str) -> String {
     slugify(&s).unwrap_or_else(|| "work".to_string())
 }
 
+pub fn initiative_key_from_hint(hint: &str) -> Option<String> {
+    let words = split_hint_words(hint);
+    if words.is_empty() {
+        return None;
+    }
+
+    let stop_words = [
+        "a", "an", "and", "for", "in", "of", "on", "or", "the", "to", "with",
+    ];
+
+    let significant: Vec<&str> = words
+        .iter()
+        .map(|value| value.as_str())
+        .filter(|value| !stop_words.contains(value))
+        .collect();
+    let source: Vec<&str> = if significant.is_empty() {
+        words.iter().map(|value| value.as_str()).collect()
+    } else {
+        significant
+    };
+
+    let mut key = String::new();
+    if source.len() == 1 {
+        for ch in source[0].chars() {
+            if ch.is_ascii_lowercase() {
+                key.push(ch);
+                if key.len() == 4 {
+                    break;
+                }
+            }
+        }
+    } else {
+        for word in &source {
+            if let Some(ch) = word.chars().find(|ch| ch.is_ascii_lowercase()) {
+                key.push(ch);
+                if key.len() == 4 {
+                    break;
+                }
+            }
+        }
+        if key.len() < 4 {
+            for word in &source {
+                for ch in word.chars().skip(1) {
+                    if ch.is_ascii_lowercase() {
+                        key.push(ch);
+                        if key.len() == 4 {
+                            break;
+                        }
+                    }
+                }
+                if key.len() == 4 {
+                    break;
+                }
+            }
+        }
+    }
+
+    while key.len() < 4 {
+        key.push('x');
+    }
+    key.truncate(4);
+    if key.chars().all(|ch| ch.is_ascii_lowercase()) {
+        Some(key)
+    } else {
+        None
+    }
+}
+
 fn four_letter_key_from_slug(slug: &str) -> String {
     // "4 letters" means ASCII a-z only. Non-letters are ignored.
     // If the result is shorter than 4, pad with 'x' (stable + readable).
@@ -130,6 +198,14 @@ impl<'a> Iterator for FourLetterHashCandidates<'a> {
 }
 
 pub fn ensure_branch_initiative(repo_root: &Path, branch: &str) -> Result<String> {
+    ensure_branch_initiative_with_hint(repo_root, branch, None)
+}
+
+pub fn ensure_branch_initiative_with_hint(
+    repo_root: &Path,
+    branch: &str,
+    hint: Option<&str>,
+) -> Result<String> {
     let mut config = load_config(repo_root).unwrap_or_default();
     if let Some(map) = config.branch_initiatives.as_ref() {
         if let Some(existing) = map.get(branch) {
@@ -139,8 +215,10 @@ pub fn ensure_branch_initiative(repo_root: &Path, branch: &str) -> Result<String
         }
     }
 
-    let desired_slug = branch_to_initiative_slug(branch);
-    let desired = four_letter_key_from_slug(&desired_slug);
+    let desired = hint.and_then(initiative_key_from_hint).unwrap_or_else(|| {
+        let desired_slug = branch_to_initiative_slug(branch);
+        four_letter_key_from_slug(&desired_slug)
+    });
     let key = reserve_unique_initiative(&mut config, branch, &desired);
     write_config(repo_root, &config)?;
     Ok(key)
@@ -175,6 +253,32 @@ fn reserve_unique_initiative(config: &mut WorkmeshConfig, branch: &str, desired:
     }
     map.insert(branch.to_string(), key.clone());
     key
+}
+
+fn split_hint_words(raw: &str) -> Vec<String> {
+    let mut words = Vec::new();
+    let mut current = String::new();
+    let mut prev_was_lower = false;
+    for ch in raw.chars() {
+        if ch.is_ascii_alphanumeric() {
+            if ch.is_ascii_uppercase() && prev_was_lower && !current.is_empty() {
+                words.push(current.to_lowercase());
+                current.clear();
+            }
+            current.push(ch.to_ascii_lowercase());
+            prev_was_lower = ch.is_ascii_lowercase();
+        } else if !current.is_empty() {
+            words.push(current.to_lowercase());
+            current.clear();
+            prev_was_lower = false;
+        } else {
+            prev_was_lower = false;
+        }
+    }
+    if !current.is_empty() {
+        words.push(current.to_lowercase());
+    }
+    words
 }
 
 pub fn next_namespaced_task_id(tasks: &[Task], initiative: &str) -> String {
@@ -259,6 +363,22 @@ mod tests {
     }
 
     #[test]
+    fn initiative_key_from_hint_prefers_acronym_then_backfills() {
+        assert_eq!(
+            initiative_key_from_hint("Smart Recipe Box"),
+            Some("srbm".to_string())
+        );
+        assert_eq!(
+            initiative_key_from_hint("Bootstrap"),
+            Some("boot".to_string())
+        );
+        assert_eq!(
+            initiative_key_from_hint("API Auth Service"),
+            Some("aasp".to_string())
+        );
+    }
+
+    #[test]
     fn ensure_branch_initiative_freezes_key_and_avoids_collisions() {
         let temp = TempDir::new().expect("tempdir");
         let repo = temp.path();
@@ -276,6 +396,31 @@ mod tests {
         // Another distinct slug is accepted as-is.
         let y = ensure_branch_initiative(repo, "feature/billing").expect("y");
         assert_eq!(y, "bill");
+    }
+
+    #[test]
+    fn ensure_branch_initiative_with_hint_uses_hint_and_deduplicates() {
+        let temp = TempDir::new().expect("tempdir");
+        let repo = temp.path();
+
+        let first = ensure_branch_initiative_with_hint(
+            repo,
+            "feature/smart-recipe-box",
+            Some("Smart Recipe Box"),
+        )
+        .expect("first");
+        assert_eq!(first.len(), 4);
+        assert!(first.chars().all(|ch| ch.is_ascii_lowercase()));
+
+        let second = ensure_branch_initiative_with_hint(
+            repo,
+            "feature/super-rocket-base",
+            Some("Smart Recipe Box"),
+        )
+        .expect("second");
+        assert_eq!(second.len(), 4);
+        assert!(second.chars().all(|ch| ch.is_ascii_lowercase()));
+        assert_ne!(first, second);
     }
 
     #[test]

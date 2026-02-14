@@ -383,8 +383,8 @@ pub fn apply_migration_plan(
                     result.applied.push(format!("{} (dry-run)", kind.as_str()));
                 } else {
                     let res = resolve_backlog(root)?;
-                    let audit = truth_migration_audit(&res.backlog_dir)
-                        .map_err(std::io::Error::other)?;
+                    let audit =
+                        truth_migration_audit(&res.backlog_dir).map_err(std::io::Error::other)?;
                     let plan = truth_migration_plan(&res.backlog_dir, &audit)
                         .map_err(std::io::Error::other)?;
                     let migration = apply_truth_migration(&res.backlog_dir, &plan, false)

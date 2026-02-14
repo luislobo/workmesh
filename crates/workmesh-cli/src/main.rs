@@ -62,14 +62,14 @@ use workmesh_core::task_ops::{
     update_lease_fields, update_task_field, update_task_field_or_section, validate_tasks,
     FieldValue,
 };
-use workmesh_core::views::{
-    blockers_report_with_context, board_lanes, scope_ids_from_context, BoardBy,
-};
 use workmesh_core::truth::{
     accept_truth, apply_truth_migration, list_truths, propose_truth, reject_truth, show_truth,
     supersede_truth, truth_migration_audit, truth_migration_plan, validate_truth_store,
     TruthContext as CoreTruthContext, TruthProposeInput, TruthQuery, TruthState,
     TruthSupersedeInput, TruthTransitionInput,
+};
+use workmesh_core::views::{
+    blockers_report_with_context, board_lanes, scope_ids_from_context, BoardBy,
 };
 use workmesh_core::worktrees::{
     create_git_worktree, current_branch as current_worktree_branch, doctor_worktrees,
@@ -660,6 +660,9 @@ enum Command {
         project_id: String,
         #[arg(long)]
         name: Option<String>,
+        /// Feature/project phrase used to seed initiative acronym for the first task id
+        #[arg(long)]
+        feature: Option<String>,
         #[arg(long, action = ArgAction::SetTrue)]
         agents_snippet: bool,
         #[arg(long, action = ArgAction::SetTrue)]
@@ -1754,7 +1757,10 @@ fn resume_script(session: &AgentSession) -> Vec<String> {
     }
 
     if !session.truth_refs.is_empty() {
-        lines.push(format!("# accepted truths: {}", session.truth_refs.join(", ")));
+        lines.push(format!(
+            "# accepted truths: {}",
+            session.truth_refs.join(", ")
+        ));
     }
 
     lines
@@ -1902,12 +1908,19 @@ fn main() -> Result<()> {
     if let Command::Quickstart {
         project_id,
         name,
+        feature,
         agents_snippet,
         json,
     } = &cli.command
     {
         let repo_root = repo_root_from_backlog(&cli.root);
-        let result = quickstart(&repo_root, project_id, name.as_deref(), *agents_snippet)?;
+        let result = quickstart(
+            &repo_root,
+            project_id,
+            name.as_deref(),
+            feature.as_deref(),
+            *agents_snippet,
+        )?;
         if *json {
             println!("{}", serde_json::to_string_pretty(&result)?);
         } else {
@@ -2985,29 +2998,32 @@ fn main() -> Result<()> {
                     .as_ref()
                     .and_then(|state| state.project_id.clone())
                     .or_else(|| infer_project_id(&repo_root));
-                let inferred_epic = inferred.as_ref().and_then(|state| state.scope.epic_id.clone());
+                let inferred_epic = inferred
+                    .as_ref()
+                    .and_then(|state| state.scope.epic_id.clone());
 
                 let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-                let worktree_binding = resolve_workmesh_home()
-                    .ok()
-                    .and_then(|home| {
-                        best_effort_worktree_binding(
-                            &home,
-                            &cwd,
-                            Some(&repo_root.to_string_lossy()),
-                        )
-                    });
+                let worktree_binding = resolve_workmesh_home().ok().and_then(|home| {
+                    best_effort_worktree_binding(&home, &cwd, Some(&repo_root.to_string_lossy()))
+                });
                 let resolved_worktree_path = worktree_path
                     .as_deref()
                     .map(normalize_path_string)
-                    .or_else(|| worktree_binding.as_ref().map(|binding| binding.path.clone()));
+                    .or_else(|| {
+                        worktree_binding
+                            .as_ref()
+                            .map(|binding| binding.path.clone())
+                    });
                 let resolved_session_id = session_id.or_else(|| {
                     resolve_workmesh_home()
                         .ok()
                         .and_then(|home| read_current_session_id(&home))
                 });
-                let resolved_worktree_id = worktree_id
-                    .or_else(|| worktree_binding.as_ref().and_then(|binding| binding.id.clone()));
+                let resolved_worktree_id = worktree_id.or_else(|| {
+                    worktree_binding
+                        .as_ref()
+                        .and_then(|binding| binding.id.clone())
+                });
                 let resolved_epic = epic.or(inferred_epic);
                 let resolved_feature = feature.or_else(|| resolved_epic.clone());
 
@@ -3162,9 +3178,7 @@ fn main() -> Result<()> {
                         feature,
                         session_id,
                         worktree_id,
-                        worktree_path: worktree_path
-                            .as_deref()
-                            .map(normalize_path_string),
+                        worktree_path: worktree_path.as_deref().map(normalize_path_string),
                         tags: split_list(tag.as_slice()),
                         limit,
                     },
@@ -3184,7 +3198,10 @@ fn main() -> Result<()> {
                 if json {
                     println!("{}", serde_json::to_string_pretty(&report)?);
                 } else if report.ok {
-                    println!("truth: ok (events={} records={})", report.event_count, report.record_count);
+                    println!(
+                        "truth: ok (events={} records={})",
+                        report.event_count, report.record_count
+                    );
                 } else {
                     println!("truth: invalid");
                     for issue in &report.malformed_events {

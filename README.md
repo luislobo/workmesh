@@ -147,7 +147,7 @@ cargo build -p workmesh-mcp
 ## Quickstart (60 seconds)
 ```bash
 # create docs + workmesh + seed task
-workmesh --root . quickstart workmesh --agents-snippet
+workmesh --root . quickstart workmesh --feature "WorkMesh Core" --agents-snippet
 
 # optionally set context (recommended for agents)
 workmesh --root . context set --project workmesh --epic task-<init>-001 --objective "Ship v0.3"
@@ -180,6 +180,13 @@ workmesh/
   tasks/
     task-<init>-001 - seed task.md
 ```
+
+Seed task id behavior:
+- Quickstart now creates a namespaced seed id (`task-<init>-001`) instead of `task-001`.
+- `<init>` is deduplicated across known initiatives and prefers an acronym-style key from:
+  1. `--feature` (if provided)
+  2. `--name` (project display name)
+  3. `<project-id>` fallback
 
 ## Context (primary orchestration state)
 `context` is the repo-local "what we are doing now" pointer for humans and agents.

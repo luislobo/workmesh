@@ -4,7 +4,12 @@ use std::path::{Path, PathBuf};
 use serde::Serialize;
 use thiserror::Error;
 
+use crate::initiative::{
+    best_effort_git_branch, ensure_branch_initiative_with_hint, initiative_key_from_hint,
+    next_namespaced_task_id,
+};
 use crate::project::ensure_project_docs;
+use crate::task::load_tasks;
 use crate::task_ops::create_task_file;
 
 #[derive(Debug, Error)]
@@ -30,6 +35,7 @@ pub fn quickstart(
     repo_root: &Path,
     project_id: &str,
     name: Option<&str>,
+    initiative_hint: Option<&str>,
     agents_snippet: bool,
 ) -> Result<QuickstartResult, QuickstartError> {
     let backlog_dir = repo_root.join("workmesh");
@@ -37,7 +43,10 @@ pub fn quickstart(
     fs::create_dir_all(&tasks_dir)?;
 
     let project_dir = ensure_project_docs(repo_root, project_id, name)?;
-    let created_task = create_sample_task_if_missing(&tasks_dir)?;
+    let tasks = load_tasks(&backlog_dir);
+    let hint = initiative_hint.or(name).unwrap_or(project_id);
+    let seed_task_id = resolve_seed_task_id(repo_root, &tasks, hint);
+    let created_task = create_sample_task_if_missing(&tasks_dir, &seed_task_id)?;
     let agents_snippet_written = if agents_snippet {
         write_agents_snippet(repo_root)?
     } else {
@@ -53,7 +62,22 @@ pub fn quickstart(
     })
 }
 
-fn create_sample_task_if_missing(tasks_dir: &Path) -> Result<Option<PathBuf>, QuickstartError> {
+fn resolve_seed_task_id(repo_root: &Path, tasks: &[crate::task::Task], hint: &str) -> String {
+    let initiative = best_effort_git_branch(repo_root)
+        .and_then(|branch| {
+            ensure_branch_initiative_with_hint(repo_root, &branch, Some(hint))
+                .ok()
+                .or_else(|| initiative_key_from_hint(hint))
+        })
+        .or_else(|| initiative_key_from_hint(hint))
+        .unwrap_or_else(|| "work".to_string());
+    next_namespaced_task_id(tasks, &initiative)
+}
+
+fn create_sample_task_if_missing(
+    tasks_dir: &Path,
+    task_id: &str,
+) -> Result<Option<PathBuf>, QuickstartError> {
     let has_tasks = fs::read_dir(tasks_dir)?
         .filter_map(Result::ok)
         .any(|entry| {
@@ -68,7 +92,7 @@ fn create_sample_task_if_missing(tasks_dir: &Path) -> Result<Option<PathBuf>, Qu
     }
     let path = create_task_file(
         tasks_dir,
-        "task-001",
+        task_id,
         "Initial setup",
         "To Do",
         "P2",
@@ -118,17 +142,26 @@ mod tests {
         let temp = TempDir::new().expect("tempdir");
         fs::create_dir_all(temp.path()).expect("dir");
 
-        let created = create_sample_task_if_missing(temp.path()).expect("create");
+        let created = create_sample_task_if_missing(temp.path(), "task-boot-001").expect("create");
         assert!(created.is_some());
-        let created = create_sample_task_if_missing(temp.path()).expect("create again");
+        let created =
+            create_sample_task_if_missing(temp.path(), "task-boot-002").expect("create again");
         assert!(created.is_none());
 
         // Non-markdown files don't count as tasks.
         let temp2 = TempDir::new().expect("tempdir");
         fs::create_dir_all(temp2.path()).expect("dir");
         fs::write(temp2.path().join("note.txt"), "hi").expect("write");
-        let created = create_sample_task_if_missing(temp2.path()).expect("create");
+        let created = create_sample_task_if_missing(temp2.path(), "task-boot-001").expect("create");
         assert!(created.is_some());
+    }
+
+    #[test]
+    fn resolve_seed_task_id_prefers_hint_initials() {
+        let temp = TempDir::new().expect("tempdir");
+        let tasks = Vec::new();
+        let id = resolve_seed_task_id(temp.path(), &tasks, "Smart Recipe Box");
+        assert_eq!(id, "task-srbm-001");
     }
 
     #[test]
