@@ -1,39 +1,51 @@
 # Command Reference
 
-WorkMesh exposes the same core capabilities via:
-- CLI: `workmesh ...`
-- MCP tools: `{"tool":"...", ...}`
+This file is command-surface only. For workflow guidance, use [`docs/getting-started.md`](../getting-started.md).
 
-Naming:
-- CLI uses kebab-case subcommands (e.g. `set-status`, `graph-export`).
-- MCP uses snake_case tool names (e.g. `set_status`, `graph_export`).
+## Global CLI flags
+All subcommands support:
+- `--root <path>` (required)
+- `--auto-checkpoint`
+- `--auto-session-save`
+- `--no-auto-session-save`
 
-All examples assume you run from a repo root and pass `--root .` in the CLI.
+## Defaults and config
+Global config:
+- `~/.workmesh/config.toml` (or `$WORKMESH_HOME/config.toml`)
+
+Project config:
+- `.workmesh.toml` (preferred)
+- `.workmeshrc` (legacy alias)
+
+Keys:
+- `worktrees_default = true|false`
+- `auto_session_default = true|false`
+
+Precedence:
+1. CLI flags
+2. Environment variables
+3. Project config
+4. Global config
+5. Built-in defaults
+
+Environment overrides:
+- `WORKMESH_AUTO_CHECKPOINT=1|0`
+- `WORKMESH_AUTO_SESSION=1|0`
 
 ## Bootstrap and diagnostics
 CLI:
 - `quickstart <project-id> [--name "..."] [--feature "..."] [--agents-snippet]`
 - `project-init <project-id> [--name "..."]`
 - `doctor [--json]`
-- `migrate audit [--json]`
-- `migrate plan [--include ...] [--exclude ...] [--json]`
-- `migrate apply [--include ...] [--exclude ...] [--apply] [--backup] [--json]`
+- `validate [--json]`
 
 MCP:
 - `quickstart`
 - `project_init`
 - `doctor`
-- `migrate_backlog`
-- `migrate_audit`
-- `migrate_plan`
-- `migrate_apply`
+- `validate`
 
-Config defaults:
-- Global config path: `~/.workmesh/config.toml` (or `$WORKMESH_HOME/config.toml`)
-- Project config paths: `.workmesh.toml` (preferred), `.workmeshrc`
-- `worktrees_default` precedence: project config > global config > default(`true`)
-
-## Read views (pick the next work)
+## Task selection and read views
 CLI:
 - `list [--status "To Do"] [--kind bug] [--search "..."] [--sort id] [--all] [--json]`
 - `show <task-id> [--full] [--json]`
@@ -46,17 +58,17 @@ CLI:
 MCP:
 - `list_tasks`
 - `show_task`
-- `next_task` / `next_tasks`
+- `next_task`, `next_tasks`
 - `ready_tasks`
 - `board`
 - `blockers`
 - `stats`
 
-## Task write operations
+## Task mutations
 CLI:
 - `add --title "..." [--id task-...] [--status "..."] [--priority P2] [--phase Phase1] [--labels "..."] [--dependencies "..."] [--assignee "..."] [--json]`
 - `add-discovered --from <task-id> --title "..." ...`
-- `set-status <task-id> "In Progress" | "To Do" | Done`
+- `set-status <task-id> "In Progress"|"To Do"|Done`
 - `set-field <task-id> <field> <value>`
 - `label-add <task-id> <label>` / `label-remove <task-id> <label>`
 - `dep-add <task-id> <dependency-id>` / `dep-remove <task-id> <dependency-id>`
@@ -71,13 +83,11 @@ MCP:
 - `add_discovered`
 - `set_status`
 - `set_field`
-- `add_label` / `remove_label`
-- `add_dependency` / `remove_dependency`
+- `add_label`, `remove_label`
+- `add_dependency`, `remove_dependency`
 - `add_note`
-- `set_body`
-- `set_section`
-- `claim_task`
-- `release_task`
+- `set_body`, `set_section`
+- `claim_task`, `release_task`
 
 ## Bulk operations
 CLI:
@@ -92,11 +102,11 @@ CLI:
 MCP:
 - `bulk_set_status`
 - `bulk_set_field`
-- `bulk_add_label` / `bulk_remove_label`
-- `bulk_add_dependency` / `bulk_remove_dependency`
+- `bulk_add_label`, `bulk_remove_label`
+- `bulk_add_dependency`, `bulk_remove_dependency`
 - `bulk_add_note`
 
-## Context (keep agents scoped)
+## Context
 CLI:
 - `context show [--json]`
 - `context set --project <pid> [--epic task-123] [--objective "..."] [--tasks task-001,task-002]`
@@ -107,7 +117,7 @@ MCP:
 - `context_set`
 - `context_clear`
 
-## Truth ledger (durable decisions)
+## Truth Ledger
 CLI:
 - `truth propose --title "..." --statement "..." [--project <pid>] [--epic task-123] [--feature <name>] [--session-id <id>] [--worktree-id <id>] [--worktree-path <path>] [--constraints "a,b"] [--tags "x,y"] [--json]`
 - `truth accept <truth-id> [--note "..."] [--json]`
@@ -130,11 +140,7 @@ MCP:
 - `truth_migrate_plan`
 - `truth_migrate_apply`
 
-Rules:
-- Lifecycle is strict: `proposed -> accepted|rejected`, and `accepted -> superseded`.
-- Truth data lives in `workmesh/truth/events.jsonl` (append-only) and `workmesh/truth/current.jsonl` (projection).
-
-## Worktree runtime (parallel agent execution)
+## Worktree runtime
 CLI:
 - `worktree list [--json]`
 - `worktree create --path <path> --branch <branch> [--from <ref>] [--project <pid>] [--epic task-123] [--objective "..."] [--tasks task-001,task-002] [--json]`
@@ -149,81 +155,20 @@ MCP:
 - `worktree_detach`
 - `worktree_doctor`
 
-## Archive and hygiene
-CLI:
-- `archive [--before 30d|YYYY-MM-DD] [--status Done] [--json]`
-- `archive` defaults to `--before 30d`, so only tasks with `task_date <= (today - 30 days)` are moved.
-- `task_date` uses `updated_date`, then `created_date`, then today.
-- `archive --before 0d` archives all matching `Done` tasks dated today or earlier.
-- `Archived 0 tasks` is expected when nothing matches the threshold.
-- `validate [--json]`
-- `fix list [--json]`
-- `fix uid|deps|ids [--check|--apply] [--json]`
-- `fix all [--only uid,deps,ids] [--exclude uid,deps,ids] [--check|--apply] [--json]`
-- `validate [--json]` includes truth store consistency checks.
-
-Migration action keys:
-- `layout_backlog_to_workmesh`
-- `focus_to_context`
-- `truth_backfill`
-- `session_handoff_enrichment`
-- `config_cleanup`
-
-MCP:
-- `archive_tasks`
-- `validate`
-- `fix_ids`
-
-## Rekeying task IDs (agent-assisted)
-CLI:
-- `rekey-prompt [--all] [--include-body] [--json] > rekey-prompt.txt`
-- `rekey-apply [--mapping mapping.json] [--apply] [--all] [--strict] [--json]`
-
-MCP:
-- `rekey_prompt`
-- `rekey_apply`
-
-## Index (derived JSONL)
-CLI:
-- `index-rebuild [--json]`
-- `index-refresh [--json]`
-- `index-verify [--json]`
-
-MCP:
-- `index_rebuild`
-- `index_refresh`
-- `index_verify`
-
-## Exports and reporting
-CLI:
-- `export [--pretty]`
-- `issues-export [--output path] [--include-body]`
-- `graph-export [--pretty]`
-- `gantt` / `gantt-file` / `gantt-svg`
-
-MCP:
-- `export_tasks`
-- `issues_export`
-- `graph_export`
-- `gantt_text` / `gantt_file` / `gantt_svg`
-
-## Sessions (continuity)
-CLI (repo-local):
+## Sessions and continuity
+Repo-local CLI:
 - `checkpoint [--project <id>] [--id <checkpoint-id>] [--json]`
 - `resume [--project <id>] [--id <checkpoint-id>] [--json]`
 - `checkpoint-diff [--project <id>] [--id <checkpoint-id>] [--json]`
 - `working-set [--project <id>] [--tasks "task-001,task-002"] [--note "..."] [--json]`
 - `session-journal [--project <id>] [--task <id>] [--next "..."] [--note "..."] [--json]`
 
-CLI (global sessions):
+Global sessions CLI:
 - `session save --objective "..." [--project <id>] [--tasks "task-..."]`
-- `session list`
+- `session list [--limit N]`
 - `session show <session-id>`
-- `session resume [--session-id <id>]`
-
-Session/truth integration:
-- `session save` and worktree attach/detach refresh scoped accepted `truth_refs`.
-- `session resume` includes those `truth_refs` and suggests a scoped `truth list --state accepted ...` command.
+- `session resume [<session-id>]`
+- `session index-rebuild|index-refresh|index-verify`
 
 MCP:
 - `checkpoint`
@@ -236,28 +181,45 @@ MCP:
 - `session_show`
 - `session_resume`
 
-## Skills (Agent Skills standard)
+## Index and exports
 CLI:
-- `install --skills [--profile hybrid|cli|mcp|all] [--scope project|user] [--agent codex|claude|cursor|all] [--force] [--json]`
-- `uninstall --skills [--profile hybrid|cli|mcp|all] [--scope project|user] [--agent codex|claude|cursor|all] [--json]`
-- `skill show [--name workmesh] [--json]`
-- `skill install [--scope user|project] [--agent codex|claude|cursor|all] [--force] [--json]`
-- `skill uninstall [--scope user|project] [--agent codex|claude|cursor|all] [--json]`
-- `skill install-global [--force] [--json]`
-- `skill uninstall-global [--json]`
-
-Skill names:
-- `workmesh` (router)
-- `workmesh-cli` (CLI-first)
-- `workmesh-mcp` (MCP-first)
+- `index-rebuild [--json]`
+- `index-refresh [--json]`
+- `index-verify [--json]`
+- `export [--pretty]`
+- `issues-export [--output path] [--include-body]`
+- `graph-export [--pretty]`
+- `gantt`, `gantt-file`, `gantt-svg`
 
 MCP:
-- `skill_content`
-- `project_management_skill`
+- `index_rebuild`
+- `index_refresh`
+- `index_verify`
+- `export_tasks`
+- `issues_export`
+- `graph_export`
+- `gantt_text`, `gantt_file`, `gantt_svg`
 
-## MCP meta tools
+## Archive and maintenance
+CLI:
+- `archive [--before 30d|YYYY-MM-DD] [--status Done] [--json]`
+- `fix list [--json]`
+- `fix uid|deps|ids [--check|--apply] [--json]`
+- `fix all [--only uid,deps,ids] [--exclude uid,deps,ids] [--check|--apply] [--json]`
+
 MCP:
-- `help`
-- `tool_info`
-- `version`
-- `readme`
+- `archive_tasks`
+- `fix_ids`
+
+## Legacy migration (minimal)
+Use only when a repo still has deprecated structures.
+
+CLI:
+- `migrate audit [--json]`
+- `migrate plan [--include ...] [--exclude ...] [--json]`
+- `migrate apply [--include ...] [--exclude ...] [--apply] [--backup] [--json]`
+
+MCP:
+- `migrate_audit`
+- `migrate_plan`
+- `migrate_apply`

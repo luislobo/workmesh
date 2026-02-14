@@ -1,395 +1,175 @@
 {
   "name": "WorkMesh",
-  "tagline": "Docs-first, MCP-ready tasks and project continuity stored as plain text alongside your code.",
-  "start_here": "docs/getting-started.md",
-  "docs": {
-    "index": "docs/README.md",
-    "getting_started": "docs/getting-started.md",
-    "commands_reference": "docs/reference/commands.md"
+  "tagline": "Docs-first, MCP-ready project/task orchestration in plain text next to your code.",
+  "artifacts": {
+    "cli": "workmesh",
+    "core": "workmesh-core",
+    "mcp": "workmesh-mcp"
   },
-  "agent_readme": {
-    "file": "README.json",
-    "mcp_tool": "readme"
+  "start_here": {
+    "progressive_dx": "docs/getting-started.md",
+    "commands": "docs/reference/commands.md",
+    "docs_index": "docs/README.md"
   },
-  "repo": {
-    "language": "rust",
-    "artifacts": ["workmesh (cli)", "workmesh-mcp (stdio mcp server)"]
-  },
-  "diagrams": {
-    "dx_workflow": "docs/diagrams/dx-workflow.png",
-    "install_and_mcp": "docs/diagrams/install-and-mcp.png",
-    "task_lifecycle": "docs/diagrams/task-lifecycle.png",
-    "session_continuity": "docs/diagrams/continuity.png"
-  },
-  "why": [
-    "Keep planning artifacts close to code and in git.",
-    "Make dependencies explicit so ready work is queryable.",
-    "Enable restartable work via checkpoints and cross-repo sessions.",
-    "Support multi-agent coordination with leases/claims and deterministic ordering."
-  ],
   "install": {
-    "prebuilt_releases": {
-      "note": "Each GitHub release includes platform archives. Pick the right Rust target triple for your OS/CPU.",
-      "targets": [
-        "x86_64-apple-darwin (macOS Intel)",
-        "aarch64-apple-darwin (macOS Apple Silicon)",
-        "x86_64-unknown-linux-gnu (Linux x86_64, glibc)",
-        "aarch64-unknown-linux-gnu (Linux arm64, glibc)",
-        "x86_64-pc-windows-msvc (Windows x86_64)"
-      ],
-      "macos_linux_steps": [
-        "Download the release archive (with gh or browser).",
-        "Extract it.",
-        "Install workmesh and workmesh-mcp onto PATH (e.g. /usr/local/bin).",
-        "Optional: install embedded skill profiles: workmesh --root . install --skills --profile all --scope project.",
-        "Verify: workmesh --version; workmesh-mcp --version."
-      ],
-      "windows_steps": [
-        "Download the zip.",
-        "Extract it.",
-        "Add the extracted folder to PATH (or move binaries into a PATH directory).",
-        "Verify: workmesh.exe --version; workmesh-mcp.exe --version."
-      ]
-    },
-    "from_source": {
-      "requirements": ["rust (stable toolchain)"],
-      "steps": [
-        "git clone git@github.com:luislobo/workmesh.git",
-        "cd workmesh",
-        "cargo build",
-        "cargo build -p workmesh-mcp (optional)"
-      ],
-      "binaries": {
-        "cli_debug": "target/debug/workmesh",
-        "mcp_debug": "target/debug/workmesh-mcp"
-      }
-    }
-  },
-  "quickstart": {
-    "agent_first": {
-      "verify": [
-        { "tool": "version", "format": "json" },
-        { "tool": "readme", "format": "json" },
-        { "tool": "doctor", "format": "json" }
-      ],
-      "bootstrap_repo": [
-        { "tool": "skill_content", "name": "workmesh-mcp", "format": "text" },
-        { "tool": "quickstart", "project_id": "<project-id>", "feature": "<feature-name>", "agents_snippet": true, "format": "json" },
-        { "tool": "context_set", "project_id": "<project-id>", "epic_id": "task-<init>-001", "objective": "Ship v0.3", "format": "json" },
-        { "tool": "next_tasks", "format": "json", "limit": 10 }
-      ],
-      "daily_loop": [
-        { "tool": "context_show", "format": "json" },
-        { "tool": "next_tasks", "format": "json", "limit": 10 },
-        { "tool": "claim_task", "task_id": "task-<init>-001", "owner": "me", "minutes": 60, "touch": true },
-        { "tool": "set_status", "task_id": "task-<init>-001", "status": "In Progress", "touch": true },
-        { "tool": "add_note", "task_id": "task-<init>-001", "note": "Plan: ...", "section": "notes", "touch": true }
-      ]
-    },
-    "cli_appendix": [
-      "workmesh --root . quickstart <project-id> --feature \"<feature-name>\" --agents-snippet",
-      "workmesh --root . context set --project <project-id> --epic task-<init>-001 --objective \"Ship v0.3\"",
-      "workmesh --root . list --status \"To Do\"",
-      "workmesh --root . next"
+    "recommended": "prebuilt release binaries",
+    "release_version_example": "vX.Y.Z",
+    "verify": [
+      "workmesh --version",
+      "workmesh-mcp --version"
     ],
-    "seed_id_policy": [
-      "Quickstart creates task-<init>-001 (namespaced) as the seed task.",
-      "<init> prefers an acronym-like key from --feature, then --name, then <project-id>.",
-      "Deduplication uses the repo's known initiative keys in .workmesh.toml."
-    ],
-    "worktree_defaults": [
-      "Quickstart promotes worktree-based parallel streams by default.",
-      "Disable globally with ~/.workmesh/config.toml (or $WORKMESH_HOME/config.toml): worktrees_default = false",
-      "Override per repo with .workmesh.toml: worktrees_default = true|false",
-      "Precedence: project config > global config > default(true)."
-    ],
-    "creates": {
-      "docs": ["docs/projects/<project-id>/README.md", "docs/projects/<project-id>/prds/", "docs/projects/<project-id>/updates/"],
-      "workmesh": ["workmesh/tasks/task-<init>-001 - seed task.md"]
-    }
+    "from_source": [
+      "git clone git@github.com:luislobo/workmesh.git",
+      "cd workmesh",
+      "cargo build -p workmesh-cli",
+      "cargo build -p workmesh-mcp"
+    ]
   },
-  "concepts": {
-    "task_files": {
-      "format": "markdown with yaml front matter",
-      "fields": ["id", "uid", "title", "kind", "status", "priority", "phase", "dependencies", "labels", "assignee"],
-      "note": "Dependencies are optional, but recommended when a task is blocked."
-    },
-    "task_ids": {
-      "default_format": "task-<initiative>-NNN",
-      "examples": ["task-logi-001", "task-bill-014"],
-      "initiative_source": "Derived from git branch name (last path segment), converted into a 4-letter key, then frozen in .workmesh.toml",
-      "config_fields": ["branch_initiatives", "initiatives"],
-      "collision_behavior": "If the desired 4-letter initiative key is already used, WorkMesh deterministically chooses another 4-letter key (still length 4).",
-      "override_env": "WORKMESH_BRANCH",
-      "rekey_flow": {
-        "purpose": "Agent-assisted migration from legacy ids (task-001) to initiative-key ids (task-logi-001) while rewriting structured references and (by default) body mentions.",
-        "cli": [
-          "workmesh --root . rekey-prompt > rekey-prompt.txt",
-          "workmesh --root . rekey-apply --mapping mapping.json (dry-run; default rewrites structured fields + body mentions)",
-          "workmesh --root . rekey-apply --mapping mapping.json --apply",
-          "workmesh --root . rekey-apply --mapping mapping.json --strict --apply (structured-only; no body edits)"
-        ],
-        "mcp_tools": ["rekey_prompt", "rekey_apply"]
-      },
-      "repair": {
-        "purpose": "After merges, detect and rekey duplicate task ids.",
-        "cli": [
-          "workmesh --root . fix ids (dry-run)",
-          "workmesh --root . fix ids --apply"
-        ],
-        "mcp_tool": "fix_ids"
-      }
-    },
-    "kind": {
-      "note": "Jira-friendly. WorkMesh does not enforce a taxonomy; use any string.",
-      "recommended": ["epic", "story", "task", "bug", "subtask", "incident", "spike"],
-      "epic_done_rule": "When kind=epic, WorkMesh refuses to set status Done unless dependencies, blocked_by, and all children (inferred via relationships.parent and explicit relationships.child) are Done."
-    },
-    "context": {
-      "path": "workmesh/context.json",
-      "purpose": "Repo-local orchestration state for project/objective/scope (epic or task list).",
-      "commands": [
-        "workmesh --root . context show [--json]",
-        "workmesh --root . context set --project <pid> [--epic task-123] [--objective \"...\"] [--tasks task-001,task-002]",
-        "workmesh --root . context clear"
-      ],
-      "integration": [
-        "session save captures epic_id from context epic scope (fallback: parse task-123 from git branch).",
-        "session resume resume-script includes context show.",
-        "next/next_task/next_tasks are context-aware: epic scope prioritizes subtree; task scope prioritizes listed ids; active work is still prioritized first."
-      ]
-    },
-    "worktrees": {
-      "purpose": "Runtime execution layer for parallel agent workflows (separate from context intent).",
-      "cli": [
-        "workmesh --root . worktree list [--json]",
-        "workmesh --root . worktree create --path <path> --branch <branch> [--from <ref>] [--project <pid>] [--epic task-123] [--objective \"...\"] [--tasks task-001,task-002] [--json]",
-        "workmesh --root . worktree attach [--session-id <id>] [--path <path>] [--json]",
-        "workmesh --root . worktree detach [--session-id <id>] [--json]",
-        "workmesh --root . worktree doctor [--json]"
-      ],
-      "mcp_tools": [
-        "worktree_list",
-        "worktree_create",
-        "worktree_attach",
-        "worktree_detach",
-        "worktree_doctor"
-      ],
-      "notes": [
-        "Context remains intent-only (project/objective/scope).",
-        "Worktree metadata is stored in global sessions and registry state."
-      ]
-    },
-    "truth": {
-      "path": "workmesh/truth/",
-      "files": {
-        "events": "workmesh/truth/events.jsonl (append-only)",
-        "current": "workmesh/truth/current.jsonl (materialized projection)"
-      },
-      "purpose": "Durable feature-level decisions/constraints/contracts shared across sessions, worktrees, and agents.",
-      "lifecycle": [
-        "proposed -> accepted|rejected",
-        "accepted -> superseded (by another accepted truth)"
-      ],
-      "boundary": [
-        "context = current intent/scope pointer",
-        "truth = validated decisions and invariants",
-        "sessions = continuity pointer + resume hints",
-        "worktrees = parallel execution isolation"
-      ],
-      "cli": [
-        "workmesh --root . truth propose --title \"...\" --statement \"...\" [--project <pid>] [--epic task-123] [--feature <name>] [--session-id <id>] [--worktree-id <id>] [--worktree-path <path>] [--constraints a,b] [--tags x,y] [--json]",
-        "workmesh --root . truth accept <truth-id> [--note \"...\"] [--json]",
-        "workmesh --root . truth reject <truth-id> [--note \"...\"] [--json]",
-        "workmesh --root . truth supersede <truth-id> --by <accepted-truth-id> [--reason \"...\"] [--json]",
-        "workmesh --root . truth show <truth-id> [--json]",
-        "workmesh --root . truth list [--state proposed|accepted|rejected|superseded] [--project <pid>] [--epic task-123] [--feature <name>] [--session-id <id>] [--worktree-id <id>] [--worktree-path <path>] [--tag <tag>] [--limit <n>] [--json]",
-        "workmesh --root . truth validate [--json]",
-        "workmesh --root . truth migrate audit|plan|apply [--apply] [--json]"
-      ],
-      "mcp_tools": [
-        "truth_propose",
-        "truth_accept",
-        "truth_reject",
-        "truth_supersede",
-        "truth_show",
-        "truth_list",
-        "truth_validate",
-        "truth_migrate_audit",
-        "truth_migrate_plan",
-        "truth_migrate_apply"
-      ],
-      "integration": [
-        "session save/auto-session/worktree attach-detach refresh truth_refs from accepted truths in scope.",
-        "session resume includes accepted truth refs and a suggested truth list command.",
-        "doctor and validate include truth store consistency checks."
-      ]
-    },
-    "views_and_diagnostics": {
-      "doctor": {
-        "cli": "workmesh --root . doctor --json",
-        "mcp_tool": "doctor",
-        "purpose": "One-shot diagnostics for layout, context, legacy focus presence, truth store, index, skills, and versions."
-      },
-      "board": {
-        "cli": ["workmesh --root . board", "workmesh --root . board --by phase", "workmesh --root . board --focus"],
-        "mcp_tool": "board",
-        "purpose": "Swimlanes grouped by status/phase/priority; stable ordering."
-      },
-      "blockers": {
-        "cli": ["workmesh --root . blockers", "workmesh --root . blockers --epic-id task-123"],
-        "mcp_tool": "blockers",
-        "purpose": "Show blocked work and top blockers (context epic by default)."
-      }
-    },
-    "index": {
-      "path": "workmesh/.index/tasks.jsonl",
-      "format": "jsonl",
-      "purpose": "Fast queries; rebuild/refresh/verify.",
-      "path_values": "repo-relative (does not embed /home/user/...)",
-      "commands": ["index-rebuild", "index-refresh", "index-verify"]
-    },
-    "archive": {
-      "path": "workmesh/archive/YYYY-MM/",
-      "purpose": "Keep completed tasks out of the hot path; date-based archiving.",
-      "defaults": {
-        "status": "Done",
-        "before": "30d"
-      },
-      "eligibility_rule": "Archive when status matches and task_date <= before.",
-      "task_date_resolution": [
-        "updated_date (preferred)",
-        "created_date (fallback)",
-        "today (final fallback if neither date exists)"
-      ],
-      "note": "If recently completed tasks are newer than the before threshold, archive reports 'Archived 0 tasks'.",
-      "examples": [
-        "workmesh --root . archive",
-        "workmesh --root . archive --before 2024-12-31",
-        "workmesh --root . archive --before 0d"
-      ]
-    },
-    "migration": {
-      "purpose": "Detect and migrate deprecated structures (legacy layout, focus.json, truth backfill candidates, config flags, session handoff fields).",
-      "cli": [
-        "workmesh --root . migrate audit",
-        "workmesh --root . migrate plan [--include <action>] [--exclude <action>]",
-        "workmesh --root . migrate apply (dry-run)",
-        "workmesh --root . migrate apply --include <action> --exclude <action> --apply",
-        "workmesh --root . migrate apply --apply --backup"
-      ],
-      "mcp_tools": ["migrate_audit", "migrate_plan", "migrate_apply"],
-      "actions": [
-        "layout_backlog_to_workmesh",
-        "focus_to_context",
-        "truth_backfill",
-        "session_handoff_enrichment",
-        "config_cleanup"
-      ]
-    },
-    "sessions": {
-      "repo_local": {
-        "tools": ["checkpoint", "resume", "checkpoint-diff"],
-        "purpose": "Continue work within the same repo."
-      },
-      "global": {
-        "home_env": "WORKMESH_HOME (default: ~/.workmesh)",
-        "config_path": "WORKMESH_HOME/config.toml",
-        "files": {
-          "events": "WORKMESH_HOME/sessions/events.jsonl (append-only)",
-          "current": "WORKMESH_HOME/sessions/current.json",
-          "index": "WORKMESH_HOME/.index/sessions.jsonl (derived)"
-        },
-        "tools": ["session save", "session list", "session show", "session resume"],
-        "purpose": "Cross-repo continuity (reboot/OS switch/machine switch), including optional worktree bindings."
-      }
-    },
-    "configuration": {
-      "project": {
-        "files": [".workmesh.toml", ".workmeshrc"],
-        "example_fields": ["root_dir", "worktrees_default", "branch_initiatives", "initiatives"]
-      },
-      "global": {
-        "file": "~/.workmesh/config.toml",
-        "respects_env": "WORKMESH_HOME",
-        "example_fields": ["worktrees_default"]
-      },
-      "precedence": "project config > global config > built-in defaults"
-    },
-    "leases": {
-      "tools": ["claim", "release"],
-      "purpose": "Multi-agent coordination; avoid stepping on the same task."
-    }
-  },
-  "mcp": {
-    "server_binary": "workmesh-mcp",
+  "mcp_setup": {
     "transport": "stdio",
-    "root_behavior": "If started inside a repo, root can be omitted; otherwise pass root explicitly in calls.",
-    "examples": [
-      { "tool": "doctor", "format": "json" },
-      { "tool": "worktree_list", "format": "json" },
-      { "tool": "board", "format": "json", "by": "status", "focus": true },
-      { "tool": "blockers", "format": "json" },
-      { "tool": "truth_list", "format": "json", "states": ["accepted"], "limit": 10 },
-      { "tool": "ready_tasks", "format": "json" },
-      { "tool": "next_tasks", "format": "json", "limit": 10 },
-      { "tool": "list_tasks", "root": "/path/to/repo", "status": ["To Do"] }
-    ],
-    "note": "All CLI commands are mirrored as MCP tools (parity tests cover the mapping)."
+    "codex_example": {
+      "command": "/usr/local/bin/workmesh-mcp",
+      "args": []
+    },
+    "verify_tools": [
+      "version",
+      "readme",
+      "doctor"
+    ]
   },
-  "skills": {
-    "profiles": {
-      "workmesh": "Router profile that selects CLI or MCP mode.",
-      "workmesh-cli": "CLI-first workflows (shell command oriented).",
-      "workmesh-mcp": "MCP-first workflows (tool call oriented)."
-    },
-    "install": {
-      "recommended": "workmesh --root . install --skills --profile all --scope project",
-      "profile_examples": [
-        "workmesh --root . install --skills --profile cli --scope project",
-        "workmesh --root . install --skills --profile mcp --scope project",
-        "workmesh --root . install --skills --profile hybrid --scope project"
+  "progressive_dx": {
+    "stages": [
+      {
+        "id": 1,
+        "name": "Start",
+        "goal": "single repo flow",
+        "loop": [
+          "quickstart",
+          "context set",
+          "next",
+          "claim/work/done"
+        ]
+      },
+      {
+        "id": 2,
+        "name": "Parallelize",
+        "goal": "one stream per worktree",
+        "loop": [
+          "worktree create",
+          "worktree attach",
+          "context set",
+          "next",
+          "claim"
+        ]
+      },
+      {
+        "id": 3,
+        "name": "Recover",
+        "goal": "reboot/session continuity",
+        "loop": [
+          "session resume",
+          "context show",
+          "truth list --state accepted",
+          "next"
+        ]
+      },
+      {
+        "id": 4,
+        "name": "Consolidate",
+        "goal": "convert sibling clones to canonical repo + worktrees",
+        "details": "procedural runbook in docs/getting-started.md"
+      }
+    ]
+  },
+  "core_model": {
+    "context": "repo-local intent/scope pointer at workmesh/context.json",
+    "truth": "durable validated decisions in workmesh/truth/",
+    "sessions": "cross-repo continuity in WORKMESH_HOME (default ~/.workmesh)",
+    "worktrees": "runtime isolation for parallel streams"
+  },
+  "defaults": {
+    "global_config": "~/.workmesh/config.toml (or $WORKMESH_HOME/config.toml)",
+    "project_config": [
+      ".workmesh.toml",
+      ".workmeshrc"
+    ],
+    "keys": [
+      "worktrees_default = true|false",
+      "auto_session_default = true|false"
+    ],
+    "precedence": [
+      "CLI flags",
+      "environment variables",
+      "project config",
+      "global config",
+      "built-in defaults"
+    ],
+    "auto_session": {
+      "built_in_default": "enabled in interactive non-CI terminals; disabled in CI/non-interactive",
+      "enable": [
+        "--auto-session-save",
+        "WORKMESH_AUTO_SESSION=1"
       ],
-      "explicit": [
-        "workmesh --root . skill install --name workmesh-cli --scope project --agent all --force",
-        "workmesh --root . skill install --name workmesh-mcp --scope project --agent all --force"
+      "disable": [
+        "--no-auto-session-save",
+        "WORKMESH_AUTO_SESSION=0"
       ]
-    },
-    "uninstall": {
-      "recommended": "workmesh --root . uninstall --skills --profile all --scope project",
-      "profile_examples": [
-        "workmesh --root . uninstall --skills --profile cli --scope project",
-        "workmesh --root . uninstall --skills --profile mcp --scope project",
-        "workmesh --root . uninstall --skills --profile hybrid --scope project"
-      ],
-      "explicit": [
-        "workmesh --root . skill uninstall --name workmesh-cli --scope project --agent all",
-        "workmesh --root . skill uninstall --name workmesh-mcp --scope project --agent all",
-        "workmesh --root . skill uninstall-global --name workmesh"
-      ]
-    },
-    "mcp_tools": {
-      "skill_content": "Returns SKILL.md for a specific name.",
-      "project_management_skill": "Defaults to workmesh-mcp and can take an explicit name."
     }
   },
-  "repo_layout": {
-    "docs": "docs/ (PRDs, decisions, updates)",
-    "tasks": "workmesh/tasks/ (task markdown files)",
-    "archive": "workmesh/archive/ (archived tasks)",
-    "skills": "skills/ (agent workflow instructions)",
-    "crates": "crates/ (workmesh-core, workmesh-cli, workmesh-mcp)"
-  },
-  "derived_files_policy": {
-    "do_not_commit": ["workmesh/.index/", "WORKMESH_HOME/.index/"],
-    "optional_to_commit": ["workmesh/.audit.log"],
-    "safe_to_delete": true
-  },
-  "roadmap": {
-    "near_term": [
-      "Harden session continuity (more metadata, richer resume output).",
-      "Expand validation and reporting."
+  "command_surface": {
+    "project_lifecycle": [
+      "quickstart",
+      "project-init",
+      "doctor",
+      "validate",
+      "archive"
     ],
-    "later": ["External sync (Jira/Trello/GitHub) deferred.", "UI/visualization layer."]
-  }
+    "task_flow": [
+      "list",
+      "show",
+      "next",
+      "ready",
+      "claim",
+      "set-status",
+      "note",
+      "release"
+    ],
+    "context_truth": [
+      "context set|show|clear",
+      "truth propose|accept|reject|supersede|show|list|validate"
+    ],
+    "worktrees_sessions": [
+      "worktree list|create|attach|detach|doctor",
+      "session save|list|show|resume"
+    ],
+    "index_reporting": [
+      "index-rebuild|index-refresh|index-verify",
+      "board",
+      "blockers",
+      "stats",
+      "graph-export",
+      "issues-export"
+    ],
+    "reference": "docs/reference/commands.md"
+  },
+  "legacy_note": {
+    "scope": "minimal",
+    "use_when": "repo still has legacy backlog/ or focus.json",
+    "commands": [
+      "workmesh --root . migrate audit",
+      "workmesh --root . migrate plan",
+      "workmesh --root . migrate apply --apply"
+    ]
+  },
+  "repo_layout": [
+    "crates/ - rust crates",
+    "docs/ - product and usage docs",
+    "skills/ - embedded WorkMesh skills",
+    "workmesh/ - task/state files"
+  ],
+  "roadmap": [
+    "Clone-to-worktree onboarding helpers (worktree onboard ...)",
+    "Stronger multi-worktree recovery scripts",
+    "Diagnostics for stale stream/session bindings"
+  ]
 }

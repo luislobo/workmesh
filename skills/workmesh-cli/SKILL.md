@@ -5,18 +5,7 @@ description: CLI-first WorkMesh workflow. Use when agents should run shell comma
 
 # WorkMesh CLI Skill
 
-Use this skill when interacting with WorkMesh through shell commands only.
-
-## When to use
-- MCP is not configured.
-- You want lower token overhead from concise shell commands.
-- You want explicit command history in terminal output.
-
-## Setup
-```bash
-# install CLI-focused skill in the current project
-workmesh --root . install --skills --profile cli --scope project
-```
+Use this skill for shell-first WorkMesh workflows.
 
 ## Baseline checks
 ```bash
@@ -26,7 +15,29 @@ workmesh --root . worktree list --json
 workmesh --root . truth list --state accepted --limit 20 --json
 ```
 
-## High-signal command loop
+## Progressive loops
+
+Stage 1: Start
+```text
+quickstart -> context set -> next -> claim -> set-status(In Progress) -> note -> set-status(Done) -> release
+```
+
+Stage 2: Parallelize
+```text
+worktree create -> cd <worktree> -> session save -> worktree attach -> context show -> next -> claim
+```
+
+Stage 3: Recover
+```text
+worktree list -> cd <worktree> -> session resume -> context show -> truth list(accepted) -> next
+```
+
+Stage 4: Consolidate clones
+```text
+audit sibling clones -> ensure clean -> create canonical worktree per stream -> session save/attach -> archive old clone later
+```
+
+## High-signal commands
 - Next candidates: `workmesh --root . next --json`
 - Candidate set: `workmesh --root . ready --json`
 - Start work: `workmesh --root . claim <task-id> <owner> --minutes 60`
@@ -35,58 +46,18 @@ workmesh --root . truth list --state accepted --limit 20 --json
 - Finish: `workmesh --root . set-status <task-id> Done`
 - Release: `workmesh --root . release <task-id>`
 
-## Grammar-style workflows
-Notation:
-- `[]` optional
-- `{}` repeatable
-- `->` then
-
-Bootstrap:
-```text
-quickstart -> context set -> list --status "To Do" -> next
-```
-
-Daily loop:
-```text
-context show -> next -> claim -> set-status(In Progress) -> work -> note -> set-status(Done) -> release
-```
-
-Continuity:
-```text
-session save -> stop -> session resume -> context show -> next -> claim
-```
-
-Parallel worktree loop:
-```text
-worktree create -> worktree attach -> context set -> next -> claim
-```
-
-Worktree defaults:
-- Worktree guidance is default-on.
-- Global opt-out: `~/.workmesh/config.toml` with `worktrees_default = false`.
-- Repo override: `.workmesh.toml` with `worktrees_default = true|false`.
-
-Truth loop:
-```text
-decision emerges -> truth propose -> review -> truth accept|reject -> (if replaced) truth supersede
-```
-
-Hygiene:
-```text
-doctor -> blockers -> board --focus -> validate -> index-refresh
-```
-
-## Useful views
-- Board: `workmesh --root . board --by status --focus`
-- Blockers: `workmesh --root . blockers`
-- Graph export: `workmesh --root . graph-export --pretty`
-- Worktree health: `workmesh --root . worktree doctor --json`
+## Defaults and overrides
+- Worktree guidance defaults to ON (`worktrees_default`).
+- Auto session updates should run in interactive local workflows by default (`auto_session_default`).
+- One-off overrides:
+  - force ON: `--auto-session-save`
+  - force OFF: `--no-auto-session-save`
 
 ## Rules
-- Prefer `--json` for agent parsing.
+- Prefer `--json` for parsing.
 - Keep dependencies current when status changes.
-- Persist durable feature decisions as accepted truths (`truth propose/accept/supersede`) scoped by project/epic/worktree/session when possible.
-- Keep task metadata complete and current: `Description`, `Acceptance Criteria`, and `Definition of Done`.
-- Move a task to `Done` only when the task goals in `Description` are met and all `Acceptance Criteria` are satisfied.
-- Treat `Code/config committed` and `Docs updated if needed` as hygiene checks, not the core completion criteria.
+- Persist durable decisions as truths scoped by project/epic/worktree/session when possible.
+- Keep task metadata complete: `Description`, `Acceptance Criteria`, `Definition of Done`.
+- Move to `Done` only when description goals + acceptance criteria are satisfied.
+- Treat `Code/config committed` and `Docs updated if needed` as hygiene checks.
 - Do not commit derived `workmesh/.index/` files.

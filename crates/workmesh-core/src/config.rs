@@ -22,6 +22,9 @@ pub struct WorkmeshConfig {
     /// Default behavior for promoting worktree-based parallel workflows.
     /// true = promote worktrees by default, false = suppress default worktree guidance.
     pub worktrees_default: Option<bool>,
+    /// Default behavior for auto-updating global sessions after mutating commands.
+    /// true = enable by default, false = disable by default.
+    pub auto_session_default: Option<bool>,
     /// Known initiative slugs used to namespace task ids (e.g. "login", "billing")
     pub initiatives: Option<Vec<String>>,
     /// Map of git branch name -> initiative slug frozen for that branch
@@ -115,6 +118,20 @@ pub fn resolve_worktrees_default(repo_root: &Path) -> bool {
     resolve_worktrees_default_with_source(repo_root).0
 }
 
+pub fn resolve_auto_session_default_with_source(repo_root: &Path) -> (Option<bool>, &'static str) {
+    if let Some(value) = load_config(repo_root).and_then(|config| config.auto_session_default) {
+        return (Some(value), "project");
+    }
+    if let Some(value) = load_global_config().and_then(|config| config.auto_session_default) {
+        return (Some(value), "global");
+    }
+    (None, "default")
+}
+
+pub fn resolve_auto_session_default(repo_root: &Path) -> Option<bool> {
+    resolve_auto_session_default_with_source(repo_root).0
+}
+
 pub fn write_config(repo_root: &Path, config: &WorkmeshConfig) -> Result<PathBuf, ConfigError> {
     let path = config_path(repo_root);
     let body = toml::to_string_pretty(config)?;
@@ -134,6 +151,7 @@ pub fn update_do_not_migrate(
         .map(|value| !value.trim().is_empty())
         .unwrap_or(false)
         || config.worktrees_default.is_some()
+        || config.auto_session_default.is_some()
         || config
             .initiatives
             .as_ref()
@@ -210,6 +228,7 @@ mod tests {
             root_dir: Some("workmesh".to_string()),
             do_not_migrate: Some(true),
             worktrees_default: Some(true),
+            auto_session_default: Some(true),
             initiatives: None,
             branch_initiatives: None,
         };
@@ -218,6 +237,7 @@ mod tests {
         assert_eq!(loaded.root_dir.as_deref(), Some("workmesh"));
         assert_eq!(loaded.do_not_migrate, Some(true));
         assert_eq!(loaded.worktrees_default, Some(true));
+        assert_eq!(loaded.auto_session_default, Some(true));
     }
 
     #[test]
@@ -227,6 +247,7 @@ mod tests {
             root_dir: None,
             do_not_migrate: Some(true),
             worktrees_default: None,
+            auto_session_default: None,
             initiatives: None,
             branch_initiatives: None,
         };
@@ -243,6 +264,7 @@ mod tests {
             root_dir: None,
             do_not_migrate: Some(true),
             worktrees_default: Some(false),
+            auto_session_default: None,
             initiatives: None,
             branch_initiatives: None,
         };
@@ -287,6 +309,42 @@ mod tests {
             .expect("project config");
             let (value, source) = resolve_worktrees_default_with_source(repo.path());
             assert!(value);
+            assert_eq!(source, "project");
+        });
+    }
+
+    #[test]
+    fn resolve_auto_session_default_prefers_project_over_global_then_unset() {
+        with_env_lock(|| {
+            let _env = EnvGuard::capture();
+            let repo = TempDir::new().expect("repo tempdir");
+            let home = TempDir::new().expect("home tempdir");
+            std::env::set_var("WORKMESH_HOME", home.path());
+
+            // No config at all -> unset.
+            let (value, source) = resolve_auto_session_default_with_source(repo.path());
+            assert_eq!(value, None);
+            assert_eq!(source, "default");
+
+            // Global config applies when project config is absent.
+            std::fs::create_dir_all(home.path()).expect("home dir");
+            std::fs::write(
+                home.path().join("config.toml"),
+                "auto_session_default = false\n",
+            )
+            .expect("global config");
+            let (value, source) = resolve_auto_session_default_with_source(repo.path());
+            assert_eq!(value, Some(false));
+            assert_eq!(source, "global");
+
+            // Project config overrides global config.
+            std::fs::write(
+                repo.path().join(".workmesh.toml"),
+                "auto_session_default = true\n",
+            )
+            .expect("project config");
+            let (value, source) = resolve_auto_session_default_with_source(repo.path());
+            assert_eq!(value, Some(true));
             assert_eq!(source, "project");
         });
     }

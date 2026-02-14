@@ -5,18 +5,7 @@ description: MCP-first WorkMesh workflow. Use when WorkMesh MCP tools are availa
 
 # WorkMesh MCP Skill
 
-Use this skill when interacting with WorkMesh through MCP tool calls.
-
-## When to use
-- WorkMesh MCP server is enabled.
-- You want structured JSON tool responses and parity with CLI behavior.
-
-## Setup
-Run once per project:
-```bash
-# install MCP-focused skill in the current project
-workmesh --root . install --skills --profile mcp --scope project
-```
+Use this skill for tool-call-first WorkMesh workflows.
 
 ## Baseline tool calls
 ```json
@@ -26,65 +15,54 @@ workmesh --root . install --skills --profile mcp --scope project
 {"tool":"context_show","format":"json"}
 ```
 ```json
+{"tool":"worktree_list","format":"json"}
+```
+```json
 {"tool":"truth_list","states":["accepted"],"limit":20,"format":"json"}
 ```
 
-## High-signal tool loop
-- Next candidates: `{"tool":"next_tasks","format":"json","limit":10}`
-- Claim work: `{"tool":"claim_task","task_id":"task-123","owner":"agent","minutes":60,"touch":true}`
-- Mark active: `{"tool":"set_status","task_id":"task-123","status":"In Progress","touch":true}`
-- Capture note: `{"tool":"add_note","task_id":"task-123","note":"...","section":"notes","touch":true}`
-- Finish: `{"tool":"set_status","task_id":"task-123","status":"Done","touch":true}`
-- Release: `{"tool":"release_task","task_id":"task-123","touch":true}`
+## Progressive loops
 
-## Grammar-style workflows
-Notation:
-- `[]` optional
-- `{}` repeatable
-- `->` then
-
-Bootstrap:
+Stage 1: Start
 ```text
-quickstart -> context_set -> next_tasks
+quickstart -> context_set -> next_tasks -> claim_task -> set_status(In Progress) -> add_note -> set_status(Done) -> release_task
 ```
 
-Daily loop:
+Stage 2: Parallelize
 ```text
-context_show -> next_tasks -> claim_task -> set_status(In Progress) -> work -> add_note -> set_status(Done) -> release_task
+worktree_create -> session_save -> worktree_attach -> context_show -> next_tasks -> claim_task
 ```
 
-Continuity:
+Stage 3: Recover
 ```text
-session_save -> stop -> session_resume -> context_show -> next_tasks -> claim_task
+worktree_list -> session_resume -> context_show -> truth_list(accepted) -> next_tasks
 ```
 
-Parallel worktree loop:
+Stage 4: Consolidate clones
 ```text
-worktree_create -> worktree_attach -> context_set -> next_tasks -> claim_task
+audit sibling clones (manual today) -> create canonical worktree per stream -> session_save/worktree_attach -> retire old clones later
 ```
 
-Worktree defaults:
-- Worktree guidance is default-on.
-- Global opt-out: `~/.workmesh/config.toml` with `worktrees_default = false`.
-- Repo override: `.workmesh.toml` with `worktrees_default = true|false`.
+## High-signal loop
+- `{"tool":"next_tasks","format":"json","limit":10}`
+- `{"tool":"claim_task","task_id":"task-123","owner":"agent","minutes":60,"touch":true}`
+- `{"tool":"set_status","task_id":"task-123","status":"In Progress","touch":true}`
+- `{"tool":"add_note","task_id":"task-123","note":"...","section":"notes","touch":true}`
+- `{"tool":"set_status","task_id":"task-123","status":"Done","touch":true}`
+- `{"tool":"release_task","task_id":"task-123","touch":true}`
 
-Truth loop:
-```text
-decision emerges -> truth_propose -> review -> truth_accept|truth_reject -> (if replaced) truth_supersede
-```
+## Defaults and overrides
+- Worktree guidance defaults to ON (`worktrees_default`).
+- Auto session updates should run in interactive local workflows by default (`auto_session_default`).
+- Explicit override remains available through environment:
+  - `WORKMESH_AUTO_SESSION=1` (force on)
+  - `WORKMESH_AUTO_SESSION=0` (force off)
 
-Hygiene:
-```text
-doctor -> blockers -> board(focus=true) -> validate -> index_refresh
-```
-
-## MCP-specific rules
-- Root handling:
-  - If server starts inside a repo, `root` is optional.
-  - Otherwise provide `root`.
-- Prefer `next_tasks` over `next_task` when the agent should choose among candidates.
-- Keep dependencies and `blocked_by` updated so blockers views remain useful.
-- Persist durable feature decisions as accepted truths (`truth_propose`/`truth_accept`/`truth_supersede`) with project/epic/worktree/session context when available.
-- Keep task metadata complete and current: `Description`, `Acceptance Criteria`, and `Definition of Done`.
-- Move a task to `Done` only when the task goals in `Description` are met and all `Acceptance Criteria` are satisfied.
-- Treat `Code/config committed` and `Docs updated if needed` as hygiene checks, not the core completion criteria.
+## MCP rules
+- If server starts inside a repo, `root` is optional; otherwise provide `root`.
+- Prefer `next_tasks` when choosing among candidates.
+- Keep dependencies and blocked state up to date.
+- Persist durable decisions using truth tools with available scope context.
+- Keep task metadata complete: `Description`, `Acceptance Criteria`, `Definition of Done`.
+- Move to `Done` only when description goals + acceptance criteria are satisfied.
+- Treat `Code/config committed` and `Docs updated if needed` as hygiene checks.

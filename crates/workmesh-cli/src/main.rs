@@ -11,7 +11,9 @@ mod version;
 use workmesh_core::archive::{archive_tasks, ArchiveOptions};
 use workmesh_core::audit::{append_audit_event, AuditEvent};
 use workmesh_core::backlog::{locate_backlog_dir, resolve_backlog, BacklogResolution};
-use workmesh_core::config::{global_config_path, update_do_not_migrate};
+use workmesh_core::config::{
+    global_config_path, resolve_auto_session_default, update_do_not_migrate,
+};
 use workmesh_core::context::{
     clear_context, context_path, extract_task_id_from_branch, infer_project_id, load_context,
     save_context, ContextScope, ContextScopeMode, ContextState,
@@ -88,6 +90,14 @@ struct Cli {
     /// Automatically update the global agent session (requires an active session pointer)
     #[arg(long, action = ArgAction::SetTrue, global = true)]
     auto_session_save: bool,
+    /// Disable automatic global session updates for this command invocation
+    #[arg(
+        long,
+        action = ArgAction::SetTrue,
+        global = true,
+        conflicts_with = "auto_session_save"
+    )]
+    no_auto_session_save: bool,
     #[command(subcommand)]
     command: Command,
 }
@@ -2112,7 +2122,7 @@ fn main() -> Result<()> {
     let backlog_dir = maybe_prompt_migration(&resolution)?;
     let tasks = load_tasks(&backlog_dir);
     let auto_checkpoint = auto_checkpoint_enabled(&cli);
-    let auto_session = auto_session_enabled(&cli);
+    let auto_session = auto_session_enabled(&cli, &resolution.repo_root);
 
     match cli.command {
         Command::Board {
@@ -5402,19 +5412,40 @@ fn auto_checkpoint_enabled(cli: &Cli) -> bool {
     env_flag_true("WORKMESH_AUTO_CHECKPOINT")
 }
 
-fn auto_session_enabled(cli: &Cli) -> bool {
+fn auto_session_enabled(cli: &Cli, repo_root: &Path) -> bool {
     if cli.auto_session_save {
         return true;
     }
-    env_flag_true("WORKMESH_AUTO_SESSION")
+    if cli.no_auto_session_save {
+        return false;
+    }
+    if let Some(value) = env_flag("WORKMESH_AUTO_SESSION") {
+        return value;
+    }
+    if let Some(value) = resolve_auto_session_default(repo_root) {
+        return value;
+    }
+    let interactive = io::stdin().is_terminal() && io::stdout().is_terminal();
+    let ci = env_flag("CI").unwrap_or_else(|| std::env::var_os("CI").is_some());
+    interactive && !ci
+}
+
+fn env_flag(name: &str) -> Option<bool> {
+    std::env::var(name)
+        .ok()
+        .and_then(|value| parse_boolish(&value))
+}
+
+fn parse_boolish(value: &str) -> Option<bool> {
+    match value.trim().to_lowercase().as_str() {
+        "1" | "true" | "yes" | "on" => Some(true),
+        "0" | "false" | "no" | "off" => Some(false),
+        _ => None,
+    }
 }
 
 fn env_flag_true(name: &str) -> bool {
-    std::env::var(name)
-        .ok()
-        .map(|value| value.trim().to_lowercase())
-        .map(|value| matches!(value.as_str(), "1" | "true" | "yes" | "on"))
-        .unwrap_or(false)
+    env_flag(name).unwrap_or(false)
 }
 
 fn maybe_auto_checkpoint(backlog_dir: &Path, auto_checkpoint: bool, auto_session: bool) {

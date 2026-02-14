@@ -1,4 +1,5 @@
 use std::collections::HashSet;
+use std::io::IsTerminal;
 use std::path::{Path, PathBuf};
 
 use async_trait::async_trait;
@@ -19,6 +20,7 @@ use workmesh_core::audit::{append_audit_event, AuditEvent};
 use workmesh_core::backlog::{
     locate_backlog_dir, resolve_backlog, resolve_backlog_dir, BacklogError,
 };
+use workmesh_core::config::resolve_auto_session_default;
 use workmesh_core::context::{
     clear_context, context_path, extract_task_id_from_branch, infer_project_id, load_context,
     save_context, ContextScope, ContextScopeMode, ContextState,
@@ -4944,19 +4946,38 @@ fn bulk_result(updated: Vec<String>, missing: Vec<String>) -> serde_json::Value 
 }
 
 fn auto_checkpoint_enabled() -> bool {
-    std::env::var("WORKMESH_AUTO_CHECKPOINT")
-        .ok()
-        .map(|value| value.trim().to_lowercase())
-        .map(|value| matches!(value.as_str(), "1" | "true" | "yes" | "on"))
-        .unwrap_or(false)
+    env_flag_true("WORKMESH_AUTO_CHECKPOINT")
 }
 
-fn auto_session_enabled() -> bool {
-    std::env::var("WORKMESH_AUTO_SESSION")
+fn auto_session_enabled(backlog_dir: &Path) -> bool {
+    if let Some(value) = env_flag("WORKMESH_AUTO_SESSION") {
+        return value;
+    }
+    let repo_root = repo_root_from_backlog(backlog_dir);
+    if let Some(value) = resolve_auto_session_default(&repo_root) {
+        return value;
+    }
+    let interactive = std::io::stdin().is_terminal() && std::io::stdout().is_terminal();
+    let ci = env_flag("CI").unwrap_or_else(|| std::env::var_os("CI").is_some());
+    interactive && !ci
+}
+
+fn env_flag(name: &str) -> Option<bool> {
+    std::env::var(name)
         .ok()
-        .map(|value| value.trim().to_lowercase())
-        .map(|value| matches!(value.as_str(), "1" | "true" | "yes" | "on"))
-        .unwrap_or(false)
+        .and_then(|value| parse_boolish(&value))
+}
+
+fn env_flag_true(name: &str) -> bool {
+    env_flag(name).unwrap_or(false)
+}
+
+fn parse_boolish(value: &str) -> Option<bool> {
+    match value.trim().to_lowercase().as_str() {
+        "1" | "true" | "yes" | "on" => Some(true),
+        "0" | "false" | "no" | "off" => Some(false),
+        _ => None,
+    }
 }
 
 fn maybe_auto_checkpoint(backlog_dir: &Path) {
@@ -4970,7 +4991,7 @@ fn maybe_auto_checkpoint(backlog_dir: &Path) {
         let _ = write_checkpoint(backlog_dir, &tasks, &options);
     }
 
-    if auto_session_enabled() {
+    if auto_session_enabled(backlog_dir) {
         let _ = auto_update_current_session(backlog_dir, &tasks);
     }
 }

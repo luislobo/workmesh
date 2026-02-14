@@ -22,7 +22,7 @@ cross-repo "what was I doing?" database.
 - Make sessions easy to capture ("save state") and easy to resume ("what do I do next?").
 - Keep storage deterministic, git-friendly, and offline-first.
 - Provide CLI + MCP parity for all session commands.
-- Support automation: optional auto-save on task mutations (opt-in).
+- Support automation: default-on auto-save in interactive local workflows, with explicit overrides.
 
 ## Non-goals
 - External syncing (Jira/Trello/GitHub). Deferred.
@@ -72,9 +72,17 @@ Add a `session` command group:
     - A concise summary
     - A suggested "resume script" (e.g., `cd ...`, then `workmesh --root ... resume --project ...`)
 
-Automation (opt-in):
-- `--auto-session-save` (global flag) or `WORKMESH_AUTO_SESSION=1`
-  - When enabled, mutating commands also update the "current session" (best effort).
+Automation (default + overrides):
+- Built-in default:
+  - interactive + non-CI: auto session updates enabled
+  - CI/non-interactive: auto session updates disabled
+- Explicit override:
+  - enable: `--auto-session-save` or `WORKMESH_AUTO_SESSION=1`
+  - disable: `--no-auto-session-save` or `WORKMESH_AUTO_SESSION=0`
+- Config defaults:
+  - `auto_session_default = true|false` in `.workmesh.toml` or `~/.workmesh/config.toml`
+- Effect:
+  - mutating commands update the \"current session\" best-effort snapshot.
 
 ### MCP tools
 Expose the same features via MCP tools with parity behavior:
@@ -102,4 +110,3 @@ Expose the same features via MCP tools with parity behavior:
 - Sessions are queryable and deterministic (ordering and JSON output stable).
 - CLI and MCP produce equivalent results for the same operations.
 - The feature remains local-first and does not require git in the global store.
-

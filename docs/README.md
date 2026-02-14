@@ -1,28 +1,25 @@
 # WorkMesh Docs
 
-These docs explain how to use WorkMesh, both as a human tool and as an agent-facing system.
+Canonical workflow entrypoint:
+- [`docs/getting-started.md`](getting-started.md)
 
-Start here: `docs/getting-started.md`
+Command catalog:
+- [`docs/reference/commands.md`](reference/commands.md)
 
-## Structure
-- `docs/getting-started.md` - the guided path to install + quickstart + daily loop.
-- `docs/reference/commands.md` - CLI + MCP command reference (names, intent, examples).
-- `docs/projects/<project-id>/` - project-level docs.
-  - `prds/` - product requirement documents.
-  - `decisions/` - ADRs and decision logs.
-  - `updates/` - status updates (date-stamped).
-  - `comments/` - comment history (append-only).
-  - `events/` - normalized change events (append-only).
-- `docs/test-coverage.md` - how we measure and enforce test coverage.
+## Documentation structure
+- [`docs/getting-started.md`](getting-started.md): progressive DX runbook (start -> parallelize -> recover -> consolidate clones).
+- [`docs/reference/commands.md`](reference/commands.md): authoritative CLI/MCP command surface.
+- `docs/projects/<project-id>/`: project-level PRDs, decisions, and updates.
+- [`docs/diagrams/`](diagrams/): architecture and workflow diagrams.
 
-## Concepts
-- Tasks: `workmesh/tasks/` (or `.workmesh/tasks/`) Markdown files with front matter.
-- Context: `workmesh/context.json` (repo-local scope pointer for humans + agents).
-- Truth: `workmesh/truth/` (append-only events + current projection for durable decisions).
-- Sessions: cross-repo continuity and resume scripts.
-- Index: JSONL index under `workmesh/.index/` (derived, rebuildable).
-- Graph: relationships + dependencies export for analysis.
+## Core concepts
+- Tasks: `workmesh/tasks/` (or `.workmesh/tasks/`) markdown task files.
+- Context: `workmesh/context.json` repo-local intent/scope pointer.
+- Truth: `workmesh/truth/` durable decision records.
+- Sessions: global continuity records under `WORKMESH_HOME`.
+- Worktrees: runtime stream isolation for parallel work.
 
-## Reference
-- CLI: see `README.md` for the canonical command list and examples.
-- Agent docs: `README.json` (kept in sync with `README.md`) and MCP tool `readme`.
+## Policy
+- Primary workflow guidance lives in one place: [`docs/getting-started.md`](getting-started.md).
+- [`README.md`](../README.md) and [`README.json`](../README.json) stay synchronized for humans and agents.
+- Legacy migration guidance remains intentionally minimal and out of the main DX flow.

@@ -5,36 +5,46 @@ description: Router skill for WorkMesh. Selects CLI-first or MCP-first workflow 
 
 # WorkMesh Router Skill
 
-Use this skill to pick the right WorkMesh operating mode.
+Use this skill to choose the operating mode and enforce the approved WorkMesh DX workflow.
 
 ## Mode selection
-- Use `workmesh-mcp` when MCP tools are available and you want tool-call workflows.
-- Use `workmesh-cli` when running through shell commands is preferred (token-lean, no MCP server).
-- If the user explicitly requests one mode, do not mix modes unless asked.
+- Use `workmesh-mcp` when MCP tools are available and structured JSON tool calls are preferred.
+- Use `workmesh-cli` when shell command execution is preferred.
+- If user explicitly asks for one mode, do not mix modes unless asked.
 
 ## Install skills
-Install one or more embedded skills from the WorkMesh binary:
 ```bash
-# install all profiles (router + cli + mcp) into project skill folders
 workmesh --root . install --skills --profile all --scope project
-
-# install only CLI profile
 workmesh --root . install --skills --profile cli --scope project
-
-# install only MCP profile
 workmesh --root . install --skills --profile mcp --scope project
 ```
 
-## Ground rules (applies to all modes)
+## Progressive DX policy
+Always follow this stage order:
+1. Start: `quickstart` + `context` + task loop.
+2. Parallelize: one stream per git worktree.
+3. Recover: `session resume` + context/truth rehydration.
+4. Consolidate: migrate sibling clones into canonical repo + worktrees.
+
+## Default behavior policy
+- Prefer worktrees by default for parallel streams.
+- Auto session updates are expected in interactive local workflows.
+- Use explicit overrides only when needed:
+  - enable: `--auto-session-save` / `WORKMESH_AUTO_SESSION=1`
+  - disable: `--no-auto-session-save` / `WORKMESH_AUTO_SESSION=0`
+- Config knobs:
+  - `worktrees_default = true|false`
+  - `auto_session_default = true|false`
+
+## Ground rules
 - Keep tasks small and outcome-based.
 - Record dependencies and blockers so ready work is queryable.
-- Use context to scope work and reduce thrash between sessions.
-- For parallel agent work, prefer separate git worktrees and attach sessions to those worktrees.
-- Worktree guidance is default-on; users can disable globally via `~/.workmesh/config.toml` (`worktrees_default = false`) and override per repo in `.workmesh.toml`.
+- Use context to scope work and reduce session thrash.
+- For parallel work, use separate worktrees and attach sessions to those worktrees.
 - Claim before changes in multi-agent workflows.
-- Capture stable feature decisions in the Truth Ledger (`truth propose|accept|supersede`) so knowledge survives session/worktree churn.
-- On resume, rehydrate accepted truths for the active scope before coding (`truth list --state accepted ...`).
-- Keep task metadata complete and current: `Description`, `Acceptance Criteria`, and `Definition of Done`.
-- Move a task to `Done` only when the task goals in `Description` are met and all `Acceptance Criteria` are satisfied.
-- Treat `Code/config committed` and `Docs updated if needed` as hygiene checks, not the core completion criteria.
+- Capture stable feature decisions in Truth Ledger (`truth propose|accept|supersede`).
+- On resume, rehydrate accepted truths before coding (`truth list --state accepted ...`).
+- Keep task metadata complete: `Description`, `Acceptance Criteria`, `Definition of Done`.
+- Move to `Done` only when description goals are met and acceptance criteria are satisfied.
+- Treat `Code/config committed` and `Docs updated if needed` as hygiene, not completion criteria.
 - Do not commit derived artifacts like `workmesh/.index/`.
