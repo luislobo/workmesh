@@ -21,7 +21,9 @@ workmesh --root . install --skills --profile cli --scope project
 ## Baseline checks
 ```bash
 workmesh --root . doctor --json
-workmesh --root . focus show --json
+workmesh --root . context show --json
+workmesh --root . worktree list --json
+workmesh --root . truth list --state accepted --limit 20 --json
 ```
 
 ## High-signal command loop
@@ -41,17 +43,27 @@ Notation:
 
 Bootstrap:
 ```text
-quickstart -> focus set -> list --status "To Do" -> next
+quickstart -> context set -> list --status "To Do" -> next
 ```
 
 Daily loop:
 ```text
-focus show -> next -> claim -> set-status(In Progress) -> work -> note -> set-status(Done) -> release
+context show -> next -> claim -> set-status(In Progress) -> work -> note -> set-status(Done) -> release
 ```
 
 Continuity:
 ```text
-session save -> stop -> session resume -> focus show -> next -> claim
+session save -> stop -> session resume -> context show -> next -> claim
+```
+
+Parallel worktree loop:
+```text
+worktree create -> worktree attach -> context set -> next -> claim
+```
+
+Truth loop:
+```text
+decision emerges -> truth propose -> review -> truth accept|reject -> (if replaced) truth supersede
 ```
 
 Hygiene:
@@ -63,10 +75,12 @@ doctor -> blockers -> board --focus -> validate -> index-refresh
 - Board: `workmesh --root . board --by status --focus`
 - Blockers: `workmesh --root . blockers`
 - Graph export: `workmesh --root . graph-export --pretty`
+- Worktree health: `workmesh --root . worktree doctor --json`
 
 ## Rules
 - Prefer `--json` for agent parsing.
 - Keep dependencies current when status changes.
+- Persist durable feature decisions as accepted truths (`truth propose/accept/supersede`) scoped by project/epic/worktree/session when possible.
 - Keep task metadata complete and current: `Description`, `Acceptance Criteria`, and `Definition of Done`.
 - Move a task to `Done` only when the task goals in `Description` are met and all `Acceptance Criteria` are satisfied.
 - Treat `Code/config committed` and `Docs updated if needed` as hygiene checks, not the core completion criteria.

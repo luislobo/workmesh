@@ -25,6 +25,9 @@ workmesh --root . install --skills --profile mcp --scope project
 ```json
 {"tool":"context_show","format":"json"}
 ```
+```json
+{"tool":"truth_list","states":["accepted"],"limit":20,"format":"json"}
+```
 
 ## High-signal tool loop
 - Next candidates: `{"tool":"next_tasks","format":"json","limit":10}`
@@ -60,6 +63,11 @@ Parallel worktree loop:
 worktree_create -> worktree_attach -> context_set -> next_tasks -> claim_task
 ```
 
+Truth loop:
+```text
+decision emerges -> truth_propose -> review -> truth_accept|truth_reject -> (if replaced) truth_supersede
+```
+
 Hygiene:
 ```text
 doctor -> blockers -> board(focus=true) -> validate -> index_refresh
@@ -71,6 +79,7 @@ doctor -> blockers -> board(focus=true) -> validate -> index_refresh
   - Otherwise provide `root`.
 - Prefer `next_tasks` over `next_task` when the agent should choose among candidates.
 - Keep dependencies and `blocked_by` updated so blockers views remain useful.
+- Persist durable feature decisions as accepted truths (`truth_propose`/`truth_accept`/`truth_supersede`) with project/epic/worktree/session context when available.
 - Keep task metadata complete and current: `Description`, `Acceptance Criteria`, and `Definition of Done`.
 - Move a task to `Done` only when the task goals in `Description` are met and all `Acceptance Criteria` are satisfied.
 - Treat `Code/config committed` and `Docs updated if needed` as hygiene checks, not the core completion criteria.

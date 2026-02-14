@@ -31,6 +31,8 @@ workmesh --root . install --skills --profile mcp --scope project
 - Use context to scope work and reduce thrash between sessions.
 - For parallel agent work, prefer separate git worktrees and attach sessions to those worktrees.
 - Claim before changes in multi-agent workflows.
+- Capture stable feature decisions in the Truth Ledger (`truth propose|accept|supersede`) so knowledge survives session/worktree churn.
+- On resume, rehydrate accepted truths for the active scope before coding (`truth list --state accepted ...`).
 - Keep task metadata complete and current: `Description`, `Acceptance Criteria`, and `Definition of Done`.
 - Move a task to `Done` only when the task goals in `Description` are met and all `Acceptance Criteria` are satisfied.
 - Treat `Code/config committed` and `Docs updated if needed` as hygiene checks, not the core completion criteria.

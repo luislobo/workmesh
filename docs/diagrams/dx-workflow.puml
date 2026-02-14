@@ -42,8 +42,10 @@ Creates:
 end note
 A -> W : index-rebuild (optional, first run)
 W -> R : write workmesh/.index/tasks.jsonl
-A -> W : focus set (recommended for agents)
-W -> R : write workmesh/focus.json
+A -> W : context set (recommended for agents)
+W -> R : write workmesh/context.json
+A -> W : truth propose / truth accept (as decisions solidify)
+W -> R : append workmesh/truth/events.jsonl
 
 == Phase 2: Daily loop (many times) ==
 A -> W : ready --json
@@ -71,7 +73,7 @@ W -> R : write checkpoint JSON + Markdown
 A -> W : session save (global, optional/auto)
 W -> G : append sessions/events.jsonl + update sessions/current.json
 A -> W : resume / session resume
-W -> R : print resume steps + show focus
+W -> R : print resume steps + show context + list accepted truths
 
 == Phase 4: History + hygiene (periodic) ==
 A -> W : archive (date-based)
@@ -80,4 +82,3 @@ A -> W : graph-export / issues-export
 W -> R : export snapshots for tooling/analysis
 
 @enduml
-

@@ -17,7 +17,8 @@ Start here: `docs/getting-started.md`
 
 ## Concepts
 - Tasks: `workmesh/tasks/` (or `.workmesh/tasks/`) Markdown files with front matter.
-- Focus: `workmesh/focus.json` (repo-local scope for humans + agents).
+- Context: `workmesh/context.json` (repo-local scope pointer for humans + agents).
+- Truth: `workmesh/truth/` (append-only events + current projection for durable decisions).
 - Sessions: cross-repo continuity and resume scripts.
 - Index: JSONL index under `workmesh/.index/` (derived, rebuildable).
 - Graph: relationships + dependencies export for analysis.

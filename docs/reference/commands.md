@@ -104,6 +104,33 @@ MCP:
 - `context_clear`
 - Deprecated alias: `focus_show|focus_set|focus_clear`
 
+## Truth ledger (durable decisions)
+CLI:
+- `truth propose --title "..." --statement "..." [--project <pid>] [--epic task-123] [--feature <name>] [--session-id <id>] [--worktree-id <id>] [--worktree-path <path>] [--constraints "a,b"] [--tags "x,y"] [--json]`
+- `truth accept <truth-id> [--note "..."] [--json]`
+- `truth reject <truth-id> [--note "..."] [--json]`
+- `truth supersede <truth-id> --by <accepted-truth-id> [--reason "..."] [--json]`
+- `truth show <truth-id> [--json]`
+- `truth list [--state proposed|accepted|rejected|superseded] [--project <pid>] [--epic task-123] [--feature <name>] [--session-id <id>] [--worktree-id <id>] [--worktree-path <path>] [--tag <tag>] [--limit N] [--json]`
+- `truth validate [--json]`
+- `truth migrate audit|plan|apply [--apply] [--json]`
+
+MCP:
+- `truth_propose`
+- `truth_accept`
+- `truth_reject`
+- `truth_supersede`
+- `truth_show`
+- `truth_list`
+- `truth_validate`
+- `truth_migrate_audit`
+- `truth_migrate_plan`
+- `truth_migrate_apply`
+
+Rules:
+- Lifecycle is strict: `proposed -> accepted|rejected`, and `accepted -> superseded`.
+- Truth data lives in `workmesh/truth/events.jsonl` (append-only) and `workmesh/truth/current.jsonl` (projection).
+
 ## Worktree runtime (parallel agent execution)
 CLI:
 - `worktree list [--json]`
@@ -131,6 +158,14 @@ CLI:
 - `fix uid|deps|ids [--check|--apply] [--json]`
 - `fix all [--only uid,deps,ids] [--exclude uid,deps,ids] [--check|--apply] [--json]`
 - `fix-ids [--apply] [--json]` (legacy alias for id-only fixer)
+- `validate [--json]` includes truth store consistency checks.
+
+Migration action keys:
+- `layout_backlog_to_workmesh`
+- `focus_to_context`
+- `truth_backfill`
+- `session_handoff_enrichment`
+- `config_cleanup`
 
 MCP:
 - `archive_tasks`
@@ -183,6 +218,10 @@ CLI (global sessions):
 - `session list`
 - `session show <session-id>`
 - `session resume [--session-id <id>]`
+
+Session/truth integration:
+- `session save` and worktree attach/detach refresh scoped accepted `truth_refs`.
+- `session resume` includes those `truth_refs` and suggests a scoped `truth list --state accepted ...` command.
 
 MCP:
 - `checkpoint`

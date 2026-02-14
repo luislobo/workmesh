@@ -241,6 +241,61 @@ MCP tools:
 - `worktree_detach`
 - `worktree_doctor`
 
+## Truth Ledger (feature-level source of truth)
+Use the Truth Ledger to persist validated decisions, constraints, and contracts across sessions and worktrees.
+
+Storage:
+- Events (append-only): `workmesh/truth/events.jsonl`
+- Current projection (derived from events): `workmesh/truth/current.jsonl`
+
+Lifecycle:
+- `proposed -> accepted | rejected`
+- `accepted -> superseded` (only by another accepted truth)
+
+Boundary between orchestration layers:
+- `context`: current intent and scope pointer
+- `truth`: validated feature decisions and invariants
+- `sessions`: continuity pointer and resume hints
+- `worktrees`: parallel execution isolation
+
+CLI workflow:
+```bash
+# propose a truth in current project/epic scope
+workmesh --root . truth propose \
+  --title "Use append-only truth events" \
+  --statement "Truth records are append-only and immutable." \
+  --project workmesh \
+  --epic task-<init>-001 \
+  --feature truth-ledger \
+  --tags architecture,truth \
+  --json
+
+# accept or reject after review
+workmesh --root . truth accept truth-01... --note "Reviewed by team" --json
+workmesh --root . truth reject truth-01... --note "Superseded by newer direction" --json
+
+# supersede an accepted truth with another accepted truth
+workmesh --root . truth supersede truth-01old --by truth-01new --reason "Refined contract" --json
+
+# query accepted truths for current scope
+workmesh --root . truth list --state accepted --project workmesh --epic task-<init>-001 --limit 20 --json
+
+# validate events/current projection
+workmesh --root . truth validate --json
+```
+
+MCP tools:
+- `truth_propose`
+- `truth_accept`
+- `truth_reject`
+- `truth_supersede`
+- `truth_show`
+- `truth_list`
+- `truth_validate`
+- `truth_migrate_audit`
+- `truth_migrate_plan`
+- `truth_migrate_apply`
+
 ## Views and diagnostics
 These commands are meant to be "high leverage" in human+agent workflows.
 
@@ -408,6 +463,8 @@ workmesh --root . session resume 01K...
 ```
 
 `session resume` prints a short summary plus a "resume script" (suggested next commands).
+When scoped truths exist, the resume output includes accepted `truth_refs` plus a suggested
+`truth list --state accepted ...` command for quick rehydration.
 
 Auto session updates (opt-in):
 - CLI flag: `--auto-session-save`
@@ -440,9 +497,26 @@ workmesh --root . migrate apply --apply
 
 # optional backups for migrated files
 workmesh --root . migrate apply --apply --backup
+
+# include/exclude specific migration actions
+workmesh --root . migrate plan --include truth_backfill
+workmesh --root . migrate apply --include truth_backfill --apply
 ```
 
-Migration audit/plan/apply also detects deprecated structures (for example legacy `focus.json`) and proposes the required conversions to current `context.json` orchestration.
+Migration audit/plan/apply detects deprecated structures and proposes deterministic actions:
+- `layout_backlog_to_workmesh`
+- `focus_to_context`
+- `truth_backfill` (legacy decisions -> proposed truth records)
+- `session_handoff_enrichment`
+- `config_cleanup`
+
+If you only need truth backfill from legacy notes:
+```bash
+workmesh --root . truth migrate audit
+workmesh --root . truth migrate plan
+workmesh --root . truth migrate apply        # dry-run
+workmesh --root . truth migrate apply --apply
+```
 
 ## Archive (date-based)
 Archive moves tasks into `workmesh/archive/YYYY-MM/` when:
@@ -608,6 +682,10 @@ Context:
 - `context set|show|clear` (primary)
 - `focus set|show|clear` (deprecated alias)
 
+Truth ledger:
+- `truth propose|accept|reject|supersede|show|list|validate`
+- `truth migrate audit|plan|apply`
+
 Worktrees:
 - `worktree list|create|attach|detach|doctor`
 
@@ -642,6 +720,7 @@ Auto session updates (opt-in):
 - Validation for required fields, missing dependencies, and missing project docs.
 - Checkpoints + resume + diff for session continuity.
 - Worktree runtime tooling for parallel agent execution (`worktree list/create/attach/detach/doctor`).
+- Truth Ledger for durable feature decisions with strict lifecycle + migration backfill (`truth ...`).
 - Bulk update operations for common task mutations (CLI + MCP).
 
 ## Repo layout

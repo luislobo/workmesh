@@ -23,6 +23,7 @@ workmesh --root . install --skills --profile cli --scope project
 workmesh --root . doctor --json
 workmesh --root . context show --json
 workmesh --root . worktree list --json
+workmesh --root . truth list --state accepted --limit 20 --json
 ```
 
 ## High-signal command loop
@@ -60,6 +61,11 @@ Parallel worktree loop:
 worktree create -> worktree attach -> context set -> next -> claim
 ```
 
+Truth loop:
+```text
+decision emerges -> truth propose -> review -> truth accept|reject -> (if replaced) truth supersede
+```
+
 Hygiene:
 ```text
 doctor -> blockers -> board --focus -> validate -> index-refresh
@@ -74,6 +80,7 @@ doctor -> blockers -> board --focus -> validate -> index-refresh
 ## Rules
 - Prefer `--json` for agent parsing.
 - Keep dependencies current when status changes.
+- Persist durable feature decisions as accepted truths (`truth propose/accept/supersede`) scoped by project/epic/worktree/session when possible.
 - Keep task metadata complete and current: `Description`, `Acceptance Criteria`, and `Definition of Done`.
 - Move a task to `Done` only when the task goals in `Description` are met and all `Acceptance Criteria` are satisfied.
 - Treat `Code/config committed` and `Docs updated if needed` as hygiene checks, not the core completion criteria.
