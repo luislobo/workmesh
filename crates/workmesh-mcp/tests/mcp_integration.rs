@@ -574,3 +574,134 @@ async fn mcp_smoke_more_tools() {
 
     client.shut_down().await.expect("shutdown");
 }
+
+#[tokio::test]
+async fn mcp_truth_tools_smoke() {
+    let temp = TempDir::new().expect("tempdir");
+    let tasks_dir = temp.path().join("workmesh").join("tasks");
+    std::fs::create_dir_all(&tasks_dir).expect("tasks dir");
+
+    write_task(&tasks_dir, "task-main-001", "Epic", "In Progress");
+    std::fs::write(
+        temp.path().join("workmesh").join("context.json"),
+        r#"{"version":1,"project_id":"workmesh","objective":"Ship truth","scope":{"mode":"epic","epic_id":"task-main-001","task_ids":[]},"updated_at":"2026-02-13T00:00:00Z"}"#,
+    )
+    .expect("context");
+
+    let server_bin = env!("CARGO_BIN_EXE_workmesh-mcp");
+    let transport = StdioTransport::create_with_server_launch(
+        server_bin,
+        vec![],
+        Some(coverage_safe_env()),
+        TransportOptions::default(),
+    )
+    .expect("transport");
+
+    let client = client_runtime::create_client(McpClientOptions {
+        client_details: client_details(),
+        transport,
+        handler: NoopClientHandler.to_mcp_client_handler(),
+        task_store: None,
+        server_task_store: None,
+    });
+
+    client.clone().start().await.expect("start client");
+
+    let root = temp.path().display().to_string();
+
+    let proposed = client
+        .request_tool_call(CallToolRequestParams {
+            name: "truth_propose".to_string(),
+            arguments: Some(
+                serde_json::json!({
+                    "root": root,
+                    "title": "Use append-only truth events",
+                    "statement": "Truth records are immutable",
+                    "project_id": "workmesh",
+                    "epic_id": "task-main-001",
+                    "format": "json"
+                })
+                .as_object()
+                .unwrap()
+                .clone(),
+            ),
+            meta: None,
+            task: None,
+        })
+        .await
+        .expect("truth propose");
+    let proposed_text = proposed
+        .content
+        .first()
+        .unwrap()
+        .as_text_content()
+        .unwrap()
+        .text
+        .clone();
+    let proposed_json: serde_json::Value = serde_json::from_str(&proposed_text).expect("json");
+    let truth_id = proposed_json["id"].as_str().expect("id").to_string();
+
+    let accepted = client
+        .request_tool_call(CallToolRequestParams {
+            name: "truth_accept".to_string(),
+            arguments: Some(
+                serde_json::json!({
+                    "root": temp.path().display().to_string(),
+                    "truth_id": truth_id,
+                    "format": "json"
+                })
+                .as_object()
+                .unwrap()
+                .clone(),
+            ),
+            meta: None,
+            task: None,
+        })
+        .await
+        .expect("truth accept");
+    let accepted_text = accepted
+        .content
+        .first()
+        .unwrap()
+        .as_text_content()
+        .unwrap()
+        .text
+        .clone();
+    let accepted_json: serde_json::Value = serde_json::from_str(&accepted_text).expect("json");
+    assert_eq!(accepted_json["state"], "accepted");
+
+    let listed = client
+        .request_tool_call(CallToolRequestParams {
+            name: "truth_list".to_string(),
+            arguments: Some(
+                serde_json::json!({
+                    "root": temp.path().display().to_string(),
+                    "states": ["accepted"],
+                    "format": "json"
+                })
+                .as_object()
+                .unwrap()
+                .clone(),
+            ),
+            meta: None,
+            task: None,
+        })
+        .await
+        .expect("truth list");
+    let listed_text = listed
+        .content
+        .first()
+        .unwrap()
+        .as_text_content()
+        .unwrap()
+        .text
+        .clone();
+    let listed_json: serde_json::Value = serde_json::from_str(&listed_text).expect("json");
+    assert!(listed_json
+        .as_array()
+        .expect("array")
+        .iter()
+        .any(|entry| entry["state"] == "accepted"));
+
+    client.shut_down().await.expect("shutdown");
+}

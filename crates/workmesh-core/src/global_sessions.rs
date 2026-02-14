@@ -72,6 +72,8 @@ pub struct AgentSession {
     pub handoff: Option<HandoffSummary>,
     #[serde(default)]
     pub worktree: Option<WorktreeBinding>,
+    #[serde(default)]
+    pub truth_refs: Vec<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -348,10 +350,7 @@ fn append_jsonl_line(path: &Path, line: &str) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::Mutex;
     use tempfile::TempDir;
-
-    static ENV_LOCK: Mutex<()> = Mutex::new(());
 
     fn session(id: &str, updated_at: &str, cwd: &str) -> AgentSession {
         AgentSession {
@@ -370,6 +369,7 @@ mod tests {
             recent_changes: None,
             handoff: None,
             worktree: None,
+            truth_refs: Vec::new(),
         }
     }
 
@@ -443,7 +443,7 @@ mod tests {
     #[test]
     fn helpers_are_stable_and_refresh_is_a_rebuild() {
         // Keep env mutation serialized across tests.
-        let _lock = ENV_LOCK.lock().expect("lock");
+        let _lock = crate::test_env::lock();
 
         let temp = TempDir::new().expect("tempdir");
         let home = temp.path();
@@ -485,7 +485,7 @@ mod tests {
 
     #[test]
     fn home_dir_prefers_home_then_userprofile_and_can_be_none() {
-        let _lock = ENV_LOCK.lock().expect("lock");
+        let _lock = crate::test_env::lock();
 
         std::env::set_var("HOME", "/tmp/home-test");
         std::env::remove_var("USERPROFILE");

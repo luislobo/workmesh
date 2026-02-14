@@ -1843,3 +1843,157 @@ async fn cli_and_mcp_bulk_ops_parity() {
     assert!(task3.dependencies.is_empty());
     assert!(task3.body.contains("mcp bulk note"));
 }
+
+#[tokio::test]
+async fn cli_and_mcp_truth_workflow_parity() {
+    let temp = TempDir::new().expect("tempdir");
+    let tasks_dir = temp.path().join("workmesh").join("tasks");
+    std::fs::create_dir_all(&tasks_dir).expect("tasks dir");
+    write_task(&tasks_dir, "task-main-001", "Epic", "In Progress", &[]);
+    std::fs::write(
+        temp.path().join("workmesh").join("context.json"),
+        r#"{"version":1,"project_id":"workmesh","objective":"Ship truth","scope":{"mode":"epic","epic_id":"task-main-001","task_ids":[]},"updated_at":"2026-02-13T00:00:00Z"}"#,
+    )
+    .expect("context");
+
+    let cli_propose = cli()
+        .arg("--root")
+        .arg(temp.path())
+        .arg("truth")
+        .arg("propose")
+        .arg("--title")
+        .arg("Use append-only truth events")
+        .arg("--statement")
+        .arg("Truth records are immutable")
+        .arg("--project")
+        .arg("workmesh")
+        .arg("--epic")
+        .arg("task-main-001")
+        .arg("--json")
+        .output()
+        .expect("cli propose");
+    assert_output_ok!(cli_propose);
+    let cli_proposed: serde_json::Value =
+        serde_json::from_slice(&cli_propose.stdout).expect("cli propose json");
+    let truth_a = cli_proposed["id"].as_str().expect("truth_a").to_string();
+
+    let client = start_client(temp.path()).await;
+
+    let accepted_text = call_tool_text(
+        &client,
+        "truth_accept",
+        serde_json::json!({
+            "root": temp.path().display().to_string(),
+            "truth_id": truth_a,
+            "note": "approved",
+            "format": "json"
+        }),
+    )
+    .await;
+    let accepted: serde_json::Value = serde_json::from_str(&accepted_text).expect("accept json");
+    assert_eq!(accepted["state"], "accepted");
+
+    let proposed_b_text = call_tool_text(
+        &client,
+        "truth_propose",
+        serde_json::json!({
+            "root": temp.path().display().to_string(),
+            "title": "Use current projection",
+            "statement": "Current truth view is rebuilt from events",
+            "project_id": "workmesh",
+            "epic_id": "task-main-001",
+            "format": "json"
+        }),
+    )
+    .await;
+    let proposed_b: serde_json::Value =
+        serde_json::from_str(&proposed_b_text).expect("propose b json");
+    let truth_b = proposed_b["id"].as_str().expect("truth_b").to_string();
+
+    let _ = call_tool_text(
+        &client,
+        "truth_accept",
+        serde_json::json!({
+            "root": temp.path().display().to_string(),
+            "truth_id": truth_b,
+            "format": "json"
+        }),
+    )
+    .await;
+
+    let cli_supersede = cli()
+        .arg("--root")
+        .arg(temp.path())
+        .arg("truth")
+        .arg("supersede")
+        .arg(&accepted["id"].as_str().unwrap())
+        .arg("--by")
+        .arg(&truth_b)
+        .arg("--reason")
+        .arg("replacement adopted")
+        .arg("--json")
+        .output()
+        .expect("cli supersede");
+    assert_output_ok!(cli_supersede);
+
+    let cli_list = cli()
+        .arg("--root")
+        .arg(temp.path())
+        .arg("truth")
+        .arg("list")
+        .arg("--state")
+        .arg("accepted")
+        .arg("--project")
+        .arg("workmesh")
+        .arg("--epic")
+        .arg("task-main-001")
+        .arg("--json")
+        .output()
+        .expect("cli list");
+    assert_output_ok!(cli_list);
+    let cli_listed: serde_json::Value = serde_json::from_slice(&cli_list.stdout).expect("json");
+
+    let mcp_list_text = call_tool_text(
+        &client,
+        "truth_list",
+        serde_json::json!({
+            "root": temp.path().display().to_string(),
+            "states": ["accepted"],
+            "project_id": "workmesh",
+            "epic_id": "task-main-001",
+            "format": "json"
+        }),
+    )
+    .await;
+    let mcp_listed: serde_json::Value = serde_json::from_str(&mcp_list_text).expect("mcp list");
+
+    let cli_ids = cli_listed
+        .as_array()
+        .expect("cli array")
+        .iter()
+        .filter_map(|entry| entry["id"].as_str().map(|v| v.to_string()))
+        .collect::<BTreeSet<_>>();
+    let mcp_ids = mcp_listed
+        .as_array()
+        .expect("mcp array")
+        .iter()
+        .filter_map(|entry| entry["id"].as_str().map(|v| v.to_string()))
+        .collect::<BTreeSet<_>>();
+
+    assert_eq!(cli_ids, mcp_ids);
+    assert!(cli_ids.contains(&truth_b));
+
+    let validate_text = call_tool_text(
+        &client,
+        "truth_validate",
+        serde_json::json!({
+            "root": temp.path().display().to_string(),
+            "format": "json"
+        }),
+    )
+    .await;
+    let validated: serde_json::Value = serde_json::from_str(&validate_text).expect("validate");
+    assert_eq!(validated["ok"], true);
+
+    client.shut_down().await.expect("shutdown");
+}

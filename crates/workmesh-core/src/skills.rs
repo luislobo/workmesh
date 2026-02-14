@@ -362,14 +362,10 @@ fn home_dir() -> Option<PathBuf> {
 mod tests {
     use super::*;
     use std::ffi::OsString;
-    use std::sync::{Mutex, OnceLock};
     use tempfile::TempDir;
 
-    static ENV_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-
     fn with_env_lock<T>(f: impl FnOnce() -> T) -> T {
-        let lock = ENV_LOCK.get_or_init(|| Mutex::new(()));
-        let _guard = lock.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let _guard = crate::test_env::lock();
         f()
     }
 

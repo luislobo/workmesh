@@ -9,6 +9,7 @@ use crate::context::{context_path, load_context};
 use crate::focus::focus_path;
 use crate::index::index_path;
 use crate::skills::{detect_user_agents_in_home, embedded_skill_ids, SkillAgent};
+use crate::truth::truth_store_status;
 
 fn layout_name(layout: BacklogLayout) -> &'static str {
     match layout {
@@ -139,6 +140,17 @@ pub fn doctor_report(root: &Path, running_binary: &str) -> serde_json::Value {
         "present": idx_path.exists(),
         "entries": if idx_path.exists() { count_lines(&idx_path) } else { None },
     });
+    let truth = truth_store_status(&backlog_dir).ok().map(|status| {
+        json!({
+            "events_path": status.events_path,
+            "current_path": status.current_path,
+            "has_events": status.has_events,
+            "has_current": status.has_current,
+            "event_count": status.event_count,
+            "record_count": status.record_count,
+            "validation_ok": status.validation_ok,
+        })
+    });
 
     let versions = match running_binary {
         "workmesh" => json!({
@@ -198,12 +210,14 @@ pub fn doctor_report(root: &Path, running_binary: &str) -> serde_json::Value {
         "context": context,
         "legacy_focus": legacy_focus,
         "index": index,
+        "truth": truth,
         "versions": versions,
         "skills": skills,
         "notes": [
             "Index files under workmesh/.index are derived and rebuildable.",
             "Context is primary orchestration state (workmesh/context.json).",
-            "Legacy focus.json is deprecated and should be migrated."
+            "Legacy focus.json is deprecated and should be migrated.",
+            "Truth records are append-only events under workmesh/truth/ with a current projection."
         ],
     })
 }
@@ -212,14 +226,10 @@ pub fn doctor_report(root: &Path, running_binary: &str) -> serde_json::Value {
 mod tests {
     use super::doctor_report;
     use std::ffi::OsString;
-    use std::sync::{Mutex, OnceLock};
     use tempfile::TempDir;
 
-    static ENV_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-
     fn with_env_lock<T>(f: impl FnOnce() -> T) -> T {
-        let lock = ENV_LOCK.get_or_init(|| Mutex::new(()));
-        let _guard = lock.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let _guard = crate::test_env::lock();
         f()
     }
 

@@ -14,6 +14,7 @@ use crate::global_sessions::{
     set_current_session, AgentSession, HandoffSummary,
 };
 use crate::migration::{migrate_backlog, MigrationError};
+use crate::truth::{apply_truth_migration, truth_migration_audit, truth_migration_plan};
 
 #[derive(Debug, Error)]
 pub enum MigrationAuditError {
@@ -34,6 +35,7 @@ pub enum MigrationAuditError {
 pub enum MigrationActionKind {
     LayoutBacklogToWorkmesh,
     FocusToContext,
+    TruthBackfill,
     SessionHandoffEnrichment,
     ConfigCleanup,
 }
@@ -43,6 +45,7 @@ impl MigrationActionKind {
         match self {
             Self::LayoutBacklogToWorkmesh => "layout_backlog_to_workmesh",
             Self::FocusToContext => "focus_to_context",
+            Self::TruthBackfill => "truth_backfill",
             Self::SessionHandoffEnrichment => "session_handoff_enrichment",
             Self::ConfigCleanup => "config_cleanup",
         }
@@ -52,6 +55,7 @@ impl MigrationActionKind {
         match value.trim().to_lowercase().as_str() {
             "layout_backlog_to_workmesh" => Some(Self::LayoutBacklogToWorkmesh),
             "focus_to_context" => Some(Self::FocusToContext),
+            "truth_backfill" => Some(Self::TruthBackfill),
             "session_handoff_enrichment" => Some(Self::SessionHandoffEnrichment),
             "config_cleanup" => Some(Self::ConfigCleanup),
             _ => None,
@@ -198,6 +202,20 @@ pub fn audit_deprecations(root: &Path) -> Result<MigrationAuditReport, Migration
         }
     }
 
+    if let Ok(truth_audit) = truth_migration_audit(&resolution.backlog_dir) {
+        if !truth_audit.candidates.is_empty() {
+            findings.push(MigrationFinding {
+                id: "legacy_truth_candidates".to_string(),
+                title: "Legacy decision notes found for Truth Ledger backfill".to_string(),
+                severity: "recommended".to_string(),
+                details: serde_json::json!({
+                    "candidate_count": truth_audit.candidates.len(),
+                }),
+                suggested_action: Some(MigrationActionKind::TruthBackfill.as_str().into()),
+            });
+        }
+    }
+
     if let Ok(home) = resolve_workmesh_home() {
         if let Ok(sessions) = load_sessions_latest(&home) {
             let missing = sessions.iter().filter(|s| s.handoff.is_none()).count();
@@ -259,6 +277,7 @@ pub fn plan_migrations(
     let order = [
         MigrationActionKind::LayoutBacklogToWorkmesh,
         MigrationActionKind::FocusToContext,
+        MigrationActionKind::TruthBackfill,
         MigrationActionKind::SessionHandoffEnrichment,
         MigrationActionKind::ConfigCleanup,
     ];
@@ -299,6 +318,9 @@ fn reason_for_action(action: MigrationActionKind) -> &'static str {
         MigrationActionKind::LayoutBacklogToWorkmesh => "normalize legacy backlog layout",
         MigrationActionKind::FocusToContext => {
             "replace deprecated focus orchestration with context.json"
+        }
+        MigrationActionKind::TruthBackfill => {
+            "backfill legacy decision notes into structured truth records"
         }
         MigrationActionKind::SessionHandoffEnrichment => {
             "enrich global sessions with structured handoff fields"
@@ -353,6 +375,25 @@ pub fn apply_migration_plan(
                     result.applied.push(format!("{} (dry-run)", kind.as_str()));
                 } else {
                     enrich_sessions_handoff(&mut result)?;
+                    result.applied.push(kind.as_str().to_string());
+                }
+            }
+            MigrationActionKind::TruthBackfill => {
+                if opts.dry_run {
+                    result.applied.push(format!("{} (dry-run)", kind.as_str()));
+                } else {
+                    let res = resolve_backlog(root)?;
+                    let audit = truth_migration_audit(&res.backlog_dir)
+                        .map_err(std::io::Error::other)?;
+                    let plan = truth_migration_plan(&res.backlog_dir, &audit)
+                        .map_err(std::io::Error::other)?;
+                    let migration = apply_truth_migration(&res.backlog_dir, &plan, false)
+                        .map_err(std::io::Error::other)?;
+                    if migration.created_ids.is_empty() {
+                        result
+                            .warnings
+                            .push("truth_backfill: no legacy candidates to migrate".to_string());
+                    }
                     result.applied.push(kind.as_str().to_string());
                 }
             }

@@ -61,6 +61,12 @@ use workmesh_core::task_ops::{
 use workmesh_core::views::{
     blockers_report_with_context, board_lanes, scope_ids_from_context, BoardBy,
 };
+use workmesh_core::truth::{
+    accept_truth, apply_truth_migration, list_truths, propose_truth, reject_truth, show_truth,
+    supersede_truth, truth_migration_audit, truth_migration_plan, validate_truth_store,
+    TruthContext as CoreTruthContext, TruthProposeInput, TruthQuery, TruthState,
+    TruthSupersedeInput, TruthTransitionInput,
+};
 use workmesh_core::worktrees::{
     create_git_worktree, current_branch as current_worktree_branch, doctor_worktrees,
     find_worktree_record_by_path, list_worktree_views, upsert_worktree_record, WorktreeRecord,
@@ -126,6 +132,63 @@ fn parse_before_date(value: &str) -> Result<NaiveDate, CallToolError> {
         "Invalid date format: {}",
         value
     )))
+}
+
+fn parse_truth_state_list(values: Option<ListInput>) -> Result<Vec<TruthState>, CallToolError> {
+    let mut states = Vec::new();
+    let mut seen = HashSet::new();
+    for raw in parse_list_input(values) {
+        let Some(state) = TruthState::parse(&raw) else {
+            return Err(CallToolError::from_message(format!(
+                "Invalid truth state: {} (expected proposed|accepted|rejected|superseded)",
+                raw
+            )));
+        };
+        if seen.insert(state) {
+            states.push(state);
+        }
+    }
+    Ok(states)
+}
+
+fn render_truth_line(record: &workmesh_core::truth::TruthRecord) -> String {
+    let feature = record
+        .context
+        .feature
+        .clone()
+        .or(record.context.epic_id.clone())
+        .unwrap_or_else(|| "-".to_string());
+    format!(
+        "{} | {} | {} | feature={} | v{}",
+        record.id,
+        record.state.as_str(),
+        record.title,
+        feature,
+        record.version
+    )
+}
+
+fn truth_refs_for_scope(
+    backlog_dir: &Path,
+    project_id: Option<&str>,
+    epic_id: Option<&str>,
+    worktree_path: Option<&str>,
+    limit: usize,
+) -> Vec<String> {
+    let query = TruthQuery {
+        states: vec![TruthState::Accepted],
+        project_id: project_id.map(|value| value.to_string()),
+        epic_id: epic_id.map(|value| value.to_string()),
+        feature: epic_id.map(|value| value.to_string()),
+        session_id: None,
+        worktree_id: None,
+        worktree_path: worktree_path.map(|value| value.to_string()),
+        tags: Vec::new(),
+        limit: Some(limit),
+    };
+    list_truths(backlog_dir, &query)
+        .map(|records| records.into_iter().map(|record| record.id).collect())
+        .unwrap_or_default()
 }
 
 fn resolve_root(context: &McpContext, root: Option<&str>) -> Result<PathBuf, serde_json::Value> {
@@ -271,6 +334,16 @@ fn tool_catalog() -> Vec<serde_json::Value> {
         serde_json::json!({"name": "worktree_attach", "summary": "Attach current/specified session to a worktree."}),
         serde_json::json!({"name": "worktree_detach", "summary": "Detach worktree from current/specified session."}),
         serde_json::json!({"name": "worktree_doctor", "summary": "Diagnose worktree registry drift and missing paths."}),
+        serde_json::json!({"name": "truth_propose", "summary": "Propose a new truth record for a feature/session/worktree context."}),
+        serde_json::json!({"name": "truth_accept", "summary": "Accept a proposed truth record."}),
+        serde_json::json!({"name": "truth_reject", "summary": "Reject a proposed truth record."}),
+        serde_json::json!({"name": "truth_supersede", "summary": "Mark an accepted truth as superseded by another accepted truth."}),
+        serde_json::json!({"name": "truth_show", "summary": "Show a truth record by id."}),
+        serde_json::json!({"name": "truth_list", "summary": "List truth records with filters by state/project/feature/session/worktree."}),
+        serde_json::json!({"name": "truth_validate", "summary": "Validate truth events/projection consistency."}),
+        serde_json::json!({"name": "truth_migrate_audit", "summary": "Detect legacy decision candidates for truth migration."}),
+        serde_json::json!({"name": "truth_migrate_plan", "summary": "Build a truth migration plan from audit findings."}),
+        serde_json::json!({"name": "truth_migrate_apply", "summary": "Apply a truth migration plan (dry-run by default)."}),
         serde_json::json!({"name": "list_tasks", "summary": "List tasks with filters and sorting."}),
         serde_json::json!({"name": "show_task", "summary": "Show a single task by id."}),
         serde_json::json!({"name": "next_task", "summary": "Get the next context-relevant task (active/leased first, else next ready To Do)."}),
@@ -485,6 +558,142 @@ pub struct WorktreeDetachTool {
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct WorktreeDoctorTool {
     pub root: Option<String>,
+    #[serde(default = "default_format")]
+    pub format: String,
+}
+
+#[mcp_tool(
+    name = "truth_propose",
+    description = "Propose a new truth record for a feature/session/worktree context."
+)]
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct TruthProposeTool {
+    pub root: Option<String>,
+    pub id: Option<String>,
+    pub title: String,
+    pub statement: String,
+    pub rationale: Option<String>,
+    pub constraints: Option<ListInput>,
+    pub tags: Option<ListInput>,
+    pub project_id: Option<String>,
+    pub epic_id: Option<String>,
+    pub feature: Option<String>,
+    pub session_id: Option<String>,
+    pub worktree_id: Option<String>,
+    pub worktree_path: Option<String>,
+    pub actor: Option<String>,
+    #[serde(default = "default_format")]
+    pub format: String,
+}
+
+#[mcp_tool(name = "truth_accept", description = "Accept a proposed truth record.")]
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct TruthAcceptTool {
+    pub root: Option<String>,
+    pub truth_id: String,
+    pub note: Option<String>,
+    pub actor: Option<String>,
+    #[serde(default = "default_format")]
+    pub format: String,
+}
+
+#[mcp_tool(name = "truth_reject", description = "Reject a proposed truth record.")]
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct TruthRejectTool {
+    pub root: Option<String>,
+    pub truth_id: String,
+    pub note: Option<String>,
+    pub actor: Option<String>,
+    #[serde(default = "default_format")]
+    pub format: String,
+}
+
+#[mcp_tool(
+    name = "truth_supersede",
+    description = "Mark an accepted truth record as superseded by another accepted truth."
+)]
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct TruthSupersedeTool {
+    pub root: Option<String>,
+    pub truth_id: String,
+    pub by_truth_id: String,
+    pub reason: Option<String>,
+    pub actor: Option<String>,
+    #[serde(default = "default_format")]
+    pub format: String,
+}
+
+#[mcp_tool(name = "truth_show", description = "Show a truth record by id.")]
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct TruthShowTool {
+    pub root: Option<String>,
+    pub truth_id: String,
+    #[serde(default = "default_format")]
+    pub format: String,
+}
+
+#[mcp_tool(
+    name = "truth_list",
+    description = "List truth records with filters by state/project/feature/session/worktree."
+)]
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct TruthListTool {
+    pub root: Option<String>,
+    pub states: Option<ListInput>,
+    pub project_id: Option<String>,
+    pub epic_id: Option<String>,
+    pub feature: Option<String>,
+    pub session_id: Option<String>,
+    pub worktree_id: Option<String>,
+    pub worktree_path: Option<String>,
+    pub tags: Option<ListInput>,
+    pub limit: Option<u64>,
+    #[serde(default = "default_format")]
+    pub format: String,
+}
+
+#[mcp_tool(
+    name = "truth_validate",
+    description = "Validate truth events/projection consistency."
+)]
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct TruthValidateTool {
+    pub root: Option<String>,
+    #[serde(default = "default_format")]
+    pub format: String,
+}
+
+#[mcp_tool(
+    name = "truth_migrate_audit",
+    description = "Detect legacy decision candidates for truth migration."
+)]
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct TruthMigrateAuditTool {
+    pub root: Option<String>,
+    #[serde(default = "default_format")]
+    pub format: String,
+}
+
+#[mcp_tool(
+    name = "truth_migrate_plan",
+    description = "Build a truth migration plan from audit findings."
+)]
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct TruthMigratePlanTool {
+    pub root: Option<String>,
+    #[serde(default = "default_format")]
+    pub format: String,
+}
+
+#[mcp_tool(
+    name = "truth_migrate_apply",
+    description = "Apply a truth migration plan (dry-run by default)."
+)]
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct TruthMigrateApplyTool {
+    pub root: Option<String>,
+    #[serde(default)]
+    pub apply: bool,
     #[serde(default = "default_format")]
     pub format: String,
 }
@@ -1304,6 +1513,16 @@ tool_box!(
         WorktreeAttachTool,
         WorktreeDetachTool,
         WorktreeDoctorTool,
+        TruthProposeTool,
+        TruthAcceptTool,
+        TruthRejectTool,
+        TruthSupersedeTool,
+        TruthShowTool,
+        TruthListTool,
+        TruthValidateTool,
+        TruthMigrateAuditTool,
+        TruthMigratePlanTool,
+        TruthMigrateApplyTool,
         ListTasksTool,
         ShowTaskTool,
         NextTaskTool,
@@ -1408,6 +1627,16 @@ impl ServerHandler for WorkmeshServerHandler {
             WorkmeshTools::WorktreeAttachTool(tool) => tool.call(&self.context),
             WorkmeshTools::WorktreeDetachTool(tool) => tool.call(&self.context),
             WorkmeshTools::WorktreeDoctorTool(tool) => tool.call(&self.context),
+            WorkmeshTools::TruthProposeTool(tool) => tool.call(&self.context),
+            WorkmeshTools::TruthAcceptTool(tool) => tool.call(&self.context),
+            WorkmeshTools::TruthRejectTool(tool) => tool.call(&self.context),
+            WorkmeshTools::TruthSupersedeTool(tool) => tool.call(&self.context),
+            WorkmeshTools::TruthShowTool(tool) => tool.call(&self.context),
+            WorkmeshTools::TruthListTool(tool) => tool.call(&self.context),
+            WorkmeshTools::TruthValidateTool(tool) => tool.call(&self.context),
+            WorkmeshTools::TruthMigrateAuditTool(tool) => tool.call(&self.context),
+            WorkmeshTools::TruthMigratePlanTool(tool) => tool.call(&self.context),
+            WorkmeshTools::TruthMigrateApplyTool(tool) => tool.call(&self.context),
             WorkmeshTools::ListTasksTool(tool) => tool.call(&self.context),
             WorkmeshTools::ShowTaskTool(tool) => tool.call(&self.context),
             WorkmeshTools::NextTaskTool(tool) => tool.call(&self.context),
@@ -1986,6 +2215,20 @@ impl WorktreeAttachTool {
         let mut updated = existing.clone();
         updated.updated_at = now_rfc3339();
         updated.worktree = Some(binding.clone());
+        updated.truth_refs = updated
+            .repo_root
+            .as_deref()
+            .and_then(|root| resolve_backlog(Path::new(root)).ok())
+            .map(|resolution| {
+                truth_refs_for_scope(
+                    &resolution.backlog_dir,
+                    updated.project_id.as_deref(),
+                    updated.epic_id.as_deref(),
+                    updated.worktree.as_ref().map(|item| item.path.as_str()),
+                    10,
+                )
+            })
+            .unwrap_or_default();
         append_session_saved(&home, updated.clone())
             .map_err(|err| CallToolError::from_message(err.to_string()))?;
         set_current_session(&home, &updated.id)
@@ -2016,6 +2259,20 @@ impl WorktreeDetachTool {
         let mut updated = existing.clone();
         updated.updated_at = now_rfc3339();
         updated.worktree = None;
+        updated.truth_refs = updated
+            .repo_root
+            .as_deref()
+            .and_then(|root| resolve_backlog(Path::new(root)).ok())
+            .map(|resolution| {
+                truth_refs_for_scope(
+                    &resolution.backlog_dir,
+                    updated.project_id.as_deref(),
+                    updated.epic_id.as_deref(),
+                    None,
+                    10,
+                )
+            })
+            .unwrap_or_default();
         append_session_saved(&home, updated.clone())
             .map_err(|err| CallToolError::from_message(err.to_string()))?;
         set_current_session(&home, &updated.id)
@@ -2052,6 +2309,310 @@ impl WorktreeDoctorTool {
             ));
         }
         ok_json(serde_json::to_value(report).unwrap_or_default())
+    }
+}
+
+impl TruthProposeTool {
+    fn call(&self, context: &McpContext) -> Result<CallToolResult, CallToolError> {
+        let backlog_dir = match resolve_root(context, self.root.as_deref()) {
+            Ok(dir) => dir,
+            Err(err) => return ok_json(err),
+        };
+        let repo_root = repo_root_from_backlog(&backlog_dir);
+        let inferred = load_context_state(&backlog_dir);
+        let inferred_project = inferred
+            .as_ref()
+            .and_then(|state| state.project_id.clone())
+            .or_else(|| infer_project_id(&repo_root));
+        let inferred_epic = inferred.as_ref().and_then(|state| state.scope.epic_id.clone());
+
+        let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+        let worktree_binding = resolve_workmesh_home().ok().and_then(|home| {
+            best_effort_worktree_binding(&home, &cwd, Some(&repo_root.to_string_lossy()))
+        });
+
+        let record = propose_truth(
+            &backlog_dir,
+            TruthProposeInput {
+                id: self.id.clone(),
+                title: self.title.clone(),
+                statement: self.statement.clone(),
+                rationale: self.rationale.clone(),
+                constraints: parse_list_input(self.constraints.clone()),
+                tags: parse_list_input(self.tags.clone()),
+                context: CoreTruthContext {
+                    project_id: self.project_id.clone().or(inferred_project),
+                    epic_id: self.epic_id.clone().or(inferred_epic.clone()),
+                    feature: self
+                        .feature
+                        .clone()
+                        .or(self.epic_id.clone())
+                        .or(inferred_epic),
+                    session_id: self.session_id.clone().or_else(|| {
+                        resolve_workmesh_home()
+                            .ok()
+                            .and_then(|home| read_current_session_id(&home))
+                    }),
+                    worktree_id: self.worktree_id.clone().or_else(|| {
+                        worktree_binding
+                            .as_ref()
+                            .and_then(|binding| binding.id.clone())
+                    }),
+                    worktree_path: self.worktree_path.clone().or_else(|| {
+                        worktree_binding
+                            .as_ref()
+                            .map(|binding| binding.path.clone())
+                    }),
+                },
+                actor: self.actor.clone().or_else(|| Some("mcp".to_string())),
+            },
+        )
+        .map_err(CallToolError::new)?;
+
+        audit_event(
+            &backlog_dir,
+            "truth_propose",
+            None,
+            serde_json::json!({ "truth_id": record.id }),
+        )?;
+        maybe_auto_checkpoint(&backlog_dir);
+
+        if self.format == "text" {
+            return ok_text(render_truth_line(&record));
+        }
+        ok_json(serde_json::to_value(record).unwrap_or_default())
+    }
+}
+
+impl TruthAcceptTool {
+    fn call(&self, context: &McpContext) -> Result<CallToolResult, CallToolError> {
+        let backlog_dir = match resolve_root(context, self.root.as_deref()) {
+            Ok(dir) => dir,
+            Err(err) => return ok_json(err),
+        };
+        let record = accept_truth(
+            &backlog_dir,
+            TruthTransitionInput {
+                truth_id: self.truth_id.clone(),
+                note: self.note.clone(),
+                actor: self.actor.clone().or_else(|| Some("mcp".to_string())),
+            },
+        )
+        .map_err(CallToolError::new)?;
+        audit_event(
+            &backlog_dir,
+            "truth_accept",
+            None,
+            serde_json::json!({ "truth_id": record.id }),
+        )?;
+        maybe_auto_checkpoint(&backlog_dir);
+        if self.format == "text" {
+            return ok_text(render_truth_line(&record));
+        }
+        ok_json(serde_json::to_value(record).unwrap_or_default())
+    }
+}
+
+impl TruthRejectTool {
+    fn call(&self, context: &McpContext) -> Result<CallToolResult, CallToolError> {
+        let backlog_dir = match resolve_root(context, self.root.as_deref()) {
+            Ok(dir) => dir,
+            Err(err) => return ok_json(err),
+        };
+        let record = reject_truth(
+            &backlog_dir,
+            TruthTransitionInput {
+                truth_id: self.truth_id.clone(),
+                note: self.note.clone(),
+                actor: self.actor.clone().or_else(|| Some("mcp".to_string())),
+            },
+        )
+        .map_err(CallToolError::new)?;
+        audit_event(
+            &backlog_dir,
+            "truth_reject",
+            None,
+            serde_json::json!({ "truth_id": record.id }),
+        )?;
+        maybe_auto_checkpoint(&backlog_dir);
+        if self.format == "text" {
+            return ok_text(render_truth_line(&record));
+        }
+        ok_json(serde_json::to_value(record).unwrap_or_default())
+    }
+}
+
+impl TruthSupersedeTool {
+    fn call(&self, context: &McpContext) -> Result<CallToolResult, CallToolError> {
+        let backlog_dir = match resolve_root(context, self.root.as_deref()) {
+            Ok(dir) => dir,
+            Err(err) => return ok_json(err),
+        };
+        let record = supersede_truth(
+            &backlog_dir,
+            TruthSupersedeInput {
+                truth_id: self.truth_id.clone(),
+                by_truth_id: self.by_truth_id.clone(),
+                reason: self.reason.clone(),
+                actor: self.actor.clone().or_else(|| Some("mcp".to_string())),
+            },
+        )
+        .map_err(CallToolError::new)?;
+        audit_event(
+            &backlog_dir,
+            "truth_supersede",
+            None,
+            serde_json::json!({
+                "truth_id": record.id,
+                "superseded_by": record.superseded_by,
+            }),
+        )?;
+        maybe_auto_checkpoint(&backlog_dir);
+        if self.format == "text" {
+            return ok_text(render_truth_line(&record));
+        }
+        ok_json(serde_json::to_value(record).unwrap_or_default())
+    }
+}
+
+impl TruthShowTool {
+    fn call(&self, context: &McpContext) -> Result<CallToolResult, CallToolError> {
+        let backlog_dir = match resolve_root(context, self.root.as_deref()) {
+            Ok(dir) => dir,
+            Err(err) => return ok_json(err),
+        };
+        let Some(record) =
+            show_truth(&backlog_dir, &self.truth_id).map_err(CallToolError::new)?
+        else {
+            return ok_json(serde_json::json!({"error": format!("truth not found: {}", self.truth_id)}));
+        };
+        if self.format == "text" {
+            return ok_text(
+                serde_json::to_string_pretty(&record).unwrap_or_else(|_| "{}".to_string()),
+            );
+        }
+        ok_json(serde_json::to_value(record).unwrap_or_default())
+    }
+}
+
+impl TruthListTool {
+    fn call(&self, context: &McpContext) -> Result<CallToolResult, CallToolError> {
+        let backlog_dir = match resolve_root(context, self.root.as_deref()) {
+            Ok(dir) => dir,
+            Err(err) => return ok_json(err),
+        };
+        let states = parse_truth_state_list(self.states.clone())?;
+        let records = list_truths(
+            &backlog_dir,
+            &TruthQuery {
+                states,
+                project_id: self.project_id.clone(),
+                epic_id: self.epic_id.clone(),
+                feature: self.feature.clone(),
+                session_id: self.session_id.clone(),
+                worktree_id: self.worktree_id.clone(),
+                worktree_path: self.worktree_path.clone(),
+                tags: parse_list_input(self.tags.clone()),
+                limit: self.limit.map(|value| value as usize),
+            },
+        )
+        .map_err(CallToolError::new)?;
+        if self.format == "text" {
+            if records.is_empty() {
+                return ok_text("(no truth records)".to_string());
+            }
+            return ok_text(
+                records
+                    .iter()
+                    .map(render_truth_line)
+                    .collect::<Vec<_>>()
+                    .join("\n"),
+            );
+        }
+        ok_json(serde_json::to_value(records).unwrap_or_default())
+    }
+}
+
+impl TruthValidateTool {
+    fn call(&self, context: &McpContext) -> Result<CallToolResult, CallToolError> {
+        let backlog_dir = match resolve_root(context, self.root.as_deref()) {
+            Ok(dir) => dir,
+            Err(err) => return ok_json(err),
+        };
+        let report = validate_truth_store(&backlog_dir).map_err(CallToolError::new)?;
+        if self.format == "text" {
+            if report.ok {
+                return ok_text(format!(
+                    "truth ok (events={} records={})",
+                    report.event_count, report.record_count
+                ));
+            }
+            return ok_text(
+                serde_json::to_string_pretty(&report).unwrap_or_else(|_| "{}".to_string()),
+            );
+        }
+        ok_json(serde_json::to_value(report).unwrap_or_default())
+    }
+}
+
+impl TruthMigrateAuditTool {
+    fn call(&self, context: &McpContext) -> Result<CallToolResult, CallToolError> {
+        let backlog_dir = match resolve_root(context, self.root.as_deref()) {
+            Ok(dir) => dir,
+            Err(err) => return ok_json(err),
+        };
+        let report = truth_migration_audit(&backlog_dir).map_err(CallToolError::new)?;
+        if self.format == "text" {
+            return ok_text(
+                serde_json::to_string_pretty(&report).unwrap_or_else(|_| "{}".to_string()),
+            );
+        }
+        ok_json(serde_json::to_value(report).unwrap_or_default())
+    }
+}
+
+impl TruthMigratePlanTool {
+    fn call(&self, context: &McpContext) -> Result<CallToolResult, CallToolError> {
+        let backlog_dir = match resolve_root(context, self.root.as_deref()) {
+            Ok(dir) => dir,
+            Err(err) => return ok_json(err),
+        };
+        let audit = truth_migration_audit(&backlog_dir).map_err(CallToolError::new)?;
+        let plan = truth_migration_plan(&backlog_dir, &audit).map_err(CallToolError::new)?;
+        if self.format == "text" {
+            return ok_text(
+                serde_json::to_string_pretty(&plan).unwrap_or_else(|_| "{}".to_string()),
+            );
+        }
+        ok_json(serde_json::to_value(plan).unwrap_or_default())
+    }
+}
+
+impl TruthMigrateApplyTool {
+    fn call(&self, context: &McpContext) -> Result<CallToolResult, CallToolError> {
+        let backlog_dir = match resolve_root(context, self.root.as_deref()) {
+            Ok(dir) => dir,
+            Err(err) => return ok_json(err),
+        };
+        let audit = truth_migration_audit(&backlog_dir).map_err(CallToolError::new)?;
+        let plan = truth_migration_plan(&backlog_dir, &audit).map_err(CallToolError::new)?;
+        let result =
+            apply_truth_migration(&backlog_dir, &plan, !self.apply).map_err(CallToolError::new)?;
+        if self.apply {
+            audit_event(
+                &backlog_dir,
+                "truth_migrate_apply",
+                None,
+                serde_json::json!({ "created": result.created_ids }),
+            )?;
+            maybe_auto_checkpoint(&backlog_dir);
+        }
+        if self.format == "text" {
+            return ok_text(
+                serde_json::to_string_pretty(&result).unwrap_or_else(|_| "{}".to_string()),
+            );
+        }
+        ok_json(serde_json::to_value(result).unwrap_or_default())
     }
 }
 
@@ -3555,14 +4116,22 @@ impl SessionSaveTool {
             let rr = repo_root_from_backlog(&backlog_dir);
             repo_root = Some(rr.to_string_lossy().to_string());
             let repo_tasks = load_tasks(&backlog_dir);
-            epic_id = load_context_state(&backlog_dir).and_then(|c| c.scope.epic_id);
+            let context_state = load_context_state(&backlog_dir);
+            epic_id = context_state
+                .as_ref()
+                .and_then(|c| c.scope.epic_id.clone());
 
             if project_id.is_none() {
-                project_id = Some(resolve_project_id(
-                    &rr,
-                    &repo_tasks,
-                    self.project.as_deref(),
-                ));
+                project_id = context_state
+                    .as_ref()
+                    .and_then(|c| c.project_id.clone())
+                    .or_else(|| {
+                        Some(resolve_project_id(
+                            &rr,
+                            &repo_tasks,
+                            self.project.as_deref(),
+                        ))
+                    });
             }
 
             if working_set.is_empty() {
@@ -3596,8 +4165,20 @@ impl SessionSaveTool {
                 epic_id = extract_task_id_from_branch(branch);
             }
         }
+        let worktree = best_effort_worktree_binding(&home, &cwd, repo_root.as_deref());
+        let truth_refs = if let Ok(backlog_dir) = locate_backlog_dir(&cwd) {
+            truth_refs_for_scope(
+                &backlog_dir,
+                project_id.as_deref(),
+                epic_id.as_deref(),
+                worktree.as_ref().map(|binding| binding.path.as_str()),
+                10,
+            )
+        } else {
+            Vec::new()
+        };
         let session = AgentSession {
-            worktree: best_effort_worktree_binding(&home, &cwd, repo_root.as_deref()),
+            worktree,
             id: new_session_id(),
             created_at: now.clone(),
             updated_at: now,
@@ -3612,6 +4193,7 @@ impl SessionSaveTool {
             checkpoint,
             recent_changes,
             handoff: None,
+            truth_refs,
         };
 
         append_session_saved(&home, session.clone())
@@ -3905,6 +4487,9 @@ fn render_session_detail(session: &AgentSession) -> String {
             }
         }
     }
+    if !session.truth_refs.is_empty() {
+        lines.push(format!("truth_refs: {}", session.truth_refs.join(", ")));
+    }
     lines.join("\n")
 }
 
@@ -3918,6 +4503,18 @@ fn resume_script(session: &AgentSession) -> Vec<String> {
 
     if let Some(repo_root) = session.repo_root.as_deref() {
         lines.push(format!("workmesh --root {} context show", repo_root));
+        let mut truth_line = format!("workmesh --root {} truth list --state accepted", repo_root);
+        if let Some(project_id) = session.project_id.as_deref() {
+            truth_line.push_str(&format!(" --project {}", project_id));
+        }
+        if let Some(epic_id) = session.epic_id.as_deref() {
+            truth_line.push_str(&format!(" --epic {}", epic_id));
+        }
+        if let Some(worktree) = session.worktree.as_ref() {
+            truth_line.push_str(&format!(" --worktree-path {}", worktree.path));
+        }
+        truth_line.push_str(" --limit 10");
+        lines.push(truth_line);
     }
 
     if let (Some(repo_root), Some(project_id)) =
@@ -3938,6 +4535,10 @@ fn resume_script(session: &AgentSession) -> Vec<String> {
                 repo_root, task_id
             ));
         }
+    }
+
+    if !session.truth_refs.is_empty() {
+        lines.push(format!("# accepted truths: {}", session.truth_refs.join(", ")));
     }
 
     lines
@@ -4099,6 +4700,43 @@ fn tool_examples(name: &str) -> Vec<serde_json::Value> {
             "tool": "worktree_doctor",
             "arguments": { "format": "json" }
         })],
+        "truth_propose" => vec![serde_json::json!({
+            "tool": "truth_propose",
+            "arguments": {
+                "title": "Use append-only truth events",
+                "statement": "Truth records are append-only and immutable.",
+                "project_id": "workmesh",
+                "epic_id": "task-main-001",
+                "format": "json"
+            }
+        })],
+        "truth_accept" => vec![serde_json::json!({
+            "tool": "truth_accept",
+            "arguments": { "truth_id": "truth-01...", "note": "approved", "format": "json" }
+        })],
+        "truth_supersede" => vec![serde_json::json!({
+            "tool": "truth_supersede",
+            "arguments": {
+                "truth_id": "truth-01old",
+                "by_truth_id": "truth-01new",
+                "reason": "replacement accepted",
+                "format": "json"
+            }
+        })],
+        "truth_list" => vec![serde_json::json!({
+            "tool": "truth_list",
+            "arguments": {
+                "states": ["accepted"],
+                "project_id": "workmesh",
+                "epic_id": "task-main-001",
+                "limit": 10,
+                "format": "json"
+            }
+        })],
+        "truth_validate" => vec![serde_json::json!({
+            "tool": "truth_validate",
+            "arguments": { "format": "json" }
+        })],
         "set_status" => vec![serde_json::json!({
             "tool": "set_status",
             "arguments": { "task_id": "task-001", "status": "In Progress", "touch": true }
@@ -4181,6 +4819,12 @@ fn tool_info_payload(name: &str) -> Option<serde_json::Value> {
     if name == "add_task" || name == "add_discovered" {
         notes.push(
             "New tasks default to kind=task in front matter. You can set kind later with set_field."
+                .to_string(),
+        );
+    }
+    if name.starts_with("truth_") {
+        notes.push(
+            "Truth lifecycle is strict: proposed -> accepted|rejected, and accepted -> superseded."
                 .to_string(),
         );
     }
@@ -4446,8 +5090,14 @@ fn auto_update_current_session(backlog_dir: &Path, tasks: &[Task]) -> Result<(),
 
     let rr = repo_root_from_backlog(backlog_dir);
     let repo_root = rr.to_string_lossy().to_string();
-    let project_id = resolve_project_id(&rr, tasks, None);
-    let epic_id = load_context_state(backlog_dir).and_then(|c| c.scope.epic_id);
+    let context_state = load_context_state(backlog_dir);
+    let project_id = context_state
+        .as_ref()
+        .and_then(|c| c.project_id.clone())
+        .unwrap_or_else(|| resolve_project_id(&rr, tasks, None));
+    let epic_id = context_state
+        .as_ref()
+        .and_then(|c| c.scope.epic_id.clone());
 
     let working_set: Vec<String> = tasks
         .iter()
@@ -4474,6 +5124,13 @@ fn auto_update_current_session(backlog_dir: &Path, tasks: &[Task]) -> Result<(),
     let now = now_rfc3339();
     let worktree = best_effort_worktree_binding(&home, &cwd, Some(repo_root.as_str()))
         .or(existing.worktree.clone());
+    let truth_refs = truth_refs_for_scope(
+        backlog_dir,
+        Some(project_id.as_str()),
+        epic_id.as_deref(),
+        worktree.as_ref().map(|binding| binding.path.as_str()),
+        10,
+    );
     let updated = AgentSession {
         id: existing.id.clone(),
         created_at: existing.created_at.clone(),
@@ -4490,6 +5147,7 @@ fn auto_update_current_session(backlog_dir: &Path, tasks: &[Task]) -> Result<(),
         recent_changes,
         handoff: existing.handoff.clone(),
         worktree,
+        truth_refs,
     };
 
     append_session_saved(&home, updated.clone())?;

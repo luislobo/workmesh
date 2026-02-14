@@ -22,11 +22,28 @@ pub mod session;
 pub mod skills;
 pub mod task;
 pub mod task_ops;
+pub mod truth;
 pub mod views;
 pub mod worktrees;
 
 pub fn version() -> &'static str {
     env!("CARGO_PKG_VERSION")
+}
+
+#[cfg(test)]
+pub mod test_env {
+    use std::sync::{Mutex, MutexGuard, OnceLock};
+
+    fn global_lock() -> &'static Mutex<()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(()))
+    }
+
+    pub fn lock() -> MutexGuard<'static, ()> {
+        global_lock()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
 }
 
 #[cfg(test)]

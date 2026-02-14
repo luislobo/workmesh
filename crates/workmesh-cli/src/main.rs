@@ -65,6 +65,12 @@ use workmesh_core::task_ops::{
 use workmesh_core::views::{
     blockers_report_with_context, board_lanes, scope_ids_from_context, BoardBy,
 };
+use workmesh_core::truth::{
+    accept_truth, apply_truth_migration, list_truths, propose_truth, reject_truth, show_truth,
+    supersede_truth, truth_migration_audit, truth_migration_plan, validate_truth_store,
+    TruthContext as CoreTruthContext, TruthProposeInput, TruthQuery, TruthState,
+    TruthSupersedeInput, TruthTransitionInput,
+};
 use workmesh_core::worktrees::{
     create_git_worktree, current_branch as current_worktree_branch, doctor_worktrees,
     find_worktree_record_by_path, list_worktree_views, upsert_worktree_record, WorktreeRecord,
@@ -336,6 +342,11 @@ enum Command {
     Session {
         #[command(subcommand)]
         command: SessionCommand,
+    },
+    /// Feature-level truth ledger (decisions/constraints/contracts)
+    Truth {
+        #[command(subcommand)]
+        command: TruthCommand,
     },
     /// Git worktree runtime orchestration for parallel agent workflows
     Worktree {
@@ -1230,6 +1241,133 @@ enum SessionCommand {
 }
 
 #[derive(Subcommand)]
+enum TruthMigrateCommand {
+    /// Detect legacy decision notes and session handoff decisions for migration
+    Audit {
+        #[arg(long, action = ArgAction::SetTrue)]
+        json: bool,
+    },
+    /// Build a migration plan from audit findings
+    Plan {
+        #[arg(long, action = ArgAction::SetTrue)]
+        json: bool,
+    },
+    /// Apply migration plan (dry-run by default unless --apply is passed)
+    Apply {
+        #[arg(long, action = ArgAction::SetTrue)]
+        apply: bool,
+        #[arg(long, action = ArgAction::SetTrue)]
+        json: bool,
+    },
+}
+
+#[derive(Subcommand)]
+enum TruthCommand {
+    /// Propose a new truth record
+    Propose {
+        #[arg(long)]
+        id: Option<String>,
+        #[arg(long)]
+        title: String,
+        #[arg(long)]
+        statement: String,
+        #[arg(long)]
+        rationale: Option<String>,
+        #[arg(long, default_value = "")]
+        constraints: String,
+        #[arg(long, default_value = "")]
+        tags: String,
+        #[arg(long)]
+        project: Option<String>,
+        #[arg(long)]
+        epic: Option<String>,
+        #[arg(long)]
+        feature: Option<String>,
+        #[arg(long)]
+        session_id: Option<String>,
+        #[arg(long)]
+        worktree_id: Option<String>,
+        #[arg(long)]
+        worktree_path: Option<PathBuf>,
+        #[arg(long)]
+        actor: Option<String>,
+        #[arg(long, action = ArgAction::SetTrue)]
+        json: bool,
+    },
+    /// Accept a proposed truth record
+    Accept {
+        truth_id: String,
+        #[arg(long)]
+        note: Option<String>,
+        #[arg(long)]
+        actor: Option<String>,
+        #[arg(long, action = ArgAction::SetTrue)]
+        json: bool,
+    },
+    /// Reject a proposed truth record
+    Reject {
+        truth_id: String,
+        #[arg(long)]
+        note: Option<String>,
+        #[arg(long)]
+        actor: Option<String>,
+        #[arg(long, action = ArgAction::SetTrue)]
+        json: bool,
+    },
+    /// Mark an accepted truth as superseded by another accepted truth
+    Supersede {
+        truth_id: String,
+        #[arg(long)]
+        by: String,
+        #[arg(long)]
+        reason: Option<String>,
+        #[arg(long)]
+        actor: Option<String>,
+        #[arg(long, action = ArgAction::SetTrue)]
+        json: bool,
+    },
+    /// Show one truth record by id
+    Show {
+        truth_id: String,
+        #[arg(long, action = ArgAction::SetTrue)]
+        json: bool,
+    },
+    /// List truth records with filters
+    List {
+        #[arg(long, action = ArgAction::Append)]
+        state: Vec<String>,
+        #[arg(long)]
+        project: Option<String>,
+        #[arg(long)]
+        epic: Option<String>,
+        #[arg(long)]
+        feature: Option<String>,
+        #[arg(long)]
+        session_id: Option<String>,
+        #[arg(long)]
+        worktree_id: Option<String>,
+        #[arg(long)]
+        worktree_path: Option<PathBuf>,
+        #[arg(long, action = ArgAction::Append)]
+        tag: Vec<String>,
+        #[arg(long)]
+        limit: Option<usize>,
+        #[arg(long, action = ArgAction::SetTrue)]
+        json: bool,
+    },
+    /// Validate truth events/current projection consistency
+    Validate {
+        #[arg(long, action = ArgAction::SetTrue)]
+        json: bool,
+    },
+    /// Legacy-decision migration helpers for truth records
+    Migrate {
+        #[command(subcommand)]
+        command: TruthMigrateCommand,
+    },
+}
+
+#[derive(Subcommand)]
 enum BulkCommand {
     /// Bulk set status for tasks
     SetStatus {
@@ -1565,6 +1703,9 @@ fn render_session_detail(session: &AgentSession) -> String {
             }
         }
     }
+    if !session.truth_refs.is_empty() {
+        lines.push(format!("truth_refs: {}", session.truth_refs.join(", ")));
+    }
     lines.join("\n")
 }
 
@@ -1578,6 +1719,18 @@ fn resume_script(session: &AgentSession) -> Vec<String> {
 
     if let Some(repo_root) = session.repo_root.as_deref() {
         lines.push(format!("workmesh --root {} context show", repo_root));
+        let mut truth_line = format!("workmesh --root {} truth list --state accepted", repo_root);
+        if let Some(project_id) = session.project_id.as_deref() {
+            truth_line.push_str(&format!(" --project {}", project_id));
+        }
+        if let Some(epic_id) = session.epic_id.as_deref() {
+            truth_line.push_str(&format!(" --epic {}", epic_id));
+        }
+        if let Some(worktree) = session.worktree.as_ref() {
+            truth_line.push_str(&format!(" --worktree-path {}", worktree.path));
+        }
+        truth_line.push_str(" --limit 10");
+        lines.push(truth_line);
     }
 
     if let (Some(repo_root), Some(project_id)) =
@@ -1600,7 +1753,68 @@ fn resume_script(session: &AgentSession) -> Vec<String> {
         }
     }
 
+    if !session.truth_refs.is_empty() {
+        lines.push(format!("# accepted truths: {}", session.truth_refs.join(", ")));
+    }
+
     lines
+}
+
+fn parse_truth_states(values: &[String]) -> Result<Vec<TruthState>> {
+    let mut states = Vec::new();
+    let mut seen = HashSet::new();
+    for value in split_list(values) {
+        let Some(state) = TruthState::parse(&value) else {
+            die(&format!(
+                "Invalid truth state: {} (expected proposed|accepted|rejected|superseded)",
+                value
+            ));
+        };
+        if seen.insert(state) {
+            states.push(state);
+        }
+    }
+    Ok(states)
+}
+
+fn render_truth_line(record: &workmesh_core::truth::TruthRecord) -> String {
+    let feature = record
+        .context
+        .feature
+        .clone()
+        .or(record.context.epic_id.clone())
+        .unwrap_or_else(|| "-".to_string());
+    format!(
+        "{} | {} | {} | feature={} | v{}",
+        record.id,
+        record.state.as_str(),
+        record.title,
+        feature,
+        record.version
+    )
+}
+
+fn truth_refs_for_scope(
+    backlog_dir: &Path,
+    project_id: Option<&str>,
+    epic_id: Option<&str>,
+    worktree_path: Option<&str>,
+    limit: usize,
+) -> Vec<String> {
+    let query = TruthQuery {
+        states: vec![TruthState::Accepted],
+        project_id: project_id.map(|value| value.to_string()),
+        epic_id: epic_id.map(|value| value.to_string()),
+        feature: epic_id.map(|value| value.to_string()),
+        session_id: None,
+        worktree_id: None,
+        worktree_path: worktree_path.map(|value| value.to_string()),
+        tags: Vec::new(),
+        limit: Some(limit),
+    };
+    list_truths(backlog_dir, &query)
+        .map(|records| records.into_iter().map(|record| record.id).collect())
+        .unwrap_or_default()
 }
 
 fn auto_update_current_session(backlog_dir: &Path) -> Result<()> {
@@ -1617,9 +1831,14 @@ fn auto_update_current_session(backlog_dir: &Path) -> Result<()> {
     let rr = repo_root_from_backlog(backlog_dir);
     let repo_root = rr.to_string_lossy().to_string();
     let repo_tasks = load_tasks(backlog_dir);
-    let project_id = resolve_project_id(&rr, &repo_tasks, None);
-    let epic_id = load_context_state(backlog_dir)
-        .and_then(|c| c.scope.epic_id)
+    let context_state = load_context_state(backlog_dir);
+    let project_id = context_state
+        .as_ref()
+        .and_then(|c| c.project_id.clone())
+        .unwrap_or_else(|| resolve_project_id(&rr, &repo_tasks, None));
+    let epic_id = context_state
+        .as_ref()
+        .and_then(|c| c.scope.epic_id.clone())
         .or_else(|| best_effort_git_branch(&rr).and_then(|b| extract_task_id_from_branch(&b)));
 
     let working_set: Vec<String> = repo_tasks
@@ -1647,6 +1866,13 @@ fn auto_update_current_session(backlog_dir: &Path) -> Result<()> {
     let now = now_rfc3339();
     let worktree = best_effort_worktree_binding(&home, &cwd, Some(repo_root.as_str()))
         .or(existing.worktree.clone());
+    let truth_refs = truth_refs_for_scope(
+        backlog_dir,
+        Some(project_id.as_str()),
+        epic_id.as_deref(),
+        worktree.as_ref().map(|binding| binding.path.as_str()),
+        10,
+    );
     let updated = AgentSession {
         id: existing.id.clone(),
         created_at: existing.created_at.clone(),
@@ -1663,6 +1889,7 @@ fn auto_update_current_session(backlog_dir: &Path) -> Result<()> {
         recent_changes,
         handoff: existing.handoff.clone(),
         worktree,
+        truth_refs,
     };
 
     append_session_saved(&home, updated.clone())?;
@@ -1824,6 +2051,14 @@ fn main() -> Result<()> {
             let present = report["index"]["present"].as_bool().unwrap_or(false);
             let entries = report["index"]["entries"].as_i64().unwrap_or(0);
             println!("index: present={} entries={}", present, entries);
+            if !report["truth"].is_null() {
+                println!(
+                    "truth: events={} records={} validation_ok={}",
+                    report["truth"]["event_count"].as_i64().unwrap_or(0),
+                    report["truth"]["record_count"].as_i64().unwrap_or(0),
+                    report["truth"]["validation_ok"].as_bool().unwrap_or(true)
+                );
+            }
             println!(
                 "versions: workmesh={} workmesh-mcp={}",
                 report["versions"]["workmesh"].as_str().unwrap_or(""),
@@ -2558,16 +2793,22 @@ fn main() -> Result<()> {
                         let rr = repo_root_from_backlog(&backlog_dir);
                         repo_root = Some(rr.to_string_lossy().to_string());
                         let repo_tasks = load_tasks(&backlog_dir);
-                        epic_id = load_context_state(&backlog_dir)
-                            .and_then(|c| c.scope.epic_id)
+                        let context_state = load_context_state(&backlog_dir);
+                        epic_id = context_state
+                            .as_ref()
+                            .and_then(|c| c.scope.epic_id.clone())
                             .or_else(|| {
                                 best_effort_git_branch(&rr)
                                     .and_then(|b| extract_task_id_from_branch(&b))
                             });
 
                         if project_id.is_none() {
-                            project_id =
-                                Some(resolve_project_id(&rr, &repo_tasks, project.as_deref()));
+                            project_id = context_state
+                                .as_ref()
+                                .and_then(|c| c.project_id.clone())
+                                .or_else(|| {
+                                    Some(resolve_project_id(&rr, &repo_tasks, project.as_deref()))
+                                });
                         }
 
                         if working_set.is_empty() {
@@ -2599,6 +2840,17 @@ fn main() -> Result<()> {
 
                     let now = now_rfc3339();
                     let worktree = best_effort_worktree_binding(&home, &cwd, repo_root.as_deref());
+                    let truth_refs = if let Ok(backlog_dir) = locate_backlog_dir(&cwd) {
+                        truth_refs_for_scope(
+                            &backlog_dir,
+                            project_id.as_deref(),
+                            epic_id.as_deref(),
+                            worktree.as_ref().map(|binding| binding.path.as_str()),
+                            10,
+                        )
+                    } else {
+                        Vec::new()
+                    };
                     let session = AgentSession {
                         id: new_session_id(),
                         created_at: now.clone(),
@@ -2615,6 +2867,7 @@ fn main() -> Result<()> {
                         recent_changes,
                         handoff: None,
                         worktree,
+                        truth_refs,
                     };
 
                     append_session_saved(&home, session.clone())?;
@@ -2709,6 +2962,297 @@ fn main() -> Result<()> {
                 }
             }
         }
+        Command::Truth { command } => match command {
+            TruthCommand::Propose {
+                id,
+                title,
+                statement,
+                rationale,
+                constraints,
+                tags,
+                project,
+                epic,
+                feature,
+                session_id,
+                worktree_id,
+                worktree_path,
+                actor,
+                json,
+            } => {
+                let repo_root = repo_root_from_backlog(&backlog_dir);
+                let inferred = load_context_state(&backlog_dir);
+                let inferred_project = inferred
+                    .as_ref()
+                    .and_then(|state| state.project_id.clone())
+                    .or_else(|| infer_project_id(&repo_root));
+                let inferred_epic = inferred.as_ref().and_then(|state| state.scope.epic_id.clone());
+
+                let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+                let worktree_binding = resolve_workmesh_home()
+                    .ok()
+                    .and_then(|home| {
+                        best_effort_worktree_binding(
+                            &home,
+                            &cwd,
+                            Some(&repo_root.to_string_lossy()),
+                        )
+                    });
+                let resolved_worktree_path = worktree_path
+                    .as_deref()
+                    .map(normalize_path_string)
+                    .or_else(|| worktree_binding.as_ref().map(|binding| binding.path.clone()));
+                let resolved_session_id = session_id.or_else(|| {
+                    resolve_workmesh_home()
+                        .ok()
+                        .and_then(|home| read_current_session_id(&home))
+                });
+                let resolved_worktree_id = worktree_id
+                    .or_else(|| worktree_binding.as_ref().and_then(|binding| binding.id.clone()));
+                let resolved_epic = epic.or(inferred_epic);
+                let resolved_feature = feature.or_else(|| resolved_epic.clone());
+
+                let record = propose_truth(
+                    &backlog_dir,
+                    TruthProposeInput {
+                        id,
+                        title,
+                        statement,
+                        rationale,
+                        constraints: split_csv(&constraints),
+                        tags: split_csv(&tags),
+                        context: CoreTruthContext {
+                            project_id: project.or(inferred_project),
+                            epic_id: resolved_epic,
+                            feature: resolved_feature,
+                            session_id: resolved_session_id,
+                            worktree_id: resolved_worktree_id,
+                            worktree_path: resolved_worktree_path,
+                        },
+                        actor: actor.or_else(|| Some("cli".to_string())),
+                    },
+                )?;
+                audit_event(
+                    &backlog_dir,
+                    "truth_propose",
+                    None,
+                    serde_json::json!({ "truth_id": record.id }),
+                )?;
+                maybe_auto_checkpoint(&backlog_dir, auto_checkpoint, auto_session);
+                if json {
+                    println!("{}", serde_json::to_string_pretty(&record)?);
+                } else {
+                    println!("{}", render_truth_line(&record));
+                }
+            }
+            TruthCommand::Accept {
+                truth_id,
+                note,
+                actor,
+                json,
+            } => {
+                let record = accept_truth(
+                    &backlog_dir,
+                    TruthTransitionInput {
+                        truth_id,
+                        note,
+                        actor: actor.or_else(|| Some("cli".to_string())),
+                    },
+                )?;
+                audit_event(
+                    &backlog_dir,
+                    "truth_accept",
+                    None,
+                    serde_json::json!({ "truth_id": record.id }),
+                )?;
+                maybe_auto_checkpoint(&backlog_dir, auto_checkpoint, auto_session);
+                if json {
+                    println!("{}", serde_json::to_string_pretty(&record)?);
+                } else {
+                    println!("{}", render_truth_line(&record));
+                }
+            }
+            TruthCommand::Reject {
+                truth_id,
+                note,
+                actor,
+                json,
+            } => {
+                let record = reject_truth(
+                    &backlog_dir,
+                    TruthTransitionInput {
+                        truth_id,
+                        note,
+                        actor: actor.or_else(|| Some("cli".to_string())),
+                    },
+                )?;
+                audit_event(
+                    &backlog_dir,
+                    "truth_reject",
+                    None,
+                    serde_json::json!({ "truth_id": record.id }),
+                )?;
+                maybe_auto_checkpoint(&backlog_dir, auto_checkpoint, auto_session);
+                if json {
+                    println!("{}", serde_json::to_string_pretty(&record)?);
+                } else {
+                    println!("{}", render_truth_line(&record));
+                }
+            }
+            TruthCommand::Supersede {
+                truth_id,
+                by,
+                reason,
+                actor,
+                json,
+            } => {
+                let record = supersede_truth(
+                    &backlog_dir,
+                    TruthSupersedeInput {
+                        truth_id,
+                        by_truth_id: by,
+                        reason,
+                        actor: actor.or_else(|| Some("cli".to_string())),
+                    },
+                )?;
+                audit_event(
+                    &backlog_dir,
+                    "truth_supersede",
+                    None,
+                    serde_json::json!({
+                        "truth_id": record.id,
+                        "superseded_by": record.superseded_by,
+                    }),
+                )?;
+                maybe_auto_checkpoint(&backlog_dir, auto_checkpoint, auto_session);
+                if json {
+                    println!("{}", serde_json::to_string_pretty(&record)?);
+                } else {
+                    println!("{}", render_truth_line(&record));
+                }
+            }
+            TruthCommand::Show { truth_id, json } => {
+                let Some(record) = show_truth(&backlog_dir, &truth_id)? else {
+                    die(&format!("Truth record not found: {}", truth_id));
+                };
+                if json {
+                    println!("{}", serde_json::to_string_pretty(&record)?);
+                } else {
+                    println!("{}", serde_json::to_string_pretty(&record)?);
+                }
+            }
+            TruthCommand::List {
+                state,
+                project,
+                epic,
+                feature,
+                session_id,
+                worktree_id,
+                worktree_path,
+                tag,
+                limit,
+                json,
+            } => {
+                let states = parse_truth_states(state.as_slice())?;
+                let records = list_truths(
+                    &backlog_dir,
+                    &TruthQuery {
+                        states,
+                        project_id: project,
+                        epic_id: epic,
+                        feature,
+                        session_id,
+                        worktree_id,
+                        worktree_path: worktree_path
+                            .as_deref()
+                            .map(normalize_path_string),
+                        tags: split_list(tag.as_slice()),
+                        limit,
+                    },
+                )?;
+                if json {
+                    println!("{}", serde_json::to_string_pretty(&records)?);
+                } else if records.is_empty() {
+                    println!("(no truth records)");
+                } else {
+                    for record in records {
+                        println!("{}", render_truth_line(&record));
+                    }
+                }
+            }
+            TruthCommand::Validate { json } => {
+                let report = validate_truth_store(&backlog_dir)?;
+                if json {
+                    println!("{}", serde_json::to_string_pretty(&report)?);
+                } else if report.ok {
+                    println!("truth: ok (events={} records={})", report.event_count, report.record_count);
+                } else {
+                    println!("truth: invalid");
+                    for issue in &report.malformed_events {
+                        println!("- malformed_event: {}", issue);
+                    }
+                    for issue in &report.transition_errors {
+                        println!("- transition_error: {}", issue);
+                    }
+                    for issue in &report.projection_mismatches {
+                        println!("- projection_mismatch: {}", issue);
+                    }
+                    std::process::exit(1);
+                }
+            }
+            TruthCommand::Migrate { command } => match command {
+                TruthMigrateCommand::Audit { json } => {
+                    let report = truth_migration_audit(&backlog_dir)?;
+                    if json {
+                        println!("{}", serde_json::to_string_pretty(&report)?);
+                    } else {
+                        println!("legacy candidates: {}", report.candidates.len());
+                        for warning in report.warnings {
+                            println!("warning: {}", warning);
+                        }
+                    }
+                }
+                TruthMigrateCommand::Plan { json } => {
+                    let audit = truth_migration_audit(&backlog_dir)?;
+                    let plan = truth_migration_plan(&backlog_dir, &audit)?;
+                    if json {
+                        println!("{}", serde_json::to_string_pretty(&plan)?);
+                    } else {
+                        println!("to_create: {}", plan.to_create.len());
+                        println!("skipped: {}", plan.skipped.len());
+                        for warning in plan.warnings {
+                            println!("warning: {}", warning);
+                        }
+                    }
+                }
+                TruthMigrateCommand::Apply { apply, json } => {
+                    let audit = truth_migration_audit(&backlog_dir)?;
+                    let plan = truth_migration_plan(&backlog_dir, &audit)?;
+                    let result = apply_truth_migration(&backlog_dir, &plan, !apply)?;
+                    if apply {
+                        audit_event(
+                            &backlog_dir,
+                            "truth_migrate_apply",
+                            None,
+                            serde_json::json!({ "created": result.created_ids }),
+                        )?;
+                        maybe_auto_checkpoint(&backlog_dir, auto_checkpoint, auto_session);
+                    }
+                    if json {
+                        println!("{}", serde_json::to_string_pretty(&result)?);
+                    } else if apply {
+                        println!("created: {}", result.created_ids.len());
+                        if !result.skipped.is_empty() {
+                            println!("skipped: {}", result.skipped.len());
+                        }
+                    } else {
+                        println!(
+                            "dry-run: {} candidate(s) would be migrated",
+                            plan.to_create.len()
+                        );
+                    }
+                }
+            },
+        },
         Command::Worktree { command } => {
             let repo_root = repo_root_from_backlog(&backlog_dir);
             let home = resolve_workmesh_home()?;
@@ -3534,8 +4078,13 @@ fn main() -> Result<()> {
         }
         Command::Validate { json } => {
             let report = validate_tasks(&tasks, Some(&backlog_dir));
+            let truth_report = validate_truth_store(&backlog_dir).ok();
             if json {
-                println!("{}", serde_json::to_string_pretty(&report)?);
+                let payload = serde_json::json!({
+                    "tasks": report,
+                    "truth": truth_report,
+                });
+                println!("{}", serde_json::to_string_pretty(&payload)?);
             } else {
                 for err in &report.errors {
                     println!("ERROR: {}", err);
@@ -3543,7 +4092,27 @@ fn main() -> Result<()> {
                 for warn in &report.warnings {
                     println!("WARN: {}", warn);
                 }
-                if !report.errors.is_empty() {
+                if let Some(truth_report) = truth_report.as_ref() {
+                    if truth_report.ok {
+                        println!(
+                            "TRUTH: OK (events={} records={})",
+                            truth_report.event_count, truth_report.record_count
+                        );
+                    } else {
+                        for issue in &truth_report.malformed_events {
+                            println!("TRUTH ERROR: malformed_event: {}", issue);
+                        }
+                        for issue in &truth_report.transition_errors {
+                            println!("TRUTH ERROR: transition_error: {}", issue);
+                        }
+                        for issue in &truth_report.projection_mismatches {
+                            println!("TRUTH ERROR: projection_mismatch: {}", issue);
+                        }
+                    }
+                }
+                if !report.errors.is_empty()
+                    || truth_report.as_ref().map(|r| !r.ok).unwrap_or(false)
+                {
                     std::process::exit(1);
                 }
             }
@@ -4083,6 +4652,20 @@ fn handle_worktree_command(repo_root: &Path, home: &Path, command: WorktreeComma
             let mut updated = existing.clone();
             updated.updated_at = now_rfc3339();
             updated.worktree = Some(binding.clone());
+            updated.truth_refs = updated
+                .repo_root
+                .as_deref()
+                .and_then(|root| resolve_backlog(Path::new(root)).ok())
+                .map(|resolution| {
+                    truth_refs_for_scope(
+                        &resolution.backlog_dir,
+                        updated.project_id.as_deref(),
+                        updated.epic_id.as_deref(),
+                        updated.worktree.as_ref().map(|item| item.path.as_str()),
+                        10,
+                    )
+                })
+                .unwrap_or_default();
             append_session_saved(home, updated.clone())?;
             set_current_session(home, &updated.id)?;
 
@@ -4113,6 +4696,20 @@ fn handle_worktree_command(repo_root: &Path, home: &Path, command: WorktreeComma
             let mut updated = existing.clone();
             updated.updated_at = now_rfc3339();
             updated.worktree = None;
+            updated.truth_refs = updated
+                .repo_root
+                .as_deref()
+                .and_then(|root| resolve_backlog(Path::new(root)).ok())
+                .map(|resolution| {
+                    truth_refs_for_scope(
+                        &resolution.backlog_dir,
+                        updated.project_id.as_deref(),
+                        updated.epic_id.as_deref(),
+                        None,
+                        10,
+                    )
+                })
+                .unwrap_or_default();
             append_session_saved(home, updated.clone())?;
             set_current_session(home, &updated.id)?;
             if json {
