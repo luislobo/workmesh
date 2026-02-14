@@ -1,4 +1,4 @@
-# PRD: Onboarding + Core DX Commands
+# PRD: Onboarding + Core Developer Experience Commands
 
 ## Summary
 Make WorkMesh easy to adopt in a new repo and easy to operate day-to-day with a small set of
@@ -7,7 +7,7 @@ high-leverage commands that are safe for agents and deterministic for humans.
 This PRD covers:
 - A guided "Getting Started" doc path
 - A docs index that routes to concepts/reference
-- Three DX commands (CLI + MCP): `doctor`, `board`, `blockers`
+- Three developer experience commands (CLI + MCP): `doctor`, `board`, `blockers`
 
 ## Goals
 - A new developer can install + quickstart + pick next work in under 5 minutes.

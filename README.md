@@ -2,63 +2,61 @@
 
 WorkMesh is a docs-first, MCP-ready project/task system that keeps planning state in plain text next to your code.
 
-This repository contains the Rust implementation:
+This repository contains:
 - `workmesh` (CLI)
 - `workmesh-core` (shared logic)
 - `workmesh-mcp` (MCP server)
 
 Agent-friendly format: [`README.json`](README.json) (kept in sync with this file).
 
-Start here:
-- Progressive DX guide: [`docs/getting-started.md`](docs/getting-started.md)
-- Command reference: [`docs/reference/commands.md`](docs/reference/commands.md)
-- Docs index: [`docs/README.md`](docs/README.md)
+## Codex-First Workflow (Recommended)
+If you work inside Codex, the happy path is intentionally short.
 
-## Why WorkMesh
-- Work stays in git with your source.
-- Dependency-aware task selection (`next`, `ready`, `blockers`).
-- Parallel-safe execution through worktrees + sessions.
-- Durable feature decisions through the Truth Ledger.
+1. `cd` into any repo directory.
+2. Start Codex:
+   - `codex` for a new chat
+   - `codex resume` for an existing chat
+3. Tell Codex:
+   - `Bootstrap WorkMesh in this repo. Use MCP if available, otherwise CLI.`
+4. Start feature work:
+   - `Use WorkMesh to document this feature end to end: tasks, PRD updates, and decisions.`
+
+That is the primary workflow. You should not need to memorize command lists.
+
+## What "Bootstrap WorkMesh" Means
+When you ask Codex to bootstrap, it should detect repository state and do the right thing:
+
+- No WorkMesh data yet:
+  - initialize WorkMesh docs/tasks and seed context.
+- Existing modern WorkMesh layout:
+  - validate health, show current context, and pick next work.
+- Legacy WorkMesh/backlog layout:
+  - run migration audit/plan/apply, then continue on modern layout.
+- Long-lived clone-based branch workflow:
+  - keep you unblocked now, and recommend migration to canonical repo + worktrees.
+
+## Feature Workflow Prompt
+After bootstrap, you can stay in normal conversation and be explicit once:
+
+`Use WorkMesh for this feature. Create/update PRD, break down tasks with acceptance criteria and definition of done, keep context current, and track decisions in Truth Ledger.`
+
+Codex should then operate with WorkMesh continuously while you discuss implementation.
 
 ## Install
 
 ### Prebuilt binaries (recommended)
-Release archives include both binaries (`workmesh`, `workmesh-mcp`).
-
-Pick a release:
-```bash
-workmesh_version="vX.Y.Z"
-```
-
-macOS/Linux:
-```bash
-gh release download "$workmesh_version" -R luislobo/workmesh \
-  -p "workmesh-$workmesh_version-<target>.tar.gz"
-
-tar -xzf "workmesh-$workmesh_version-<target>.tar.gz"
-sudo install -m 0755 "workmesh-$workmesh_version-<target>/workmesh" /usr/local/bin/workmesh
-sudo install -m 0755 "workmesh-$workmesh_version-<target>/workmesh-mcp" /usr/local/bin/workmesh-mcp
-```
-
-Windows (PowerShell):
-```powershell
-$workmesh_version = "vX.Y.Z"
-gh release download $workmesh_version -R luislobo/workmesh `
-  -p "workmesh-$workmesh_version-x86_64-pc-windows-msvc.zip"
-Expand-Archive "workmesh-$workmesh_version-x86_64-pc-windows-msvc.zip" -DestinationPath . -Force
-```
-
-Verify:
 ```bash
 workmesh --version
 workmesh-mcp --version
 ```
 
+Install from release artifacts (`workmesh`, `workmesh-mcp`) and verify versions.
+
 ### Build from source
 ```bash
 git clone git@github.com:luislobo/workmesh.git
 cd workmesh
-cargo build -p workmesh-cli
+cargo build -p workmesh
 cargo build -p workmesh-mcp
 ```
 
@@ -72,91 +70,34 @@ command = "/usr/local/bin/workmesh-mcp"
 args = []
 ```
 
-Quick verification from chat:
-1. Call `version`
-2. Call `readme`
-3. Call `doctor`
-
-## Progressive DX Workflow
-WorkMesh usage is staged. Use one canonical guide:
-
-1. Start (single repo): `quickstart` -> `context set` -> `next` -> claim/work/done.
-2. Parallelize (worktrees): one stream per worktree, each with explicit context/session.
-3. Recover (reboot/resume): `session resume` -> `context show` -> `truth list` -> `next`.
-4. Consolidate clones: move sibling clones into one canonical repo + worktrees.
-
-Full procedural commands: [`docs/getting-started.md`](docs/getting-started.md).
-
-## Core Model
-- `context`: repo-local intent/scope pointer (`workmesh/context.json`).
-- `truth`: durable validated decisions (`workmesh/truth/`).
-- `sessions`: cross-repo continuity in `WORKMESH_HOME` (default `~/.workmesh`).
-- `worktrees`: runtime isolation for parallel streams.
-
-## Defaults And Config
-Global config path:
+## Defaults
+Global config:
 - `~/.workmesh/config.toml` (or `$WORKMESH_HOME/config.toml`)
 
-Project config path:
+Project config:
 - `.workmesh.toml` (preferred)
 - `.workmeshrc` (legacy alias)
 
-Supported DX defaults:
+Keys:
 - `worktrees_default = true|false`
 - `auto_session_default = true|false`
 
-Precedence:
-1. CLI flags
-2. Environment variables
-3. Project config
-4. Global config
-5. Built-in defaults
-
 Auto session behavior:
-- Built-in default: enabled for interactive non-CI terminals.
-- Built-in default: disabled in CI/non-interactive contexts.
-- Explicit override:
-  - enable: `--auto-session-save` or `WORKMESH_AUTO_SESSION=1`
-  - disable: `--no-auto-session-save` or `WORKMESH_AUTO_SESSION=0`
+- default ON for interactive non-CI terminals
+- default OFF for CI/non-interactive contexts
+- explicit override:
+  - on: `--auto-session-save` or `WORKMESH_AUTO_SESSION=1`
+  - off: `--no-auto-session-save` or `WORKMESH_AUTO_SESSION=0`
 
-## Command Surface
-Project lifecycle:
-- `quickstart`, `project-init`, `doctor`, `validate`, `archive`
+## Documentation
+- Codex-first onboarding: [`docs/getting-started.md`](docs/getting-started.md)
+- Command catalog: [`docs/reference/commands.md`](docs/reference/commands.md)
+- Documentation index: [`docs/README.md`](docs/README.md)
 
-Task flow:
-- `list`, `show`, `next`, `ready`, `claim`, `set-status`, `note`, `release`
-
-Context/truth:
-- `context set|show|clear`
-- `truth propose|accept|reject|supersede|show|list|validate`
-
-Worktrees/sessions:
-- `worktree list|create|attach|detach|doctor`
-- `session save|list|show|resume`
-
-Index/reporting:
-- `index-rebuild|index-refresh|index-verify`
-- `board`, `blockers`, `stats`, `graph-export`, `issues-export`
-
-Full CLI + MCP mapping: [`docs/reference/commands.md`](docs/reference/commands.md).
-
-## Legacy Note (Minimal)
-If a repo still uses legacy `backlog/` layout or `focus.json`, use migration tooling:
+## Legacy Note
+If a repo still has old `backlog/` or `focus.json` structures:
 ```bash
 workmesh --root . migrate audit
 workmesh --root . migrate plan
 workmesh --root . migrate apply --apply
 ```
-
-Legacy migration guidance is intentionally minimized in primary DX docs.
-
-## Repository Layout
-- `crates/` Rust crates (`workmesh-cli`, `workmesh-core`, `workmesh-mcp`)
-- `docs/` product and usage docs
-- `skills/` embedded WorkMesh skills
-- `workmesh/` task and state files for this repo
-
-## Roadmap (Near Term)
-- Clone-to-worktree onboarding helpers (`worktree onboard ...`).
-- Streamlined multi-worktree session recovery scripts.
-- Additional diagnostics for stale stream/session bindings.

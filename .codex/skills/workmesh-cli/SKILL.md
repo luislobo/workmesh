@@ -5,59 +5,64 @@ description: CLI-first WorkMesh workflow. Use when agents should run shell comma
 
 # WorkMesh CLI Skill
 
-Use this skill for shell-first WorkMesh workflows.
+Use this skill when WorkMesh MCP is not available.
 
-## Baseline checks
+## Bootstrap intent handling
+If user says `bootstrap workmesh`, execute this flow:
+
+1. Discover state:
 ```bash
 workmesh --root . doctor --json
+```
+
+2. If no WorkMesh structure:
+```bash
+workmesh --root . quickstart <project-id> --feature "<feature-name>" --agents-snippet
+workmesh --root . context set --project <project-id> --objective "<objective>"
+```
+
+3. If legacy structure exists:
+```bash
+workmesh --root . migrate audit
+workmesh --root . migrate plan
+workmesh --root . migrate apply --apply
+```
+
+4. If modern structure exists:
+```bash
 workmesh --root . context show --json
-workmesh --root . worktree list --json
 workmesh --root . truth list --state accepted --limit 20 --json
+workmesh --root . next --json
 ```
 
-## Progressive loops
+5. If clone-based stream workflow is detected:
+- Do not block feature work.
+- Recommend canonical repo + worktree migration path.
 
-Stage 1: Start
-```text
-quickstart -> context set -> next -> claim -> set-status(In Progress) -> note -> set-status(Done) -> release
-```
+## Feature work contract
+When user says to use WorkMesh for feature development:
+- maintain PRD/task documentation continuously
+- keep context current
+- maintain acceptance criteria and definition of done quality
+- capture stable decisions as truths
 
-Stage 2: Parallelize
-```text
-worktree create -> cd <worktree> -> session save -> worktree attach -> context show -> next -> claim
-```
-
-Stage 3: Recover
-```text
-worktree list -> cd <worktree> -> session resume -> context show -> truth list(accepted) -> next
-```
-
-Stage 4: Consolidate clones
-```text
-audit sibling clones -> ensure clean -> create canonical worktree per stream -> session save/attach -> archive old clone later
-```
-
-## High-signal commands
-- Next candidates: `workmesh --root . next --json`
-- Candidate set: `workmesh --root . ready --json`
-- Start work: `workmesh --root . claim <task-id> <owner> --minutes 60`
-- Mark active: `workmesh --root . set-status <task-id> "In Progress"`
-- Capture context: `workmesh --root . note <task-id> "<note>"`
-- Finish: `workmesh --root . set-status <task-id> Done`
-- Release: `workmesh --root . release <task-id>`
+## High-signal loop
+- `workmesh --root . next --json`
+- `workmesh --root . claim <task-id> <owner> --minutes 60`
+- `workmesh --root . set-status <task-id> "In Progress"`
+- `workmesh --root . note <task-id> "<note>"`
+- `workmesh --root . set-status <task-id> Done`
+- `workmesh --root . release <task-id>`
 
 ## Defaults and overrides
-- Worktree guidance defaults to ON (`worktrees_default`).
-- Auto session updates should run in interactive local workflows by default (`auto_session_default`).
+- Worktree guidance default: `worktrees_default`.
+- Auto session update default: `auto_session_default`.
 - One-off overrides:
-  - force ON: `--auto-session-save`
-  - force OFF: `--no-auto-session-save`
+  - `--auto-session-save`
+  - `--no-auto-session-save`
 
 ## Rules
-- Prefer `--json` for parsing.
-- Keep dependencies current when status changes.
-- Persist durable decisions as truths scoped by project/epic/worktree/session when possible.
+- Prefer `--json` when parsing output.
+- Keep dependencies and blockers current.
 - Keep task metadata complete: `Description`, `Acceptance Criteria`, `Definition of Done`.
-- Move to `Done` only when description goals + acceptance criteria are satisfied.
-- Treat `Code/config committed` and `Docs updated if needed` as hygiene checks.
-- Do not commit derived `workmesh/.index/` files.
+- Move to `Done` only when goals and criteria are fully met.

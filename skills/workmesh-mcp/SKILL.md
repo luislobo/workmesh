@@ -5,43 +5,46 @@ description: MCP-first WorkMesh workflow. Use when WorkMesh MCP tools are availa
 
 # WorkMesh MCP Skill
 
-Use this skill for tool-call-first WorkMesh workflows.
+Use this skill when WorkMesh MCP tools are available.
 
-## Baseline tool calls
+## Bootstrap intent handling
+If user says `bootstrap workmesh`, execute this flow:
+
+1. Discover state:
 ```json
 {"tool":"doctor","format":"json"}
 ```
+
+2. If no WorkMesh structure:
+```json
+{"tool":"quickstart","project_id":"<project-id>","feature":"<feature-name>","agents_snippet":true,"format":"json"}
+{"tool":"context_set","project_id":"<project-id>","objective":"<objective>","format":"json"}
+```
+
+3. If legacy structure exists:
+```json
+{"tool":"migrate_audit","format":"json"}
+{"tool":"migrate_plan","format":"json"}
+{"tool":"migrate_apply","apply":true,"format":"json"}
+```
+
+4. If modern structure exists:
 ```json
 {"tool":"context_show","format":"json"}
-```
-```json
-{"tool":"worktree_list","format":"json"}
-```
-```json
 {"tool":"truth_list","states":["accepted"],"limit":20,"format":"json"}
+{"tool":"next_tasks","format":"json","limit":10}
 ```
 
-## Progressive loops
+5. If clone-based stream workflow is detected:
+- Do not block feature work.
+- Recommend canonical repo + worktree migration path.
 
-Stage 1: Start
-```text
-quickstart -> context_set -> next_tasks -> claim_task -> set_status(In Progress) -> add_note -> set_status(Done) -> release_task
-```
-
-Stage 2: Parallelize
-```text
-worktree_create -> session_save -> worktree_attach -> context_show -> next_tasks -> claim_task
-```
-
-Stage 3: Recover
-```text
-worktree_list -> session_resume -> context_show -> truth_list(accepted) -> next_tasks
-```
-
-Stage 4: Consolidate clones
-```text
-audit sibling clones (manual today) -> create canonical worktree per stream -> session_save/worktree_attach -> retire old clones later
-```
+## Feature work contract
+When user says to use WorkMesh for feature development:
+- maintain PRD/task documentation continuously
+- keep context current
+- maintain acceptance criteria and definition of done quality
+- capture stable decisions as truths
 
 ## High-signal loop
 - `{"tool":"next_tasks","format":"json","limit":10}`
@@ -51,18 +54,7 @@ audit sibling clones (manual today) -> create canonical worktree per stream -> s
 - `{"tool":"set_status","task_id":"task-123","status":"Done","touch":true}`
 - `{"tool":"release_task","task_id":"task-123","touch":true}`
 
-## Defaults and overrides
-- Worktree guidance defaults to ON (`worktrees_default`).
-- Auto session updates should run in interactive local workflows by default (`auto_session_default`).
-- Explicit override remains available through environment:
-  - `WORKMESH_AUTO_SESSION=1` (force on)
-  - `WORKMESH_AUTO_SESSION=0` (force off)
-
-## MCP rules
-- If server starts inside a repo, `root` is optional; otherwise provide `root`.
-- Prefer `next_tasks` when choosing among candidates.
-- Keep dependencies and blocked state up to date.
-- Persist durable decisions using truth tools with available scope context.
+## Rules
 - Keep task metadata complete: `Description`, `Acceptance Criteria`, `Definition of Done`.
-- Move to `Done` only when description goals + acceptance criteria are satisfied.
-- Treat `Code/config committed` and `Docs updated if needed` as hygiene checks.
+- Move to `Done` only when goals and criteria are fully met.
+- Keep dependencies and blockers current.

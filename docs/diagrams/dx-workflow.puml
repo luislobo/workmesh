@@ -1,5 +1,5 @@
 @startuml
-title WorkMesh DX Workflow (Phases + Actors)
+title WorkMesh Developer Experience Workflow (Phases + Actors)
 
 skinparam shadowing false
 skinparam backgroundColor white
