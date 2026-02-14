@@ -206,9 +206,8 @@ workmesh --root . context show
 workmesh --root . context clear
 ```
 
-Deprecated compatibility:
-- `focus` commands and MCP tools still work as aliases (`focus show|set|clear`, `focus_show|set|clear`).
-- New writes go to `context.json`; `focus.json` is considered legacy and should be migrated away.
+Migration note:
+- `focus.json` is legacy and should be migrated to `context.json` via `workmesh --root . migrate audit|plan|apply`.
 
 Integration points:
 - `session save` captures `epic_id` from context epic scope (or best-effort from git branch like `task-123`).
@@ -366,9 +365,6 @@ workmesh --root . fix ids
 
 # apply changes (renames the duplicate tasks)
 workmesh --root . fix ids --apply
-
-# optional legacy alias (same behavior)
-workmesh --root . fix-ids --apply
 ```
 
 If you want to migrate an existing backlog from legacy ids like `task-001` to the initiative-key scheme,
@@ -687,7 +683,6 @@ Docs/Scaffold:
 
 Context:
 - `context set|show|clear` (primary)
-- `focus set|show|clear` (deprecated alias)
 
 Truth ledger:
 - `truth propose|accept|reject|supersede|show|list|validate`

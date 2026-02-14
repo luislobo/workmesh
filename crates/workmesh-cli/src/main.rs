@@ -94,7 +94,7 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
-    /// Diagnostics for repo layout, focus, index, and skill installation
+    /// Diagnostics for repo layout, context, index, and skill installation
     Doctor {
         #[arg(long, action = ArgAction::SetTrue)]
         json: bool,
@@ -144,18 +144,18 @@ enum Command {
         /// Group lanes by this field
         #[arg(long, value_enum, default_value_t = BoardByArg::Status)]
         by: BoardByArg,
-        /// Scope to the current focus (epic subtree or working set)
+        /// Scope to the current context (epic subtree or working set)
         #[arg(long, action = ArgAction::SetTrue)]
         focus: bool,
         #[arg(long, action = ArgAction::SetTrue)]
         json: bool,
     },
-    /// Show blocked work and the top blockers (scoped to focus epic by default)
+    /// Show blocked work and the top blockers (scoped to context epic by default)
     Blockers {
         /// Include archived tasks under `workmesh/archive/` (recursively)
         #[arg(long, action = ArgAction::SetTrue)]
         all: bool,
-        /// Override focus epic id for scoping
+        /// Override context epic id for scoping
         #[arg(long)]
         epic_id: Option<String>,
         #[arg(long, action = ArgAction::SetTrue)]
@@ -213,14 +213,6 @@ enum Command {
     },
     /// Show task stats
     Stats {
-        #[arg(long, action = ArgAction::SetTrue)]
-        json: bool,
-    },
-    /// Fix duplicate task ids (after merges). By default this is a dry-run; pass --apply to write changes.
-    FixIds {
-        /// Apply changes (otherwise dry-run)
-        #[arg(long, action = ArgAction::SetTrue)]
-        apply: bool,
         #[arg(long, action = ArgAction::SetTrue)]
         json: bool,
     },
@@ -355,11 +347,6 @@ enum Command {
     },
     /// Repo-local context (project/objective/scope)
     Context {
-        #[command(subcommand)]
-        command: ContextCommand,
-    },
-    /// Deprecated alias for `context`
-    Focus {
         #[command(subcommand)]
         command: ContextCommand,
     },
@@ -836,7 +823,7 @@ enum FixCommand {
         #[arg(long, action = ArgAction::SetTrue)]
         json: bool,
     },
-    /// Detect/rekey duplicate task ids (same behavior as legacy `fix-ids`)
+    /// Detect/rekey duplicate task ids
     Ids {
         /// Apply changes (default is check/dry-run)
         #[arg(long, action = ArgAction::SetTrue)]
@@ -2312,46 +2299,6 @@ fn main() -> Result<()> {
                 }
             }
         }
-        Command::FixIds { apply, json } => {
-            let report = fix_duplicate_task_ids(&backlog_dir, &tasks, FixIdsOptions { apply })?;
-            if apply {
-                audit_event(
-                    &backlog_dir,
-                    "fix_ids",
-                    None,
-                    serde_json::json!({ "changes": report.changes.len() }),
-                )?;
-                refresh_index_best_effort(&backlog_dir);
-                maybe_auto_checkpoint(&backlog_dir, auto_checkpoint, auto_session);
-            }
-            if json {
-                let payload = serde_json::json!({
-                    "ok": true,
-                    "apply": apply,
-                    "changes": report.changes.iter().map(|c| serde_json::json!({
-                        "old_id": c.old_id,
-                        "new_id": c.new_id,
-                        "old_path": c.old_path,
-                        "new_path": c.new_path,
-                        "uid": c.uid,
-                    })).collect::<Vec<_>>(),
-                    "warnings": report.warnings,
-                });
-                println!("{}", serde_json::to_string_pretty(&payload)?);
-            } else if report.changes.is_empty() {
-                println!("No duplicate task ids found.");
-            } else {
-                for warning in &report.warnings {
-                    eprintln!("warning: {}", warning);
-                }
-                for change in &report.changes {
-                    println!("{} -> {}", change.old_id, change.new_id);
-                }
-                if !apply {
-                    println!("Dry-run: re-run with --apply to write changes.");
-                }
-            }
-        }
         Command::Fix { command } => match command {
             FixCommand::List { json } => {
                 let fixers = all_fix_targets()
@@ -3277,11 +3224,7 @@ fn main() -> Result<()> {
         }
         Command::Context { command } => {
             let repo_root = repo_root_from_backlog(&backlog_dir);
-            handle_context_command(&backlog_dir, &repo_root, command, false)?;
-        }
-        Command::Focus { command } => {
-            let repo_root = repo_root_from_backlog(&backlog_dir);
-            handle_context_command(&backlog_dir, &repo_root, command, true)?;
+            handle_context_command(&backlog_dir, &repo_root, command)?;
         }
         Command::Skill { command } => {
             let repo_root = repo_root_from_backlog(&backlog_dir);
@@ -4756,20 +4699,11 @@ fn handle_context_command(
     backlog_dir: &Path,
     repo_root: &Path,
     command: ContextCommand,
-    focus_alias: bool,
 ) -> Result<()> {
-    let state_key = if focus_alias { "focus" } else { "context" };
-    let command_label = if focus_alias { "Focus" } else { "Context" };
-    let clear_action = if focus_alias {
-        "focus_clear"
-    } else {
-        "context_clear"
-    };
-    let set_action = if focus_alias {
-        "focus_set"
-    } else {
-        "context_set"
-    };
+    let state_key = "context";
+    let command_label = "Context";
+    let clear_action = "context_clear";
+    let set_action = "context_set";
 
     match command {
         ContextCommand::Set {
@@ -4838,11 +4772,7 @@ fn handle_context_command(
                     "ok": true,
                     "path": path
                 });
-                payload[state_key] = if focus_alias {
-                    legacy_focus_payload(&state)
-                } else {
-                    serde_json::to_value(&state)?
-                };
+                payload[state_key] = serde_json::to_value(&state)?;
                 println!("{}", serde_json::to_string_pretty(&payload)?);
             } else {
                 println!("{} saved: {}", command_label, path.display());
@@ -4854,14 +4784,7 @@ fn handle_context_command(
                 let mut payload = serde_json::json!({
                     "path": context_path(backlog_dir)
                 });
-                payload[state_key] = if focus_alias {
-                    match context.as_ref() {
-                        Some(state) => legacy_focus_payload(state),
-                        None => serde_json::Value::Null,
-                    }
-                } else {
-                    serde_json::to_value(&context)?
-                };
+                payload[state_key] = serde_json::to_value(&context)?;
                 println!("{}", serde_json::to_string_pretty(&payload)?);
             } else if let Some(context) = context {
                 println!(
@@ -4909,20 +4832,6 @@ fn handle_context_command(
     }
 
     Ok(())
-}
-
-fn legacy_focus_payload(state: &ContextState) -> serde_json::Value {
-    let (epic_id, working_set) = match state.scope.mode {
-        ContextScopeMode::Epic => (state.scope.epic_id.clone(), Vec::new()),
-        ContextScopeMode::Tasks => (None, state.scope.task_ids.clone()),
-        ContextScopeMode::None => (None, Vec::new()),
-    };
-    serde_json::json!({
-        "project_id": state.project_id.clone(),
-        "epic_id": epic_id,
-        "objective": state.objective.clone(),
-        "working_set": working_set
-    })
 }
 
 fn handle_migrate_workflow(root: &Path, command: &MigrateCommand) -> Result<()> {

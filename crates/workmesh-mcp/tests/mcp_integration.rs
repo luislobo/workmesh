@@ -308,7 +308,7 @@ async fn mcp_smoke_more_tools() {
 
     client
         .request_tool_call(CallToolRequestParams {
-            name: "focus_set".to_string(),
+            name: "context_set".to_string(),
             arguments: Some(
                 serde_json::json!({
                     "root": root,
@@ -324,11 +324,11 @@ async fn mcp_smoke_more_tools() {
             task: None,
         })
         .await
-        .expect("focus_set");
+        .expect("context_set");
 
-    let focus_show = client
+    let context_show = client
         .request_tool_call(CallToolRequestParams {
-            name: "focus_show".to_string(),
+            name: "context_show".to_string(),
             arguments: Some(
                 serde_json::json!({"root": temp.path().display().to_string(), "format": "json"})
                     .as_object()
@@ -339,8 +339,8 @@ async fn mcp_smoke_more_tools() {
             task: None,
         })
         .await
-        .expect("focus_show");
-    let focus_text = focus_show
+        .expect("context_show");
+    let context_text = context_show
         .content
         .first()
         .unwrap()
@@ -348,7 +348,7 @@ async fn mcp_smoke_more_tools() {
         .unwrap()
         .text
         .clone();
-    assert!(focus_text.contains("project_id"));
+    assert!(context_text.contains("project_id"));
 
     let ready = client
         .request_tool_call(CallToolRequestParams {

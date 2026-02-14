@@ -129,8 +129,7 @@
         "purpose": "After merges, detect and rekey duplicate task ids.",
         "cli": [
           "workmesh --root . fix ids (dry-run)",
-          "workmesh --root . fix ids --apply",
-          "workmesh --root . fix-ids --apply (legacy alias)"
+          "workmesh --root . fix ids --apply"
         ],
         "mcp_tool": "fix_ids"
       }
@@ -152,18 +151,6 @@
         "session save captures epic_id from context epic scope (fallback: parse task-123 from git branch).",
         "session resume resume-script includes context show.",
         "next/next_task/next_tasks are context-aware: epic scope prioritizes subtree; task scope prioritizes listed ids; active work is still prioritized first."
-      ]
-    },
-    "focus_alias": {
-      "status": "deprecated compatibility alias",
-      "commands": [
-        "workmesh --root . focus show [--json]",
-        "workmesh --root . focus set ...",
-        "workmesh --root . focus clear"
-      ],
-      "notes": [
-        "focus commands/tools read and write context under the hood.",
-        "Legacy workmesh/focus.json should be migrated to workmesh/context.json."
       ]
     },
     "worktrees": {

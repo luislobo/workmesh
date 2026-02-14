@@ -1392,7 +1392,7 @@ async fn cli_and_mcp_write_and_session_parity() {
 }
 
 #[tokio::test]
-async fn cli_and_mcp_focus_parity() {
+async fn cli_and_mcp_context_parity() {
     let temp = TempDir::new().expect("tempdir");
     let repo_root = temp.path();
     std::fs::create_dir_all(repo_root.join("workmesh").join("tasks")).expect("tasks dir");
@@ -1405,16 +1405,16 @@ async fn cli_and_mcp_focus_parity() {
     )
     .expect("docs dir");
 
-    // MCP: set focus
+    // MCP: set context
     let client = start_client(repo_root).await;
     let set = call_tool_text(
         &client,
-        "focus_set",
+        "context_set",
         serde_json::json!({
             "root": repo_root.display().to_string(),
             "project_id": "alpha",
             "epic_id": "task-039",
-            "objective": "Ship focus",
+            "objective": "Ship context",
             "tasks": ["task-001","task-002"],
             "format": "json"
         }),
@@ -1426,44 +1426,48 @@ async fn cli_and_mcp_focus_parity() {
         .and_then(|v| v.as_bool())
         .unwrap_or(false));
 
-    // CLI: show focus should reflect set values
+    // CLI: show context should reflect set values
     let show = cli()
         .arg("--root")
         .arg(repo_root)
-        .arg("focus")
+        .arg("context")
         .arg("show")
         .arg("--json")
         .output()
-        .expect("cli focus show");
+        .expect("cli context show");
     assert_output_ok!(show);
     let parsed: serde_json::Value = serde_json::from_slice(&show.stdout).expect("json");
-    let focus = parsed
-        .get("focus")
-        .expect("focus")
+    let context = parsed
+        .get("context")
+        .expect("context")
         .as_object()
         .expect("obj");
     assert_eq!(
-        focus.get("project_id").and_then(|v| v.as_str()).unwrap(),
+        context.get("project_id").and_then(|v| v.as_str()).unwrap(),
         "alpha"
     );
     assert_eq!(
-        focus.get("epic_id").and_then(|v| v.as_str()).unwrap(),
+        context
+            .get("scope")
+            .and_then(|v| v.get("epic_id"))
+            .and_then(|v| v.as_str())
+            .unwrap(),
         "task-039"
     );
     assert_eq!(
-        focus.get("objective").and_then(|v| v.as_str()).unwrap(),
-        "Ship focus"
+        context.get("objective").and_then(|v| v.as_str()).unwrap(),
+        "Ship context"
     );
 
-    // CLI: clear focus
+    // CLI: clear context
     let cleared = cli()
         .arg("--root")
         .arg(repo_root)
-        .arg("focus")
+        .arg("context")
         .arg("clear")
         .arg("--json")
         .output()
-        .expect("cli focus clear");
+        .expect("cli context clear");
     assert_output_ok!(cleared);
     let cleared_json: serde_json::Value = serde_json::from_slice(&cleared.stdout).expect("json");
     assert!(cleared_json
@@ -1471,15 +1475,15 @@ async fn cli_and_mcp_focus_parity() {
         .and_then(|v| v.as_bool())
         .unwrap_or(false));
 
-    // MCP: show focus should now be null
+    // MCP: show context should now be null
     let shown = call_tool_text(
         &client,
-        "focus_show",
+        "context_show",
         serde_json::json!({"root": repo_root.display().to_string(), "format": "json"}),
     )
     .await;
     let parsed: serde_json::Value = serde_json::from_str(&shown).expect("json");
-    assert!(parsed.get("focus").unwrap().is_null());
+    assert!(parsed.get("context").unwrap().is_null());
 
     client.shut_down().await.expect("shutdown");
 }

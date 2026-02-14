@@ -22,17 +22,17 @@ This PRD covers:
 ## Users and workflows
 ### Bootstrap (run once per repo)
 ```text
-quickstart -> focus_set -> add -> next_tasks
+quickstart -> context_set -> add -> next_tasks
 ```
 
 ### Daily loop (repeat)
 ```text
-focus_show -> next_tasks -> claim -> set-status(In Progress) -> work -> note -> set-status(Done) -> release
+context_show -> next_tasks -> claim -> set-status(In Progress) -> work -> note -> set-status(Done) -> release
 ```
 
 ### Continuity (restart/reboot/compaction)
 ```text
-session save -> later session resume -> focus_show -> next_tasks -> claim -> continue
+session save -> later session resume -> context_show -> next_tasks -> claim -> continue
 ```
 
 ### Hygiene (occasional)
@@ -104,4 +104,3 @@ Scoping:
 ## Implementation notes
 - Keep the implementation local-first and deterministic.
 - Avoid committing derived artifacts (`workmesh/.index/`); they are rebuildable.
-

@@ -96,13 +96,11 @@ CLI:
 - `context show [--json]`
 - `context set --project <pid> [--epic task-123] [--objective "..."] [--tasks task-001,task-002]`
 - `context clear`
-- Deprecated alias: `focus show|set|clear`
 
 MCP:
 - `context_show`
 - `context_set`
 - `context_clear`
-- Deprecated alias: `focus_show|focus_set|focus_clear`
 
 ## Truth ledger (durable decisions)
 CLI:
@@ -157,7 +155,6 @@ CLI:
 - `fix list [--json]`
 - `fix uid|deps|ids [--check|--apply] [--json]`
 - `fix all [--only uid,deps,ids] [--exclude uid,deps,ids] [--check|--apply] [--json]`
-- `fix-ids [--apply] [--json]` (legacy alias for id-only fixer)
 - `validate [--json]` includes truth store consistency checks.
 
 Migration action keys:

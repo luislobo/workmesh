@@ -326,9 +326,6 @@ fn tool_catalog() -> Vec<serde_json::Value> {
         serde_json::json!({"name": "context_show", "summary": "Show repo-local context (project/objective/scope)."}),
         serde_json::json!({"name": "context_set", "summary": "Set repo-local context (project/objective/scope)."}),
         serde_json::json!({"name": "context_clear", "summary": "Clear repo-local context."}),
-        serde_json::json!({"name": "focus_show", "summary": "Deprecated alias for context_show."}),
-        serde_json::json!({"name": "focus_set", "summary": "Deprecated alias for context_set."}),
-        serde_json::json!({"name": "focus_clear", "summary": "Deprecated alias for context_clear."}),
         serde_json::json!({"name": "worktree_list", "summary": "List worktrees (git + registry)."}),
         serde_json::json!({"name": "worktree_create", "summary": "Create a git worktree and register it."}),
         serde_json::json!({"name": "worktree_attach", "summary": "Attach current/specified session to a worktree."}),
@@ -456,43 +453,6 @@ pub struct ContextSetTool {
 )]
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct ContextClearTool {
-    pub root: Option<String>,
-    #[serde(default = "default_format")]
-    pub format: String,
-}
-
-#[mcp_tool(
-    name = "focus_show",
-    description = "Deprecated alias for context_show. Show repo-local context state."
-)]
-#[derive(Debug, Deserialize, Serialize, JsonSchema)]
-pub struct FocusShowTool {
-    pub root: Option<String>,
-    #[serde(default = "default_format")]
-    pub format: String,
-}
-
-#[mcp_tool(
-    name = "focus_set",
-    description = "Deprecated alias for context_set. Set repo-local context state."
-)]
-#[derive(Debug, Deserialize, Serialize, JsonSchema)]
-pub struct FocusSetTool {
-    pub root: Option<String>,
-    pub project_id: Option<String>,
-    pub epic_id: Option<String>,
-    pub objective: Option<String>,
-    pub tasks: Option<ListInput>,
-    #[serde(default = "default_format")]
-    pub format: String,
-}
-
-#[mcp_tool(
-    name = "focus_clear",
-    description = "Deprecated alias for context_clear. Clear repo-local context state."
-)]
-#[derive(Debug, Deserialize, Serialize, JsonSchema)]
-pub struct FocusClearTool {
     pub root: Option<String>,
     #[serde(default = "default_format")]
     pub format: String,
@@ -1506,9 +1466,6 @@ tool_box!(
         ContextShowTool,
         ContextSetTool,
         ContextClearTool,
-        FocusShowTool,
-        FocusSetTool,
-        FocusClearTool,
         WorktreeListTool,
         WorktreeCreateTool,
         WorktreeAttachTool,
@@ -1620,9 +1577,6 @@ impl ServerHandler for WorkmeshServerHandler {
             WorkmeshTools::ContextShowTool(tool) => tool.call(&self.context),
             WorkmeshTools::ContextSetTool(tool) => tool.call(&self.context),
             WorkmeshTools::ContextClearTool(tool) => tool.call(&self.context),
-            WorkmeshTools::FocusShowTool(tool) => tool.call(&self.context),
-            WorkmeshTools::FocusSetTool(tool) => tool.call(&self.context),
-            WorkmeshTools::FocusClearTool(tool) => tool.call(&self.context),
             WorkmeshTools::WorktreeListTool(tool) => tool.call(&self.context),
             WorkmeshTools::WorktreeCreateTool(tool) => tool.call(&self.context),
             WorkmeshTools::WorktreeAttachTool(tool) => tool.call(&self.context),
@@ -1767,8 +1721,6 @@ fn call_context_show(
     context: &McpContext,
     root: Option<&str>,
     format: &str,
-    payload_key: &str,
-    legacy_focus: bool,
 ) -> Result<CallToolResult, CallToolError> {
     let backlog_dir = match resolve_root(context, root) {
         Ok(dir) => dir,
@@ -1790,19 +1742,13 @@ fn call_context_show(
                 }
             ));
         }
-        return ok_text(format!("(no {} set)", payload_key));
+        return ok_text("(no context set)".to_string());
     }
     let mut payload = serde_json::json!({
         "path": context_path(&backlog_dir)
     });
-    payload[payload_key] = if legacy_focus {
-        match loaded.as_ref() {
-            Some(state) => legacy_focus_payload(state),
-            None => serde_json::Value::Null,
-        }
-    } else {
-        serde_json::to_value(&loaded).map_err(|err| CallToolError::from_message(err.to_string()))?
-    };
+    payload["context"] = serde_json::to_value(&loaded)
+        .map_err(|err| CallToolError::from_message(err.to_string()))?;
     ok_json(payload)
 }
 
@@ -1814,8 +1760,6 @@ fn call_context_set(
     objective: Option<String>,
     tasks: Option<ListInput>,
     audit_action: &str,
-    payload_key: &str,
-    legacy_focus: bool,
 ) -> Result<CallToolResult, CallToolError> {
     let backlog_dir = match resolve_root(context, root) {
         Ok(dir) => dir,
@@ -1870,11 +1814,8 @@ fn call_context_set(
         "ok": true,
         "path": path
     });
-    payload[payload_key] = if legacy_focus {
-        legacy_focus_payload(&state)
-    } else {
-        serde_json::to_value(&state).map_err(|err| CallToolError::from_message(err.to_string()))?
-    };
+    payload["context"] =
+        serde_json::to_value(&state).map_err(|err| CallToolError::from_message(err.to_string()))?;
     ok_json(payload)
 }
 
@@ -1895,29 +1836,9 @@ fn call_context_clear(
     ok_json(serde_json::json!({"ok": true, "cleared": cleared}))
 }
 
-fn legacy_focus_payload(state: &ContextState) -> serde_json::Value {
-    let (epic_id, working_set) = match state.scope.mode {
-        ContextScopeMode::Epic => (state.scope.epic_id.clone(), Vec::new()),
-        ContextScopeMode::Tasks => (None, state.scope.task_ids.clone()),
-        ContextScopeMode::None => (None, Vec::new()),
-    };
-    serde_json::json!({
-        "project_id": state.project_id.clone(),
-        "epic_id": epic_id,
-        "objective": state.objective.clone(),
-        "working_set": working_set
-    })
-}
-
 impl ContextShowTool {
     fn call(&self, context: &McpContext) -> Result<CallToolResult, CallToolError> {
-        call_context_show(
-            context,
-            self.root.as_deref(),
-            &self.format,
-            "context",
-            false,
-        )
+        call_context_show(context, self.root.as_deref(), &self.format)
     }
 }
 
@@ -1931,8 +1852,6 @@ impl ContextSetTool {
             self.objective.clone(),
             self.tasks.clone(),
             "context_set",
-            "context",
-            false,
         )
     }
 }
@@ -1940,34 +1859,6 @@ impl ContextSetTool {
 impl ContextClearTool {
     fn call(&self, context: &McpContext) -> Result<CallToolResult, CallToolError> {
         call_context_clear(context, self.root.as_deref(), "context_clear")
-    }
-}
-
-impl FocusShowTool {
-    fn call(&self, context: &McpContext) -> Result<CallToolResult, CallToolError> {
-        call_context_show(context, self.root.as_deref(), &self.format, "focus", true)
-    }
-}
-
-impl FocusSetTool {
-    fn call(&self, context: &McpContext) -> Result<CallToolResult, CallToolError> {
-        call_context_set(
-            context,
-            self.root.as_deref(),
-            self.project_id.clone(),
-            self.epic_id.clone(),
-            self.objective.clone(),
-            self.tasks.clone(),
-            "focus_set",
-            "focus",
-            true,
-        )
-    }
-}
-
-impl FocusClearTool {
-    fn call(&self, context: &McpContext) -> Result<CallToolResult, CallToolError> {
-        call_context_clear(context, self.root.as_deref(), "focus_clear")
     }
 }
 
