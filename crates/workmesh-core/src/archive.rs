@@ -17,7 +17,8 @@ pub enum ArchiveError {
 #[derive(Debug, Clone)]
 pub struct ArchiveOptions {
     pub before: NaiveDate,
-    pub status: String,
+    /// Explicit statuses to archive. When empty, terminal defaults are used.
+    pub statuses: Vec<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -35,9 +36,21 @@ pub fn archive_tasks(
     let archive_root = backlog_dir.join("archive");
     let mut archived = Vec::new();
     let skipped = Vec::new();
+    let allowed_statuses = if options.statuses.is_empty() {
+        default_archive_statuses()
+            .iter()
+            .map(|value| normalize_status(value))
+            .collect::<std::collections::HashSet<_>>()
+    } else {
+        options
+            .statuses
+            .iter()
+            .map(|value| normalize_status(value))
+            .collect::<std::collections::HashSet<_>>()
+    };
 
     for task in tasks {
-        if !task.status.eq_ignore_ascii_case(&options.status) {
+        if !allowed_statuses.contains(&normalize_status(&task.status)) {
             continue;
         }
         let task_date = task_date(task).unwrap_or_else(|| Local::now().date_naive());
@@ -66,6 +79,18 @@ pub fn archive_tasks(
         skipped,
         archive_dir: archive_root,
     })
+}
+
+pub fn default_archive_statuses() -> &'static [&'static str] {
+    &["Done", "Cancelled", "Canceled", "Won't Do", "Wont Do"]
+}
+
+fn normalize_status(value: &str) -> String {
+    value
+        .chars()
+        .filter(|ch| ch.is_ascii_alphanumeric())
+        .map(|ch| ch.to_ascii_lowercase())
+        .collect()
 }
 
 fn parse_task_date(value: &str) -> Option<NaiveDate> {
@@ -125,7 +150,7 @@ mod tests {
             &tasks,
             &ArchiveOptions {
                 before: NaiveDate::from_ymd_opt(2024, 12, 31).unwrap(),
-                status: "Done".to_string(),
+                statuses: vec!["Done".to_string()],
             },
         )
         .expect("archive");
@@ -144,5 +169,81 @@ mod tests {
                     .starts_with("task-001")
             });
         assert!(archived);
+    }
+
+    #[test]
+    fn archive_defaults_to_terminal_statuses_only() {
+        let temp = TempDir::new().expect("tempdir");
+        let backlog_dir = temp.path().join("workmesh");
+        let tasks_dir = backlog_dir.join("tasks");
+        fs::create_dir_all(&tasks_dir).expect("tasks dir");
+
+        let _ = create_task_file(
+            &tasks_dir,
+            "task-001",
+            "Done Task",
+            "Done",
+            "P2",
+            "Phase1",
+            &[],
+            &[],
+            &[],
+        )
+        .expect("create done");
+        let _ = create_task_file(
+            &tasks_dir,
+            "task-002",
+            "Cancelled Task",
+            "Cancelled",
+            "P2",
+            "Phase1",
+            &[],
+            &[],
+            &[],
+        )
+        .expect("create cancelled");
+        let _ = create_task_file(
+            &tasks_dir,
+            "task-003",
+            "Todo Task",
+            "To Do",
+            "P2",
+            "Phase1",
+            &[],
+            &[],
+            &[],
+        )
+        .expect("create todo");
+
+        let mut tasks = load_tasks(&backlog_dir);
+        for task in &mut tasks {
+            task.updated_date = Some("2024-01-15 10:00".to_string());
+        }
+
+        let result = archive_tasks(
+            &backlog_dir,
+            &tasks,
+            &ArchiveOptions {
+                before: NaiveDate::from_ymd_opt(2024, 12, 31).unwrap(),
+                statuses: Vec::new(),
+            },
+        )
+        .expect("archive");
+
+        assert_eq!(
+            result.archived,
+            vec!["task-001".to_string(), "task-002".to_string()]
+        );
+        let todo_still_present = fs::read_dir(&tasks_dir)
+            .expect("read tasks")
+            .filter_map(Result::ok)
+            .any(|entry| {
+                entry
+                    .file_name()
+                    .to_string_lossy()
+                    .to_lowercase()
+                    .starts_with("task-003")
+            });
+        assert!(todo_still_present);
     }
 }

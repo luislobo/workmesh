@@ -691,12 +691,14 @@ enum Command {
         #[arg(long, action = ArgAction::SetTrue)]
         yes: bool,
     },
-    /// Archive done tasks into date-based folders
+    /// Archive terminal tasks into date-based folders (defaults to Done/Cancelled variants)
     Archive {
         #[arg(long, default_value = "30d")]
         before: String,
-        #[arg(long, default_value = "Done")]
-        status: String,
+        /// Status filter(s). Repeat or comma-separate for multiple values.
+        /// When omitted, defaults to terminal statuses (Done/Cancelled variants).
+        #[arg(long, action = ArgAction::Append)]
+        status: Vec<String>,
         #[arg(long, action = ArgAction::SetTrue)]
         json: bool,
     },
@@ -4262,12 +4264,13 @@ fn main() -> Result<()> {
             json,
         } => {
             let before_date = parse_before_date(&before)?;
+            let statuses = split_list(status.as_slice());
             let result = archive_tasks(
                 &backlog_dir,
                 &tasks,
                 &ArchiveOptions {
                     before: before_date,
-                    status: status.clone(),
+                    statuses: statuses.clone(),
                 },
             )?;
             refresh_index_best_effort(&backlog_dir);
@@ -4276,13 +4279,32 @@ fn main() -> Result<()> {
                 let payload = serde_json::json!({
                     "archived": result.archived,
                     "skipped": result.skipped,
-                    "archive_dir": result.archive_dir
+                    "archive_dir": result.archive_dir,
+                    "status_filter": if statuses.is_empty() {
+                        workmesh_core::archive::default_archive_statuses()
+                            .iter()
+                            .map(|value| value.to_string())
+                            .collect::<Vec<_>>()
+                    } else {
+                        statuses
+                    }
                 });
                 println!("{}", serde_json::to_string_pretty(&payload)?);
             } else {
                 println!("Archived {} tasks", result.archived.len());
                 if !result.skipped.is_empty() {
                     println!("Skipped: {}", result.skipped.join(", "));
+                }
+                if status.is_empty() {
+                    println!(
+                        "Status filter: {}",
+                        workmesh_core::archive::default_archive_statuses().join(", ")
+                    );
+                } else {
+                    println!(
+                        "Status filter: {}",
+                        split_list(status.as_slice()).join(", ")
+                    );
                 }
                 println!("Archive: {}", result.archive_dir.display());
             }

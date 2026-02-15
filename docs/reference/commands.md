@@ -203,7 +203,8 @@ MCP:
 
 ## Archive and maintenance
 CLI:
-- `archive [--before 30d|YYYY-MM-DD] [--status Done] [--json]`
+- `archive [--before 30d|YYYY-MM-DD] [--status <state>]... [--json]`
+- default status filter (when omitted): `Done`, `Cancelled`, `Canceled`, `Won't Do`, `Wont Do`
 - `fix list [--json]`
 - `fix uid|deps|ids [--check|--apply] [--json]`
 - `fix all [--only uid,deps,ids] [--exclude uid,deps,ids] [--check|--apply] [--json]`

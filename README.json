@@ -54,6 +54,13 @@
       "worktrees_default = true|false",
       "auto_session_default = true|false"
     ],
+    "archive_default_status_filter": [
+      "Done",
+      "Cancelled",
+      "Canceled",
+      "Won't Do",
+      "Wont Do"
+    ],
     "auto_session": {
       "default": "ON in interactive non-CI terminals, OFF in CI/non-interactive contexts",
       "override_on": [

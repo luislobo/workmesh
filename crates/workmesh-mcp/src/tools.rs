@@ -366,7 +366,7 @@ fn tool_catalog() -> Vec<serde_json::Value> {
         serde_json::json!({"name": "bulk_add_dependency", "summary": "Bulk add a dependency to tasks."}),
         serde_json::json!({"name": "bulk_remove_dependency", "summary": "Bulk remove a dependency from tasks."}),
         serde_json::json!({"name": "bulk_add_note", "summary": "Bulk append a note to tasks."}),
-        serde_json::json!({"name": "archive_tasks", "summary": "Archive done tasks into date-based folders."}),
+        serde_json::json!({"name": "archive_tasks", "summary": "Archive terminal tasks into date-based folders (defaults to Done/Cancelled variants)."}),
         serde_json::json!({"name": "migrate_backlog", "summary": "Migrate legacy backlog to workmesh/."}),
         serde_json::json!({"name": "migrate_audit", "summary": "Detect deprecated structures and produce migration findings."}),
         serde_json::json!({"name": "migrate_plan", "summary": "Build migration plan from findings."}),
@@ -936,15 +936,14 @@ pub struct BulkAddNoteTool {
 
 #[mcp_tool(
     name = "archive_tasks",
-    description = "Archive done tasks into date-based folders."
+    description = "Archive terminal tasks into date-based folders. Defaults to Done/Cancelled variants when status is omitted."
 )]
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct ArchiveTool {
     pub root: Option<String>,
     #[serde(default = "default_archive_before")]
     pub before: String,
-    #[serde(default = "default_archive_status")]
-    pub status: String,
+    pub status: Option<ListInput>,
 }
 
 #[mcp_tool(
@@ -1448,10 +1447,6 @@ fn default_notes_section() -> String {
 
 fn default_status() -> String {
     "To Do".to_string()
-}
-
-fn default_archive_status() -> String {
-    "Done".to_string()
 }
 
 fn default_priority() -> String {
@@ -3301,12 +3296,13 @@ impl ArchiveTool {
         };
         let tasks = load_tasks(&backlog_dir);
         let before = parse_before_date(&self.before)?;
+        let statuses = parse_list_input(self.status.clone());
         let result = archive_tasks(
             &backlog_dir,
             &tasks,
             &ArchiveOptions {
                 before,
-                status: self.status.clone(),
+                statuses: statuses.clone(),
             },
         )
         .map_err(CallToolError::new)?;
@@ -3315,7 +3311,15 @@ impl ArchiveTool {
         ok_json(serde_json::json!({
             "archived": result.archived,
             "skipped": result.skipped,
-            "archive_dir": result.archive_dir
+            "archive_dir": result.archive_dir,
+            "status_filter": if statuses.is_empty() {
+                workmesh_core::archive::default_archive_statuses()
+                    .iter()
+                    .map(|value| value.to_string())
+                    .collect::<Vec<_>>()
+            } else {
+                statuses
+            }
         }))
     }
 }
@@ -5281,14 +5285,15 @@ Body\n",
         let tasks_dir = temp.path().join("workmesh").join("tasks");
         write_task(&tasks_dir, "task-001", "DoneTask", "Done");
         write_task(&tasks_dir, "task-002", "TodoTask", "To Do");
+        write_task(&tasks_dir, "task-003", "CancelledTask", "Cancelled");
 
-        // Deserialize without "status" so serde applies ArchiveTool default.
+        // Deserialize without "status" so tool-level default path applies terminal status filter.
         let tool: ArchiveTool = serde_json::from_value(serde_json::json!({
             "root": root_arg,
             "before": "2999-01-01"
         }))
         .expect("archive tool defaults");
-        assert_eq!(tool.status, "Done");
+        assert!(tool.status.is_none());
 
         let result = tool.call(&context).expect("archive");
         let parsed: serde_json::Value = serde_json::from_str(&text_payload(result)).expect("json");
@@ -5298,9 +5303,12 @@ Body\n",
             .filter_map(|value| value.as_str().map(|v| v.to_string()))
             .collect();
         assert!(archived_ids.contains(&"task-001".to_string()));
+        assert!(archived_ids.contains(&"task-003".to_string()));
         assert!(!archived_ids.contains(&"task-002".to_string()));
 
         assert!(tasks_dir.join("task-002 - todotask.md").is_file());
+        let status_filter = parsed["status_filter"].as_array().expect("status filter");
+        assert!(!status_filter.is_empty());
     }
 
     #[test]

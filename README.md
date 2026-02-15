@@ -90,6 +90,9 @@ Keys:
 - `worktrees_default = true|false`
 - `auto_session_default = true|false`
 
+Archive default status filter (when `--status` is omitted):
+- `Done`, `Cancelled`, `Canceled`, `Won't Do`, `Wont Do`
+
 Auto session behavior:
 - default ON for interactive non-CI terminals
 - default OFF for CI/non-interactive contexts
