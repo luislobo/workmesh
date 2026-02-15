@@ -23,3 +23,4 @@ Command catalog:
 - Primary guidance is prompt-driven and Codex-first.
 - [`README.md`](../README.md) and [`README.json`](../README.json) stay synchronized for humans and agents.
 - Legacy migration guidance remains minimal and out of the main flow.
+- Archive defaults are safety-first: only terminal statuses are archived unless an explicit status override is provided.

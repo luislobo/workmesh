@@ -205,12 +205,14 @@ MCP:
 CLI:
 - `archive [--before 30d|YYYY-MM-DD] [--status <state>]... [--json]`
 - default status filter (when omitted): `Done`, `Cancelled`, `Canceled`, `Won't Do`, `Wont Do`
+- override behavior: pass one or more `--status` values to archive any specific state, including non-terminal states
 - `fix list [--json]`
 - `fix uid|deps|ids [--check|--apply] [--json]`
 - `fix all [--only uid,deps,ids] [--exclude uid,deps,ids] [--check|--apply] [--json]`
 
 MCP:
 - `archive_tasks`
+- `archive_tasks` accepts optional `status` (string or list); when omitted it uses the same default terminal status filter as CLI
 - `fix_ids`
 
 ## Legacy migration (minimal)

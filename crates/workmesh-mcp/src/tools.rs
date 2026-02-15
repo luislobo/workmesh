@@ -366,7 +366,7 @@ fn tool_catalog() -> Vec<serde_json::Value> {
         serde_json::json!({"name": "bulk_add_dependency", "summary": "Bulk add a dependency to tasks."}),
         serde_json::json!({"name": "bulk_remove_dependency", "summary": "Bulk remove a dependency from tasks."}),
         serde_json::json!({"name": "bulk_add_note", "summary": "Bulk append a note to tasks."}),
-        serde_json::json!({"name": "archive_tasks", "summary": "Archive terminal tasks into date-based folders (defaults to Done/Cancelled variants)."}),
+        serde_json::json!({"name": "archive_tasks", "summary": "Archive terminal tasks into date-based folders (defaults: Done, Cancelled, Canceled, Won't Do, Wont Do)."}),
         serde_json::json!({"name": "migrate_backlog", "summary": "Migrate legacy backlog to workmesh/."}),
         serde_json::json!({"name": "migrate_audit", "summary": "Detect deprecated structures and produce migration findings."}),
         serde_json::json!({"name": "migrate_plan", "summary": "Build migration plan from findings."}),
@@ -936,7 +936,7 @@ pub struct BulkAddNoteTool {
 
 #[mcp_tool(
     name = "archive_tasks",
-    description = "Archive terminal tasks into date-based folders. Defaults to Done/Cancelled variants when status is omitted."
+    description = "Archive terminal tasks into date-based folders. When status is omitted, defaults to Done, Cancelled, Canceled, Won't Do, Wont Do."
 )]
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct ArchiveTool {
@@ -5280,7 +5280,7 @@ Body\n",
     }
 
     #[test]
-    fn mcp_archive_defaults_to_done_status() {
+    fn mcp_archive_defaults_to_terminal_statuses() {
         let (temp, root_arg, context) = init_repo();
         let tasks_dir = temp.path().join("workmesh").join("tasks");
         write_task(&tasks_dir, "task-001", "DoneTask", "Done");

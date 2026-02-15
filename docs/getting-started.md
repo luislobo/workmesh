@@ -82,6 +82,8 @@ Only use this if you explicitly want direct CLI execution.
 - Next task: `workmesh --root . next --json`
 - Session resume: `workmesh --root . session resume --json`
 - Worktrees: `workmesh --root . worktree list --json`
+- Archive (default terminal statuses): `workmesh --root . archive --before 30d --json`
+- Archive (explicit override): `workmesh --root . archive --status "To Do" --before 2026-12-31 --json`
 - Migrate legacy: `workmesh --root . migrate audit|plan|apply --apply`
 
 ## Related Docs

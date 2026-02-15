@@ -92,6 +92,7 @@ Keys:
 
 Archive default status filter (when `--status` is omitted):
 - `Done`, `Cancelled`, `Canceled`, `Won't Do`, `Wont Do`
+- override (explicit): pass `--status` one or more times to archive any specific state, including non-terminal states.
 
 Auto session behavior:
 - default ON for interactive non-CI terminals

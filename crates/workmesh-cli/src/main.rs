@@ -691,12 +691,12 @@ enum Command {
         #[arg(long, action = ArgAction::SetTrue)]
         yes: bool,
     },
-    /// Archive terminal tasks into date-based folders (defaults to Done/Cancelled variants)
+    /// Archive terminal tasks into date-based folders (defaults: Done, Cancelled, Canceled, Won't Do, Wont Do)
     Archive {
         #[arg(long, default_value = "30d")]
         before: String,
         /// Status filter(s). Repeat or comma-separate for multiple values.
-        /// When omitted, defaults to terminal statuses (Done/Cancelled variants).
+        /// When omitted, defaults to terminal statuses: Done, Cancelled, Canceled, Won't Do, Wont Do.
         #[arg(long, action = ArgAction::Append)]
         status: Vec<String>,
         #[arg(long, action = ArgAction::SetTrue)]

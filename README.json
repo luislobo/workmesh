@@ -61,6 +61,7 @@
       "Won't Do",
       "Wont Do"
     ],
+    "archive_status_override": "pass --status one or more times to archive any specific state, including non-terminal states",
     "auto_session": {
       "default": "ON in interactive non-CI terminals, OFF in CI/non-interactive contexts",
       "override_on": [
