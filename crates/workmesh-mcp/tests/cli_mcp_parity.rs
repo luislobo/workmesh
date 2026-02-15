@@ -1580,6 +1580,7 @@ async fn cli_and_mcp_migrate_archive_parity() {
     std::fs::create_dir_all(&legacy_tasks).expect("legacy tasks");
     let today = Local::now().format("%Y-%m-%d %H:%M").to_string();
     write_task_with_updated(&legacy_tasks, "task-001", "Legacy", "Done", &today);
+    write_task_with_updated(&legacy_tasks, "task-003", "Keep", "To Do", &today);
 
     let cli_migrate = cli()
         .arg("--root")
@@ -1605,11 +1606,18 @@ async fn cli_and_mcp_migrate_archive_parity() {
     assert_output_ok!(cli_archive);
     let archive_root = temp.path().join("workmesh").join("archive");
     assert!(archive_root.is_dir());
+    assert!(temp
+        .path()
+        .join("workmesh")
+        .join("tasks")
+        .join("task-003 - keep.md")
+        .is_file());
 
     let temp2 = TempDir::new().expect("tempdir2");
     let legacy_tasks2 = temp2.path().join("backlog").join("tasks");
     std::fs::create_dir_all(&legacy_tasks2).expect("legacy tasks2");
     write_task_with_updated(&legacy_tasks2, "task-002", "Legacy", "Done", &today);
+    write_task_with_updated(&legacy_tasks2, "task-004", "Keep", "To Do", &today);
 
     let client = start_client(temp2.path()).await;
     let _ = call_tool_text(
@@ -1627,8 +1635,7 @@ async fn cli_and_mcp_migrate_archive_parity() {
         "archive_tasks",
         serde_json::json!({
             "root": temp2.path().display().to_string(),
-            "before": "2999-01-01",
-            "status": "Done"
+            "before": "2999-01-01"
         }),
     )
     .await;
@@ -1636,6 +1643,12 @@ async fn cli_and_mcp_migrate_archive_parity() {
 
     let archive_root2 = temp2.path().join("workmesh").join("archive");
     assert!(archive_root2.is_dir());
+    assert!(temp2
+        .path()
+        .join("workmesh")
+        .join("tasks")
+        .join("task-004 - keep.md")
+        .is_file());
 }
 
 #[tokio::test]

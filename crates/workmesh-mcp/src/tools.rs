@@ -943,7 +943,7 @@ pub struct ArchiveTool {
     pub root: Option<String>,
     #[serde(default = "default_archive_before")]
     pub before: String,
-    #[serde(default = "default_status")]
+    #[serde(default = "default_archive_status")]
     pub status: String,
 }
 
@@ -1448,6 +1448,10 @@ fn default_notes_section() -> String {
 
 fn default_status() -> String {
     "To Do".to_string()
+}
+
+fn default_archive_status() -> String {
+    "Done".to_string()
 }
 
 fn default_priority() -> String {
@@ -5269,6 +5273,34 @@ Body\n",
         assert_eq!(parsed["project_id"].as_str(), Some("alpha"));
         assert!(temp.path().join("workmesh").join("tasks").is_dir());
         assert!(temp.path().join("workmesh").join("context.json").is_file());
+    }
+
+    #[test]
+    fn mcp_archive_defaults_to_done_status() {
+        let (temp, root_arg, context) = init_repo();
+        let tasks_dir = temp.path().join("workmesh").join("tasks");
+        write_task(&tasks_dir, "task-001", "DoneTask", "Done");
+        write_task(&tasks_dir, "task-002", "TodoTask", "To Do");
+
+        // Deserialize without "status" so serde applies ArchiveTool default.
+        let tool: ArchiveTool = serde_json::from_value(serde_json::json!({
+            "root": root_arg,
+            "before": "2999-01-01"
+        }))
+        .expect("archive tool defaults");
+        assert_eq!(tool.status, "Done");
+
+        let result = tool.call(&context).expect("archive");
+        let parsed: serde_json::Value = serde_json::from_str(&text_payload(result)).expect("json");
+        let archived = parsed["archived"].as_array().expect("archived array");
+        let archived_ids: Vec<String> = archived
+            .iter()
+            .filter_map(|value| value.as_str().map(|v| v.to_string()))
+            .collect();
+        assert!(archived_ids.contains(&"task-001".to_string()));
+        assert!(!archived_ids.contains(&"task-002".to_string()));
+
+        assert!(tasks_dir.join("task-002 - todotask.md").is_file());
     }
 
     #[test]
