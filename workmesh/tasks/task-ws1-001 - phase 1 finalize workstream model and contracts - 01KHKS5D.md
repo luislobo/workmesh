@@ -3,7 +3,7 @@ id: task-ws1-001
 uid: 01KHKS5D7C3ZZWVS2ZMTT57J0Q
 title: Phase 1: finalize workstream model and contracts
 kind: task
-status: In Progress
+status: Done
 priority: P1
 phase: PhaseWS1
 dependencies: []
@@ -14,10 +14,7 @@ relationships:
   parent: []
   child: []
   discovered_from: []
-updated_date: 2026-02-16 11:50
-lease_owner: luis
-lease_acquired_at: 2026-02-16 11:50
-lease_expires_at: 2026-02-16 13:20
+updated_date: 2026-02-16 13:17
 ---
 Description:
 --------------------------------------------------
