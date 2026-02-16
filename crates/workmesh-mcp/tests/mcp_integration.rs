@@ -12,6 +12,7 @@ use rust_mcp_sdk::{
 };
 
 use async_trait::async_trait;
+use serial_test::serial;
 // Note: server lifecycle is controlled by the MCP client runtime; this test avoids
 // forcing process exit so it can be stable in CI across platforms.
 
@@ -73,6 +74,7 @@ fn write_task(dir: &std::path::Path, id: &str, title: &str, status: &str) {
 }
 
 #[tokio::test]
+#[serial]
 async fn mcp_list_tasks_and_checkpoint() {
     let temp = TempDir::new().expect("tempdir");
     let backlog_dir = temp.path().join("backlog");
@@ -179,6 +181,7 @@ async fn mcp_list_tasks_and_checkpoint() {
 }
 
 #[tokio::test]
+#[serial]
 async fn mcp_list_tasks_all_includes_archived_tasks() {
     let temp = TempDir::new().expect("tempdir");
     let backlog_dir = temp.path().join("backlog");
@@ -284,6 +287,7 @@ async fn mcp_list_tasks_all_includes_archived_tasks() {
 }
 
 #[tokio::test]
+#[serial]
 async fn mcp_smoke_more_tools() {
     let temp = TempDir::new().expect("tempdir");
     let backlog_dir = temp.path().join("backlog");
@@ -592,6 +596,7 @@ async fn mcp_smoke_more_tools() {
 }
 
 #[tokio::test]
+#[serial]
 async fn mcp_truth_tools_smoke() {
     let temp = TempDir::new().expect("tempdir");
     let tasks_dir = temp.path().join("workmesh").join("tasks");
