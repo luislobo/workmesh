@@ -3,18 +3,18 @@ id: task-ws1-003
 uid: 01KHKS5D89E1TM9AB2JKEENAHW
 title: Phase 1: add CLI workstream command surface
 kind: task
-status: To Do
+status: Done
 priority: P1
 phase: PhaseWS1
 dependencies: [task-ws1-001, task-ws1-002]
 labels: [phase1, workstreams, cli]
-assignee: []
+assignee: [luis]
 relationships:
   blocked_by: []
   parent: []
   child: []
   discovered_from: []
-updated_date: 2026-02-16 11:50
+updated_date: 2026-02-16 13:33
 ---
 Description:
 --------------------------------------------------

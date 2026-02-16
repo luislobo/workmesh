@@ -1820,6 +1820,7 @@ fn call_context_set(
         version: 1,
         project_id: project_id.or(inferred_project),
         objective,
+        workstream_id: None,
         scope,
         updated_at: None,
     };
@@ -2050,6 +2051,7 @@ impl WorktreeCreateTool {
                                 .clone()
                                 .or_else(|| infer_project_id(&seed_root)),
                             objective: self.objective.clone(),
+                            workstream_id: None,
                             scope,
                             updated_at: None,
                         },

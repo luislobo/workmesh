@@ -42,6 +42,9 @@ pub struct ContextState {
     pub project_id: Option<String>,
     #[serde(default)]
     pub objective: Option<String>,
+    /// Active workstream id for this worktree checkout (Phase 1 workstream orchestration).
+    #[serde(default)]
+    pub workstream_id: Option<String>,
     #[serde(default)]
     pub scope: ContextScope,
     /// RFC3339 timestamp
@@ -55,6 +58,7 @@ impl Default for ContextState {
             version: default_context_version(),
             project_id: None,
             objective: None,
+            workstream_id: None,
             scope: ContextScope::default(),
             updated_at: None,
         }
@@ -79,6 +83,7 @@ pub fn load_context(backlog_dir: &Path) -> Result<Option<ContextState>> {
 
 pub fn save_context(backlog_dir: &Path, mut state: ContextState) -> Result<PathBuf> {
     normalize_scope(&mut state.scope);
+    normalize_workstream_id(&mut state.workstream_id);
     state.version = default_context_version();
     state.updated_at = Some(now_rfc3339());
     let path = context_path(backlog_dir);
@@ -128,6 +133,7 @@ pub fn context_from_legacy_focus(
         version: default_context_version(),
         project_id,
         objective,
+        workstream_id: None,
         scope: ContextScope {
             mode: ContextScopeMode::None,
             epic_id,
@@ -189,6 +195,13 @@ fn normalize_scope(scope: &mut ContextScope) {
             }
         }
     }
+}
+
+fn normalize_workstream_id(workstream_id: &mut Option<String>) {
+    *workstream_id = workstream_id
+        .as_ref()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty());
 }
 
 pub fn now_rfc3339() -> String {
@@ -254,6 +267,7 @@ mod tests {
                 version: 99,
                 project_id: Some("demo".to_string()),
                 objective: Some("ship".to_string()),
+                workstream_id: None,
                 scope: ContextScope {
                     mode: ContextScopeMode::Tasks,
                     epic_id: Some("task-main-001".to_string()),
@@ -311,6 +325,7 @@ mod tests {
                 version: 1,
                 project_id: Some("demo".to_string()),
                 objective: Some("ship-2".to_string()),
+                workstream_id: None,
                 scope: ContextScope::default(),
                 updated_at: None,
             },

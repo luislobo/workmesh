@@ -158,6 +158,18 @@ MCP:
 - `truth_migrate_plan`
 - `truth_migrate_apply`
 
+## Workstream runtime
+CLI:
+- `workstream list [--json]`
+- `workstream create --name "..." [--key <key>] [--path <path> --branch <branch> --from <ref>] [--project <pid>] [--epic task-123] [--objective "..."] [--tasks task-001,task-002] [--json]`
+- `workstream show [<id-or-key>] [--json]`
+- `workstream switch <id-or-key> [--json]`
+- `workstream doctor [--json]`
+
+MCP:
+- Phase 1 parity for workstream commands will be added in `task-ws1-004`.
+- Until then, use the CLI for workstream operations.
+
 ## Worktree runtime
 CLI:
 - `worktree list [--json]`

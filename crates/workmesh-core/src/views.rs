@@ -255,6 +255,7 @@ pub fn blockers_report(
         version: 1,
         project_id: f.project_id.clone(),
         objective: f.objective.clone(),
+        workstream_id: None,
         scope: crate::context::ContextScope {
             mode: if f
                 .epic_id

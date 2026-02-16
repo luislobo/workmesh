@@ -167,6 +167,7 @@ pub fn bootstrap_repo(
                     .as_deref()
                     .map(|value| value.trim().to_string())
                     .filter(|value| !value.is_empty()),
+                workstream_id: None,
                 scope: ContextScope {
                     mode: ContextScopeMode::None,
                     epic_id: None,

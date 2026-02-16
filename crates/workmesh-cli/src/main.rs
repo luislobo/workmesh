@@ -74,6 +74,10 @@ use workmesh_core::truth::{
 use workmesh_core::views::{
     blockers_report_with_context, board_lanes, scope_ids_from_context, BoardBy,
 };
+use workmesh_core::workstreams::{
+    list_workstreams_for_repo, upsert_workstream_record,
+    WorkstreamContextSnapshot, WorkstreamRecord, WorkstreamStatus,
+};
 use workmesh_core::worktrees::{
     create_git_worktree, current_branch as current_worktree_branch, doctor_worktrees,
     find_worktree_record_by_path, list_worktree_views, upsert_worktree_record, WorktreeRecord,
@@ -352,6 +356,11 @@ enum Command {
     Truth {
         #[command(subcommand)]
         command: TruthCommand,
+    },
+    /// Workstream orchestration for parallel feature streams
+    Workstream {
+        #[command(subcommand)]
+        command: WorkstreamCommand,
     },
     /// Git worktree runtime orchestration for parallel agent workflows
     Worktree {
@@ -1115,6 +1124,62 @@ enum ContextCommand {
     },
     /// Clear the current context state
     Clear {
+        #[arg(long, action = ArgAction::SetTrue)]
+        json: bool,
+    },
+}
+
+#[derive(Subcommand)]
+enum WorkstreamCommand {
+    /// List known workstreams for this repo
+    List {
+        #[arg(long, action = ArgAction::SetTrue)]
+        json: bool,
+    },
+    /// Create a new workstream (optionally create a new worktree)
+    Create {
+        #[arg(long)]
+        name: String,
+        #[arg(long)]
+        key: Option<String>,
+        /// Optional worktree path (requires --branch)
+        #[arg(long)]
+        path: Option<PathBuf>,
+        /// Optional worktree branch (requires --path)
+        #[arg(long)]
+        branch: Option<String>,
+        /// Optional starting point (branch/commit/tag) when provisioning a worktree
+        #[arg(long)]
+        from: Option<String>,
+        /// Optional context seed project id
+        #[arg(long)]
+        project: Option<String>,
+        /// Optional context seed epic id
+        #[arg(long)]
+        epic: Option<String>,
+        /// Optional context seed objective
+        #[arg(long)]
+        objective: Option<String>,
+        /// Optional context seed task list (CSV)
+        #[arg(long)]
+        tasks: Option<String>,
+        #[arg(long, action = ArgAction::SetTrue)]
+        json: bool,
+    },
+    /// Show one workstream (defaults to active stream in this worktree)
+    Show {
+        id: Option<String>,
+        #[arg(long, action = ArgAction::SetTrue)]
+        json: bool,
+    },
+    /// Switch active workstream for this worktree
+    Switch {
+        id: String,
+        #[arg(long, action = ArgAction::SetTrue)]
+        json: bool,
+    },
+    /// Diagnose workstream registry health for this repo
+    Doctor {
         #[arg(long, action = ArgAction::SetTrue)]
         json: bool,
     },
@@ -3356,6 +3421,11 @@ fn main() -> Result<()> {
                 }
             },
         },
+        Command::Workstream { command } => {
+            let repo_root = repo_root_from_backlog(&backlog_dir);
+            let home = resolve_workmesh_home()?;
+            handle_workstream_command(&backlog_dir, &repo_root, &home, command)?;
+        }
         Command::Worktree { command } => {
             let repo_root = repo_root_from_backlog(&backlog_dir);
             let home = resolve_workmesh_home()?;
@@ -4576,6 +4646,502 @@ fn best_effort_worktree_binding(
     })
 }
 
+fn resolve_workstream_for_repo(
+    home: &Path,
+    repo_root: &Path,
+    query: &str,
+) -> Result<WorkstreamRecord> {
+    let trimmed = query.trim();
+    if trimmed.is_empty() {
+        return Err(anyhow::anyhow!("workstream id/key is blank"));
+    }
+
+    let streams = list_workstreams_for_repo(home, repo_root)?;
+    if streams.is_empty() {
+        return Err(anyhow::anyhow!("no workstreams found for this repo"));
+    }
+
+    if let Some(found) = streams.iter().find(|record| record.id == trimmed) {
+        return Ok(found.clone());
+    }
+
+    let mut by_key: Vec<&WorkstreamRecord> = streams
+        .iter()
+        .filter(|record| {
+            record
+                .key
+                .as_ref()
+                .map(|key| key.eq_ignore_ascii_case(trimmed))
+                .unwrap_or(false)
+        })
+        .collect();
+    by_key.sort_by(|a, b| a.id.cmp(&b.id));
+    if by_key.len() == 1 {
+        return Ok(by_key[0].clone());
+    }
+    if by_key.len() > 1 {
+        return Err(anyhow::anyhow!(
+            "ambiguous workstream key '{}': matches {} records",
+            trimmed,
+            by_key.len()
+        ));
+    }
+
+    Err(anyhow::anyhow!("workstream not found: {}", trimmed))
+}
+
+fn handle_workstream_command(
+    backlog_dir: &Path,
+    repo_root: &Path,
+    home: &Path,
+    command: WorkstreamCommand,
+) -> Result<()> {
+    match command {
+        WorkstreamCommand::List { json } => {
+            let streams = list_workstreams_for_repo(home, repo_root)?;
+            let active_id = load_context(backlog_dir)?
+                .and_then(|ctx| ctx.workstream_id)
+                .filter(|value| !value.trim().is_empty());
+
+            let views: Vec<serde_json::Value> = streams
+                .iter()
+                .map(|record| {
+                    serde_json::json!({
+                        "id": record.id,
+                        "key": record.key,
+                        "name": record.name,
+                        "status": record.status.as_str(),
+                        "active": active_id.as_deref().map(|id| id == record.id).unwrap_or(false),
+                        "worktree_path": record.worktree.as_ref().map(|w| w.path.clone()),
+                        "branch": record.worktree.as_ref().and_then(|w| w.branch.clone()),
+                        "session_id": record.session_id,
+                        "updated_at": record.updated_at
+                    })
+                })
+                .collect();
+
+            if json {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&serde_json::json!({
+                        "repo_root": normalize_path_string(repo_root),
+                        "registry_path": workmesh_core::workstreams::workstreams_registry_path(home),
+                        "active_workstream_id": active_id,
+                        "workstreams": views
+                    }))?
+                );
+            } else if views.is_empty() {
+                println!("(no workstreams)");
+            } else {
+                for view in views {
+                    let active = view["active"].as_bool().unwrap_or(false);
+                    let marker = if active { "*" } else { " " };
+                    let id = view["id"].as_str().unwrap_or("-");
+                    let key = view["key"].as_str().unwrap_or("-");
+                    let status = view["status"].as_str().unwrap_or("-");
+                    let name = view["name"].as_str().unwrap_or("-");
+                    let branch = view["branch"].as_str().unwrap_or("-");
+                    let path = view["worktree_path"].as_str().unwrap_or("-");
+                    println!(
+                        "{} {} | key={} | status={} | branch={} | path={} | {}",
+                        marker, id, key, status, branch, path, name
+                    );
+                }
+            }
+        }
+        WorkstreamCommand::Show { id, json } => {
+            let active_id = load_context(backlog_dir)?
+                .and_then(|ctx| ctx.workstream_id)
+                .filter(|value| !value.trim().is_empty());
+            let query = id
+                .as_deref()
+                .map(|value| value.trim())
+                .filter(|value| !value.is_empty())
+                .map(|value| value.to_string())
+                .or(active_id);
+            let Some(query) = query else {
+                die("No workstream id provided and no active workstream set in context");
+            };
+
+            let record = resolve_workstream_for_repo(home, repo_root, &query)?;
+            let mut issues: Vec<String> = Vec::new();
+            if let Some(worktree) = record.worktree.as_ref() {
+                if !Path::new(&worktree.path).exists() {
+                    issues.push(format!("missing_worktree_path: {}", worktree.path));
+                }
+            }
+            if let Some(session_id) = record.session_id.as_deref() {
+                let sessions = load_sessions_latest_fast(home).unwrap_or_default();
+                if !sessions.iter().any(|s| s.id == session_id) {
+                    issues.push(format!("missing_session_id: {}", session_id));
+                }
+            }
+
+            if json {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&serde_json::json!({
+                        "workstream": record,
+                        "issues": issues
+                    }))?
+                );
+            } else {
+                println!("id: {}", record.id);
+                if let Some(key) = record.key.as_deref() {
+                    println!("key: {}", key);
+                }
+                println!("name: {}", record.name);
+                println!("status: {}", record.status.as_str());
+                if let Some(worktree) = record.worktree.as_ref() {
+                    println!("worktree.path: {}", worktree.path);
+                    if let Some(branch) = worktree.branch.as_deref() {
+                        println!("worktree.branch: {}", branch);
+                    }
+                }
+                if let Some(session_id) = record.session_id.as_deref() {
+                    println!("session_id: {}", session_id);
+                }
+                if !issues.is_empty() {
+                    println!("issues:");
+                    for issue in issues {
+                        println!("- {}", issue);
+                    }
+                }
+            }
+        }
+        WorkstreamCommand::Create {
+            name,
+            key,
+            path,
+            branch,
+            from,
+            project,
+            epic,
+            objective,
+            tasks,
+            json,
+        } => {
+            let name = name.trim().to_string();
+            if name.is_empty() {
+                die("Workstream name is required");
+            }
+
+            if path.is_some() ^ branch.is_some() {
+                die("--path and --branch must be provided together");
+            }
+
+            // Determine initial scope from explicit flags, falling back to branch-derived epic id.
+            let task_ids = tasks
+                .as_deref()
+                .filter(|value| !value.trim().is_empty())
+                .map(split_csv)
+                .unwrap_or_default();
+            let inferred_epic = epic
+                .clone()
+                .or_else(|| branch.as_deref().and_then(extract_task_id_from_branch));
+            let scope = if inferred_epic
+                .as_deref()
+                .map(|id| !id.trim().is_empty())
+                .unwrap_or(false)
+            {
+                ContextScope {
+                    mode: ContextScopeMode::Epic,
+                    epic_id: inferred_epic,
+                    task_ids: Vec::new(),
+                }
+            } else if !task_ids.is_empty() {
+                ContextScope {
+                    mode: ContextScopeMode::Tasks,
+                    epic_id: None,
+                    task_ids,
+                }
+            } else {
+                ContextScope {
+                    mode: ContextScopeMode::None,
+                    epic_id: None,
+                    task_ids: Vec::new(),
+                }
+            };
+
+            let inferred_project =
+                project.clone().or_else(|| infer_project_id(repo_root));
+            let context_snapshot = WorkstreamContextSnapshot {
+                project_id: inferred_project.clone(),
+                objective: objective.clone(),
+                scope: scope.clone(),
+            };
+
+            let current_session_id = read_current_session_id(home);
+            let (created_worktree, binding, context_seeded, warnings) = if let (Some(path), Some(branch)) =
+                (path.as_ref(), branch.as_ref())
+            {
+                let created = create_git_worktree(repo_root, path, branch, from.as_deref())?;
+                let record = upsert_worktree_record(
+                    home,
+                    WorktreeRecord {
+                        id: String::new(),
+                        repo_root: normalize_path_string(repo_root),
+                        path: created.path.clone(),
+                        branch: created.branch.clone().or_else(|| Some(branch.clone())),
+                        created_at: String::new(),
+                        updated_at: String::new(),
+                        attached_session_id: current_session_id.clone(),
+                    },
+                )?;
+                let binding = WorktreeBinding {
+                    id: Some(record.id.clone()),
+                    path: record.path.clone(),
+                    branch: record.branch.clone(),
+                    repo_root: Some(record.repo_root.clone()),
+                };
+
+                // Always attempt to seed context for the new worktree to mark it active.
+                let mut seeded = false;
+                let mut warnings = Vec::new();
+                let seed_root = normalize_path(path);
+                match resolve_backlog(&seed_root) {
+                    Ok(resolution) => {
+                        let _ = save_context(
+                            &resolution.backlog_dir,
+                            ContextState {
+                                version: 1,
+                                project_id: inferred_project.clone(),
+                                objective: objective.clone(),
+                                workstream_id: None, // filled after the workstream record exists
+                                scope: scope.clone(),
+                                updated_at: None,
+                            },
+                        )?;
+                        seeded = true;
+                    }
+                    Err(_) => warnings.push(format!(
+                        "context seed skipped (no workmesh/tasks found under {})",
+                        seed_root.display()
+                    )),
+                }
+
+                (Some(created), binding, seeded, warnings)
+            } else {
+                let binding = best_effort_worktree_binding(home, repo_root, Some(&normalize_path_string(repo_root)))
+                    .unwrap_or(WorktreeBinding {
+                        id: None,
+                        path: normalize_path_string(repo_root),
+                        branch: current_worktree_branch(repo_root),
+                        repo_root: Some(normalize_path_string(repo_root)),
+                    });
+                (None, binding, false, Vec::new())
+            };
+
+            // Enforce key uniqueness within this repo on create.
+            if let Some(key) = key.as_deref().map(|value| value.trim()).filter(|value| !value.is_empty()) {
+                let existing = list_workstreams_for_repo(home, repo_root)?;
+                if existing.iter().any(|record| {
+                    record
+                        .key
+                        .as_ref()
+                        .map(|existing_key| existing_key.eq_ignore_ascii_case(key))
+                        .unwrap_or(false)
+                }) {
+                    die(&format!("Workstream key already exists for this repo: {}", key));
+                }
+            }
+
+            let inserted = upsert_workstream_record(
+                home,
+                WorkstreamRecord {
+                    id: String::new(),
+                    repo_root: normalize_path_string(repo_root),
+                    key,
+                    name,
+                    status: WorkstreamStatus::Active,
+                    created_at: String::new(),
+                    updated_at: String::new(),
+                    worktree: Some(binding.clone()),
+                    session_id: current_session_id.clone(),
+                    context: Some(context_snapshot.clone()),
+                    truth_refs: Vec::new(),
+                    notes: None,
+                },
+            )?;
+
+            // Persist active pointer and current context in this worktree.
+            let _ = save_context(
+                backlog_dir,
+                ContextState {
+                    version: 1,
+                    project_id: inferred_project.clone(),
+                    objective: objective.clone(),
+                    workstream_id: Some(inserted.id.clone()),
+                    scope,
+                    updated_at: None,
+                },
+            )?;
+
+            // If we pre-seeded context in the new worktree, update its workstream_id now that we
+            // have the real id.
+            if let Some(path) = path.as_ref() {
+                let seed_root = normalize_path(path);
+                if let Ok(resolution) = resolve_backlog(&seed_root) {
+                    if let Ok(existing) = load_context(&resolution.backlog_dir) {
+                        let mut state = existing.unwrap_or_default();
+                        state.workstream_id = Some(inserted.id.clone());
+                        let _ = save_context(&resolution.backlog_dir, state);
+                    }
+                }
+            }
+
+            if json {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&serde_json::json!({
+                        "ok": true,
+                        "workstream": inserted,
+                        "registry_path": workmesh_core::workstreams::workstreams_registry_path(home),
+                        "worktree": created_worktree,
+                        "context_seeded": context_seeded,
+                        "warnings": warnings
+                    }))?
+                );
+            } else {
+                println!("Created workstream {}", inserted.id);
+                if let Some(worktree) = inserted.worktree.as_ref() {
+                    println!("worktree: {}", worktree.path);
+                }
+                if let Some(created) = created_worktree.as_ref() {
+                    println!("Created git worktree at {}", created.path);
+                }
+                for warning in warnings {
+                    println!("warning: {}", warning);
+                }
+            }
+        }
+        WorkstreamCommand::Switch { id, json } => {
+            let record = resolve_workstream_for_repo(home, repo_root, &id)?;
+            let existing = load_context(backlog_dir)?.unwrap_or_default();
+            let mut next = existing.clone();
+            next.workstream_id = Some(record.id.clone());
+            if let Some(snapshot) = record.context.as_ref() {
+                next.project_id = snapshot.project_id.clone();
+                next.objective = snapshot.objective.clone();
+                next.scope = snapshot.scope.clone();
+            }
+            let _ = save_context(backlog_dir, next)?;
+
+            if let Some(session_id) = record.session_id.as_deref() {
+                let _ = set_current_session(home, session_id);
+            }
+
+            if json {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&serde_json::json!({
+                        "ok": true,
+                        "workstream": record,
+                        "worktree_path": record.worktree.as_ref().map(|w| w.path.clone()),
+                        "session_id": record.session_id
+                    }))?
+                );
+            } else {
+                println!("Switched active workstream to {}", record.id);
+                if let Some(path) = record.worktree.as_ref().map(|w| w.path.clone()) {
+                    println!("worktree: {}", path);
+                }
+                if let Some(session_id) = record.session_id.as_deref() {
+                    println!("session_id: {}", session_id);
+                }
+            }
+        }
+        WorkstreamCommand::Doctor { json } => {
+            let streams = list_workstreams_for_repo(home, repo_root)?;
+            let active_id = load_context(backlog_dir)?
+                .and_then(|ctx| ctx.workstream_id)
+                .filter(|value| !value.trim().is_empty());
+            let sessions = load_sessions_latest_fast(home).unwrap_or_default();
+            let session_ids: HashSet<String> = sessions.into_iter().map(|s| s.id).collect();
+
+            let mut issues: Vec<String> = Vec::new();
+            if let Some(active_id) = active_id.as_deref() {
+                if !streams.iter().any(|record| record.id == active_id) {
+                    issues.push(format!(
+                        "active_workstream_id_not_found_in_registry: {}",
+                        active_id
+                    ));
+                }
+            }
+
+            let mut entries: Vec<serde_json::Value> = Vec::new();
+            for record in streams {
+                let mut record_issues: Vec<String> = Vec::new();
+                if let Some(worktree) = record.worktree.as_ref() {
+                    if !Path::new(&worktree.path).exists() {
+                        record_issues.push("missing_worktree_path".to_string());
+                    }
+                }
+                if let Some(session_id) = record.session_id.as_deref() {
+                    if !session_ids.contains(session_id) {
+                        record_issues.push("missing_session_id".to_string());
+                    }
+                }
+                if record.key.is_none() {
+                    record_issues.push("missing_key".to_string());
+                }
+                entries.push(serde_json::json!({
+                    "id": record.id,
+                    "key": record.key,
+                    "name": record.name,
+                    "status": record.status.as_str(),
+                    "issues": record_issues,
+                    "worktree_path": record.worktree.as_ref().map(|w| w.path.clone()),
+                    "session_id": record.session_id
+                }));
+            }
+
+            if json {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&serde_json::json!({
+                        "repo_root": normalize_path_string(repo_root),
+                        "registry_path": workmesh_core::workstreams::workstreams_registry_path(home),
+                        "active_workstream_id": active_id,
+                        "issues": issues,
+                        "workstreams": entries
+                    }))?
+                );
+            } else {
+                if issues.is_empty() {
+                    println!("ok");
+                } else {
+                    println!("issues:");
+                    for issue in issues {
+                        println!("- {}", issue);
+                    }
+                }
+                for entry in entries {
+                    let id = entry["id"].as_str().unwrap_or("-");
+                    let key = entry["key"].as_str().unwrap_or("-");
+                    let status = entry["status"].as_str().unwrap_or("-");
+                    let record_issues = entry["issues"]
+                        .as_array()
+                        .map(|values| {
+                            values
+                                .iter()
+                                .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                                .collect::<Vec<_>>()
+                        })
+                        .unwrap_or_default();
+                    let summary = if record_issues.is_empty() {
+                        "ok".to_string()
+                    } else {
+                        record_issues.join(",")
+                    };
+                    println!("{} | key={} | status={} | issues={}", id, key, status, summary);
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
 fn handle_worktree_command(repo_root: &Path, home: &Path, command: WorktreeCommand) -> Result<()> {
     match command {
         WorktreeCommand::List { json } => {
@@ -4686,6 +5252,7 @@ fn handle_worktree_command(repo_root: &Path, home: &Path, command: WorktreeComma
                                     .clone()
                                     .or_else(|| infer_project_id(&seed_root)),
                                 objective: objective.clone(),
+                                workstream_id: None,
                                 scope,
                                 updated_at: None,
                             },
@@ -4915,6 +5482,7 @@ fn handle_context_command(
                 version: 1,
                 project_id: project.or(inferred_project),
                 objective,
+                workstream_id: None,
                 scope,
                 updated_at: None,
             };
@@ -5152,6 +5720,7 @@ fn infer_context_state(repo_root: &Path, backlog_dir: &Path) -> Option<ContextSt
         version: 1,
         project_id: inferred_project,
         objective: None,
+        workstream_id: None,
         scope,
         updated_at: None,
     })
