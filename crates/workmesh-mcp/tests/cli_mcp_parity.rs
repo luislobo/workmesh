@@ -2131,3 +2131,134 @@ async fn cli_and_mcp_truth_workflow_parity() {
 
     client.shut_down().await.expect("shutdown");
 }
+
+#[tokio::test]
+#[serial]
+async fn cli_and_mcp_workstream_parity() {
+    let _guard = env_lock().lock().expect("env lock");
+
+    let home = TempDir::new().expect("home tempdir");
+    std::env::set_var("WORKMESH_HOME", home.path());
+
+    let repo = TempDir::new().expect("repo tempdir");
+    let tasks_dir = repo.path().join("workmesh").join("tasks");
+    std::fs::create_dir_all(&tasks_dir).expect("tasks dir");
+    write_task(&tasks_dir, "task-001", "Seed", "To Do", &[]);
+
+    let client = start_client(repo.path()).await;
+
+    // MCP create -> CLI list
+    let created_text = call_tool_text(
+        &client,
+        "workstream_create",
+        serde_json::json!({
+            "root": repo.path().display().to_string(),
+            "name": "Stream A",
+            "key": "stream-a",
+            "project_id": "demo",
+            "objective": "ship stream a",
+            "format": "json"
+        }),
+    )
+    .await;
+    let created_json: serde_json::Value = serde_json::from_str(&created_text).expect("json");
+    let mcp_id = created_json["workstream"]["id"]
+        .as_str()
+        .expect("id")
+        .to_string();
+
+    let cli_list = cli()
+        .arg("--root")
+        .arg(repo.path())
+        .env("WORKMESH_HOME", home.path())
+        .arg("workstream")
+        .arg("list")
+        .arg("--json")
+        .output()
+        .expect("cli workstream list");
+    assert_output_ok!(cli_list);
+    let cli_list_json: serde_json::Value = serde_json::from_slice(&cli_list.stdout).expect("json");
+    let cli_ids = cli_list_json["workstreams"]
+        .as_array()
+        .expect("workstreams array")
+        .iter()
+        .filter_map(|entry| entry["id"].as_str().map(|v| v.to_string()))
+        .collect::<BTreeSet<_>>();
+    assert!(cli_ids.contains(&mcp_id));
+
+    // CLI create -> MCP list
+    let cli_created = cli()
+        .arg("--root")
+        .arg(repo.path())
+        .env("WORKMESH_HOME", home.path())
+        .arg("workstream")
+        .arg("create")
+        .arg("--name")
+        .arg("Stream B")
+        .arg("--key")
+        .arg("stream-b")
+        .arg("--project")
+        .arg("demo")
+        .arg("--objective")
+        .arg("ship stream b")
+        .arg("--json")
+        .output()
+        .expect("cli workstream create");
+    assert_output_ok!(cli_created);
+    let cli_created_json: serde_json::Value =
+        serde_json::from_slice(&cli_created.stdout).expect("json");
+    let cli_id = cli_created_json["workstream"]["id"]
+        .as_str()
+        .expect("id")
+        .to_string();
+
+    let list_text = call_tool_text(
+        &client,
+        "workstream_list",
+        serde_json::json!({
+            "root": repo.path().display().to_string(),
+            "format": "json"
+        }),
+    )
+    .await;
+    let list_json: serde_json::Value = serde_json::from_str(&list_text).expect("json");
+    let mcp_ids = list_json["workstreams"]
+        .as_array()
+        .expect("workstreams array")
+        .iter()
+        .filter_map(|entry| entry["id"].as_str().map(|v| v.to_string()))
+        .collect::<BTreeSet<_>>();
+    assert!(mcp_ids.contains(&mcp_id));
+    assert!(mcp_ids.contains(&cli_id));
+
+    // Switch should update repo-local context pointer.
+    let _ = call_tool_text(
+        &client,
+        "workstream_switch",
+        serde_json::json!({
+            "root": repo.path().display().to_string(),
+            "id": cli_id,
+            "format": "json"
+        }),
+    )
+    .await;
+
+    let context_text = call_tool_text(
+        &client,
+        "context_show",
+        serde_json::json!({
+            "root": repo.path().display().to_string(),
+            "format": "json"
+        }),
+    )
+    .await;
+    let context_json: serde_json::Value = serde_json::from_str(&context_text).expect("json");
+    assert_eq!(
+        context_json["context"]["workstream_id"]
+            .as_str()
+            .expect("workstream_id"),
+        cli_id
+    );
+
+    client.shut_down().await.expect("shutdown");
+}

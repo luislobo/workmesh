@@ -167,8 +167,11 @@ CLI:
 - `workstream doctor [--json]`
 
 MCP:
-- Phase 1 parity for workstream commands will be added in `task-ws1-004`.
-- Until then, use the CLI for workstream operations.
+- `workstream_list`
+- `workstream_create`
+- `workstream_show`
+- `workstream_switch`
+- `workstream_doctor`
 
 ## Worktree runtime
 CLI:

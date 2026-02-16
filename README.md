@@ -115,6 +115,11 @@ Phase 0 storage guarantees are now active for tracking files.
   - MCP: `doctor` with `fix_storage=true`
 - CLI and MCP share the same recovery behavior contract.
 
+## Workstreams (Phase 1)
+Workstreams let you manage multiple parallel streams of work in the same repo (often one git worktree per stream), with durable pointers to context and sessions.
+
+See [`docs/reference/commands.md`](docs/reference/commands.md) for `workstream ...` (CLI) and `workstream_*` (MCP tools).
+
 ## Documentation
 - Codex-first onboarding: [`docs/getting-started.md`](docs/getting-started.md)
 - Command catalog: [`docs/reference/commands.md`](docs/reference/commands.md)

@@ -3,7 +3,7 @@ id: task-ws1-004
 uid: 01KHKS5D8QE87EQQCA94VH3PE2
 title: Phase 1: add MCP parity for workstream commands
 kind: task
-status: To Do
+status: Done
 priority: P1
 phase: PhaseWS1
 dependencies: [task-ws1-003]
@@ -14,7 +14,7 @@ relationships:
   parent: []
   child: []
   discovered_from: []
-updated_date: 2026-02-16 11:50
+updated_date: 2026-02-16 13:49
 ---
 Description:
 --------------------------------------------------
