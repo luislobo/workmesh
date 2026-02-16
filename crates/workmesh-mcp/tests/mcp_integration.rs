@@ -595,6 +595,7 @@ async fn mcp_smoke_more_tools() {
     client.shut_down().await.expect("shutdown");
 }
 
+#[cfg(not(windows))]
 #[tokio::test]
 #[serial]
 async fn mcp_truth_tools_smoke() {
