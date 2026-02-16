@@ -51,7 +51,10 @@ fn add_discovered_sets_relationship() {
     let created_content = fs::read_dir(&tasks_dir)
         .expect("read dir")
         .filter_map(Result::ok)
-        .map(|entry| fs::read_to_string(entry.path()).expect("read task"))
+        .map(|entry| entry.path())
+        .filter(|path| path.is_file())
+        .filter(|path| path.extension().is_some_and(|ext| ext == "md"))
+        .map(|path| fs::read_to_string(path).expect("read task"))
         .find(|content| content.contains("discovered_from: [task-001]"))
         .expect("created task content");
     assert!(created_content.contains("title: Found bug"));
