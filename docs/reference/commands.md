@@ -161,6 +161,7 @@ MCP:
 ## Workstream runtime
 CLI:
 - `workstream list [--json]`
+- `workstream restore [--all] [--json]`
 - `workstream create --name "..." [--key <key>] [--path <path> --branch <branch> --from <ref>] [--project <pid>] [--epic task-123] [--objective "..."] [--tasks task-001,task-002] [--json]`
 - `workstream show [<id-or-key>] [--json]`
 - `workstream switch <id-or-key> [--json]`
@@ -172,6 +173,7 @@ MCP:
 - `workstream_show`
 - `workstream_switch`
 - `workstream_doctor`
+- `workstream_restore`
 
 Notes:
 - Active workstream pointer is per-worktree: `workmesh/context.json.workstream_id`.

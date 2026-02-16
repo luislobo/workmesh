@@ -3,7 +3,7 @@ id: task-ws1-006
 uid: 01KHKS5D9NGN4ZMF922051MK2M
 title: Phase 1: implement deterministic multi-stream restore workflow
 kind: task
-status: To Do
+status: Done
 priority: P1
 phase: PhaseWS1
 dependencies: [task-ws1-003, task-ws1-005]
@@ -14,7 +14,7 @@ relationships:
   parent: []
   child: []
   discovered_from: []
-updated_date: 2026-02-16 11:50
+updated_date: 2026-02-16 15:00
 ---
 Description:
 --------------------------------------------------

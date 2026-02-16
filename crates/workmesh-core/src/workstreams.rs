@@ -1,16 +1,23 @@
+use std::collections::HashSet;
+use std::fs;
 use std::path::{Path, PathBuf};
+use std::process::Command;
 
 use anyhow::{anyhow, Context, Result};
 use serde::{Deserialize, Serialize};
 use ulid::Ulid;
 
-use crate::context::ContextScope;
-use crate::context::ContextState;
+use crate::backlog::locate_backlog_dir;
+use crate::context::{context_from_legacy_focus, load_context, ContextScope, ContextState};
+use crate::focus::load_focus;
 use crate::global_sessions::WorktreeBinding;
+use crate::global_sessions::{load_sessions_latest_fast, AgentSession};
 use crate::storage::{
     cas_update_json_with_key, read_versioned_or_legacy_json, ResourceKey, StorageError,
     VersionedState,
 };
+use crate::task::load_tasks;
+use crate::task_ops::recommend_next_tasks_with_context;
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -102,6 +109,62 @@ fn default_registry_schema_version() -> u32 {
 
 pub fn now_rfc3339() -> String {
     chrono::Local::now().to_rfc3339()
+}
+
+/// Resolve the canonical repo root used for workstream registry keys.
+///
+/// Workstreams should be visible from any git worktree checkout of the same repo. Using the
+/// checkout path directly breaks that: every worktree has a different path.
+///
+/// Strategy:
+/// - If `git` is available, compute the *common* git directory and return its parent (the canonical
+///   main worktree path) when it looks like `<repo>/.git`.
+/// - Otherwise, fall back to the provided checkout root.
+pub fn resolve_repo_root_for_registry(checkout_root: &Path) -> PathBuf {
+    if let Some(path) = git_common_dir_repo_root(checkout_root) {
+        return path;
+    }
+    checkout_root.to_path_buf()
+}
+
+fn git_common_dir_repo_root(checkout_root: &Path) -> Option<PathBuf> {
+    let output = Command::new("git")
+        .arg("-C")
+        .arg(checkout_root)
+        .arg("rev-parse")
+        .arg("--absolute-git-dir")
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let git_dir_raw = String::from_utf8_lossy(&output.stdout);
+    let git_dir_str = git_dir_raw.trim();
+    if git_dir_str.is_empty() {
+        return None;
+    }
+
+    let git_dir = PathBuf::from(git_dir_str);
+    let common_dir = match fs::read_to_string(git_dir.join("commondir")) {
+        Ok(text) => {
+            let rel = text.trim();
+            if rel.is_empty() {
+                git_dir.clone()
+            } else {
+                git_dir.join(rel)
+            }
+        }
+        Err(_) => git_dir.clone(),
+    };
+    let common_dir = common_dir.canonicalize().unwrap_or(common_dir);
+    if common_dir
+        .file_name()
+        .map(|name| name.to_string_lossy().eq_ignore_ascii_case(".git"))
+        .unwrap_or(false)
+    {
+        return common_dir.parent().map(|parent| parent.to_path_buf());
+    }
+    Some(common_dir)
 }
 
 pub fn workstreams_registry_path(home: &Path) -> PathBuf {
@@ -310,6 +373,294 @@ fn normalize_path_string(path: &Path) -> Result<String> {
     };
     let normalized = absolute.canonicalize().unwrap_or(absolute);
     Ok(normalized.to_string_lossy().to_string())
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum WorkstreamRestoreContextSource {
+    ContextJson,
+    FocusJson,
+    WorkstreamSnapshot,
+    None,
+}
+
+impl Default for WorkstreamRestoreContextSource {
+    fn default() -> Self {
+        Self::None
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+pub struct WorkstreamRestoreContextView {
+    #[serde(default)]
+    pub source: WorkstreamRestoreContextSource,
+    #[serde(default)]
+    pub project_id: Option<String>,
+    #[serde(default)]
+    pub objective: Option<String>,
+    #[serde(default)]
+    pub scope: ContextScope,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct WorkstreamRestoreNextTask {
+    pub id: String,
+    pub title: String,
+    pub status: String,
+    #[serde(default)]
+    pub path: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct WorkstreamRestoreEntry {
+    pub id: String,
+    #[serde(default)]
+    pub key: Option<String>,
+    pub name: String,
+    pub status: WorkstreamStatus,
+    #[serde(default)]
+    pub worktree_path: Option<String>,
+    #[serde(default)]
+    pub branch: Option<String>,
+    #[serde(default)]
+    pub session_id: Option<String>,
+    #[serde(default)]
+    pub backlog_dir: Option<String>,
+    #[serde(default)]
+    pub context: WorkstreamRestoreContextView,
+    #[serde(default)]
+    pub next_task: Option<WorkstreamRestoreNextTask>,
+    #[serde(default)]
+    pub issues: Vec<String>,
+    #[serde(default)]
+    pub resume_script: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct WorkstreamRestorePlan {
+    pub repo_root: String,
+    pub registry_path: String,
+    pub generated_at: String,
+    #[serde(default)]
+    pub include_inactive: bool,
+    pub workstreams: Vec<WorkstreamRestoreEntry>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+pub struct WorkstreamRestoreOptions {
+    /// Include paused/closed workstreams (default is active-only).
+    #[serde(default)]
+    pub include_inactive: bool,
+}
+
+fn best_session_for_worktree(sessions: &[AgentSession], worktree_path: &str) -> Option<String> {
+    let path_norm = worktree_path.trim();
+    if path_norm.is_empty() {
+        return None;
+    }
+    sessions
+        .iter()
+        .find(|session| {
+            session
+                .worktree
+                .as_ref()
+                .map(|binding| binding.path == path_norm)
+                .unwrap_or(false)
+        })
+        .map(|session| session.id.clone())
+}
+
+fn context_view_from_state(
+    source: WorkstreamRestoreContextSource,
+    state: &ContextState,
+) -> WorkstreamRestoreContextView {
+    WorkstreamRestoreContextView {
+        source,
+        project_id: state.project_id.clone(),
+        objective: state.objective.clone(),
+        scope: state.scope.clone(),
+    }
+}
+
+fn context_state_from_snapshot(snapshot: &WorkstreamContextSnapshot) -> ContextState {
+    ContextState {
+        version: 1,
+        project_id: snapshot.project_id.clone(),
+        objective: snapshot.objective.clone(),
+        workstream_id: None,
+        scope: snapshot.scope.clone(),
+        updated_at: None,
+    }
+}
+
+fn resume_script_for_entry(entry: &WorkstreamRestoreEntry) -> Vec<String> {
+    let mut script = Vec::new();
+    if let Some(path) = entry.worktree_path.as_deref() {
+        script.push(format!("cd {}", path));
+        if let Some(session_id) = entry.session_id.as_deref() {
+            script.push(format!(
+                "workmesh --root . session resume {} --json",
+                session_id
+            ));
+        }
+        script.push("workmesh --root . context show --json".to_string());
+        script.push("workmesh --root . next --json".to_string());
+    }
+    script
+}
+
+pub fn build_workstream_restore_plan(
+    home: &Path,
+    checkout_root: &Path,
+    options: WorkstreamRestoreOptions,
+) -> Result<WorkstreamRestorePlan> {
+    let repo_key = resolve_repo_root_for_registry(checkout_root);
+    let repo_root = normalize_path_string(&repo_key)?;
+    let registry_path = workstreams_registry_path(home)
+        .to_string_lossy()
+        .to_string();
+
+    let mut streams = list_workstreams_for_repo(home, &repo_key)?;
+    if !options.include_inactive {
+        streams.retain(|record| record.status == WorkstreamStatus::Active);
+    }
+
+    // Stable ordering independent of filesystem or JSON serialization.
+    streams.sort_by(|a, b| {
+        a.key
+            .as_ref()
+            .map(|s| s.to_lowercase())
+            .unwrap_or_default()
+            .cmp(&b.key.as_ref().map(|s| s.to_lowercase()).unwrap_or_default())
+            .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
+            .then_with(|| a.id.cmp(&b.id))
+    });
+
+    let sessions = load_sessions_latest_fast(home).unwrap_or_default();
+    let session_ids: HashSet<String> = sessions.iter().map(|s| s.id.clone()).collect();
+
+    let mut entries = Vec::new();
+    for record in streams {
+        let mut issues = Vec::new();
+
+        let worktree_path = record
+            .worktree
+            .as_ref()
+            .map(|w| w.path.clone())
+            .filter(|value| !value.trim().is_empty());
+        let branch = record.worktree.as_ref().and_then(|w| w.branch.clone());
+
+        if let Some(path) = worktree_path.as_deref() {
+            if !Path::new(path).exists() {
+                issues.push(format!("missing_worktree_path: {}", path));
+            }
+        } else {
+            issues.push("missing_worktree_path".to_string());
+        }
+
+        // Prefer the workstream pointer, but fall back to the most recent session bound to the
+        // worktree path.
+        let mut session_id = record.session_id.clone().filter(|id| !id.trim().is_empty());
+        if session_id.is_none() {
+            if let Some(path) = worktree_path.as_deref() {
+                session_id = best_session_for_worktree(&sessions, path);
+            }
+        }
+
+        if let Some(session_id) = session_id.as_deref() {
+            if !session_ids.contains(session_id) {
+                issues.push(format!("missing_session_id: {}", session_id));
+            }
+        }
+
+        let mut backlog_dir_str = None;
+        let mut context_view = WorkstreamRestoreContextView {
+            source: WorkstreamRestoreContextSource::None,
+            ..WorkstreamRestoreContextView::default()
+        };
+        let mut context_state: Option<ContextState> = None;
+
+        if let Some(path) = worktree_path.as_deref() {
+            match locate_backlog_dir(Path::new(path)) {
+                Ok(backlog_dir) => {
+                    backlog_dir_str = Some(backlog_dir.to_string_lossy().to_string());
+                    if let Ok(Some(ctx)) = load_context(&backlog_dir) {
+                        context_view = context_view_from_state(
+                            WorkstreamRestoreContextSource::ContextJson,
+                            &ctx,
+                        );
+                        context_state = Some(ctx);
+                    } else if let Ok(Some(focus)) = load_focus(&backlog_dir) {
+                        let converted = context_from_legacy_focus(
+                            focus.project_id.clone(),
+                            focus.epic_id.clone(),
+                            focus.objective.clone(),
+                            focus.working_set.clone(),
+                        );
+                        context_view = context_view_from_state(
+                            WorkstreamRestoreContextSource::FocusJson,
+                            &converted,
+                        );
+                        context_state = Some(converted);
+                    } else if let Some(snapshot) = record.context.as_ref() {
+                        let converted = context_state_from_snapshot(snapshot);
+                        context_view = WorkstreamRestoreContextView {
+                            source: WorkstreamRestoreContextSource::WorkstreamSnapshot,
+                            project_id: snapshot.project_id.clone(),
+                            objective: snapshot.objective.clone(),
+                            scope: snapshot.scope.clone(),
+                        };
+                        context_state = Some(converted);
+                    }
+                }
+                Err(_) => {
+                    issues.push(format!("missing_backlog_dir_under: {}", path));
+                }
+            }
+        }
+
+        let next_task = if let Some(backlog_dir) = backlog_dir_str.as_deref().map(PathBuf::from) {
+            let tasks = load_tasks(&backlog_dir);
+            recommend_next_tasks_with_context(&tasks, context_state.as_ref())
+                .first()
+                .map(|task| WorkstreamRestoreNextTask {
+                    id: task.id.clone(),
+                    title: task.title.clone(),
+                    status: task.status.clone(),
+                    path: task
+                        .file_path
+                        .as_ref()
+                        .map(|p| p.to_string_lossy().to_string()),
+                })
+        } else {
+            None
+        };
+
+        let mut entry = WorkstreamRestoreEntry {
+            id: record.id.clone(),
+            key: record.key.clone(),
+            name: record.name.clone(),
+            status: record.status,
+            worktree_path,
+            branch,
+            session_id,
+            backlog_dir: backlog_dir_str,
+            context: context_view,
+            next_task,
+            issues,
+            resume_script: Vec::new(),
+        };
+        entry.resume_script = resume_script_for_entry(&entry);
+        entries.push(entry);
+    }
+
+    Ok(WorkstreamRestorePlan {
+        repo_root,
+        registry_path,
+        generated_at: now_rfc3339(),
+        include_inactive: options.include_inactive,
+        workstreams: entries,
+    })
 }
 
 #[cfg(test)]

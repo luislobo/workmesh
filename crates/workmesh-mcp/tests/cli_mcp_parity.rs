@@ -2401,3 +2401,244 @@ async fn cli_and_mcp_workstream_session_link_parity() {
 
     client.shut_down().await.expect("shutdown");
 }
+
+#[tokio::test]
+#[serial]
+async fn cli_and_mcp_workstream_restore_parity() {
+    let _guard = env_lock().lock().expect("env lock");
+
+    let home = TempDir::new().expect("home tempdir");
+    std::env::set_var("WORKMESH_HOME", home.path());
+
+    let workspace = TempDir::new().expect("workspace tempdir");
+    let repo_root = workspace.path().join("repo");
+    std::fs::create_dir_all(&repo_root).expect("repo dir");
+    init_git_repo(&repo_root);
+
+    // Worktree provisioning requires a real HEAD commit.
+    let output = Command::new("git")
+        .arg("-C")
+        .arg(&repo_root)
+        .args(["config", "user.email", "workmesh@example.com"])
+        .output()
+        .expect("git config email");
+    assert_output_ok!(output);
+    let output = Command::new("git")
+        .arg("-C")
+        .arg(&repo_root)
+        .args(["config", "user.name", "WorkMesh Test"])
+        .output()
+        .expect("git config name");
+    assert_output_ok!(output);
+
+    let tasks_dir = repo_root.join("workmesh").join("tasks");
+    std::fs::create_dir_all(&tasks_dir).expect("tasks dir");
+    write_task(&tasks_dir, "task-001", "Seed", "To Do", &[]);
+    std::fs::write(repo_root.join("README.md"), "seed\n").expect("write readme");
+
+    let output = Command::new("git")
+        .arg("-C")
+        .arg(&repo_root)
+        .args(["add", "-A"])
+        .output()
+        .expect("git add");
+    assert_output_ok!(output);
+    let output = Command::new("git")
+        .arg("-C")
+        .arg(&repo_root)
+        .args(["commit", "-m", "init"])
+        .output()
+        .expect("git commit");
+    assert_output_ok!(output);
+
+    let client = start_client(&repo_root).await;
+
+    let wt_a = workspace.path().join("wt-a");
+    let wt_b = workspace.path().join("wt-b");
+
+    // Create stream A via CLI.
+    let created_a = cli()
+        .arg("--root")
+        .arg(&repo_root)
+        .env("WORKMESH_HOME", home.path())
+        .arg("workstream")
+        .arg("create")
+        .arg("--name")
+        .arg("Stream A")
+        .arg("--key")
+        .arg("stream-a")
+        .arg("--path")
+        .arg(&wt_a)
+        .arg("--branch")
+        .arg("stream-a")
+        .arg("--project")
+        .arg("demo")
+        .arg("--objective")
+        .arg("Ship stream a")
+        .arg("--json")
+        .output()
+        .expect("cli workstream create a");
+    assert_output_ok!(created_a);
+    let created_a_json: serde_json::Value =
+        serde_json::from_slice(&created_a.stdout).expect("json");
+    let ws_a_id = created_a_json["workstream"]["id"]
+        .as_str()
+        .expect("workstream id a")
+        .to_string();
+
+    // Create stream B via MCP.
+    let created_b_text = call_tool_text(
+        &client,
+        "workstream_create",
+        serde_json::json!({
+            "root": repo_root.display().to_string(),
+            "name": "Stream B",
+            "key": "stream-b",
+            "path": wt_b.display().to_string(),
+            "branch": "stream-b",
+            "project_id": "demo",
+            "objective": "Ship stream b",
+            "format": "json"
+        }),
+    )
+    .await;
+    let created_b_json: serde_json::Value = serde_json::from_str(&created_b_text).expect("json");
+    let ws_b_id = created_b_json["workstream"]["id"]
+        .as_str()
+        .expect("workstream id b")
+        .to_string();
+
+    // Save a session in each worktree; this should update the stream session pointer.
+    let saved_a = cli()
+        .arg("--root")
+        .arg(&wt_a)
+        .env("WORKMESH_HOME", home.path())
+        .arg("session")
+        .arg("save")
+        .arg("--objective")
+        .arg("workstream a session")
+        .arg("--cwd")
+        .arg(&wt_a)
+        .arg("--json")
+        .output()
+        .expect("cli session save a");
+    assert_output_ok!(saved_a);
+    let saved_a_json: serde_json::Value = serde_json::from_slice(&saved_a.stdout).expect("json");
+    let session_a_id = saved_a_json["id"]
+        .as_str()
+        .expect("session id a")
+        .to_string();
+
+    let saved_b = cli()
+        .arg("--root")
+        .arg(&wt_b)
+        .env("WORKMESH_HOME", home.path())
+        .arg("session")
+        .arg("save")
+        .arg("--objective")
+        .arg("workstream b session")
+        .arg("--cwd")
+        .arg(&wt_b)
+        .arg("--json")
+        .output()
+        .expect("cli session save b");
+    assert_output_ok!(saved_b);
+    let saved_b_json: serde_json::Value = serde_json::from_slice(&saved_b.stdout).expect("json");
+    let session_b_id = saved_b_json["id"]
+        .as_str()
+        .expect("session id b")
+        .to_string();
+
+    // CLI restore output should include both streams and stable ordering.
+    let cli_restore = cli()
+        .arg("--root")
+        .arg(&repo_root)
+        .env("WORKMESH_HOME", home.path())
+        .arg("workstream")
+        .arg("restore")
+        .arg("--json")
+        .output()
+        .expect("cli workstream restore");
+    assert_output_ok!(cli_restore);
+    let cli_restore_json: serde_json::Value =
+        serde_json::from_slice(&cli_restore.stdout).expect("json");
+
+    let cli_restore2 = cli()
+        .arg("--root")
+        .arg(&repo_root)
+        .env("WORKMESH_HOME", home.path())
+        .arg("workstream")
+        .arg("restore")
+        .arg("--json")
+        .output()
+        .expect("cli workstream restore (2)");
+    assert_output_ok!(cli_restore2);
+    let cli_restore2_json: serde_json::Value =
+        serde_json::from_slice(&cli_restore2.stdout).expect("json");
+
+    let cli_ids_in_order: Vec<String> = cli_restore_json["workstreams"]
+        .as_array()
+        .expect("workstreams array")
+        .iter()
+        .filter_map(|entry| entry["id"].as_str().map(|v| v.to_string()))
+        .collect();
+    let cli2_ids_in_order: Vec<String> = cli_restore2_json["workstreams"]
+        .as_array()
+        .expect("workstreams array")
+        .iter()
+        .filter_map(|entry| entry["id"].as_str().map(|v| v.to_string()))
+        .collect();
+    assert_eq!(cli_ids_in_order, cli2_ids_in_order);
+
+    // MCP restore should match the CLI set of streams.
+    let mcp_restore_text = call_tool_text(
+        &client,
+        "workstream_restore",
+        serde_json::json!({
+            "root": repo_root.display().to_string(),
+            "all": false,
+            "format": "json"
+        }),
+    )
+    .await;
+    let mcp_restore_json: serde_json::Value =
+        serde_json::from_str(&mcp_restore_text).expect("json");
+
+    let cli_ids: BTreeSet<String> = cli_restore_json["workstreams"]
+        .as_array()
+        .expect("workstreams array")
+        .iter()
+        .filter_map(|entry| entry["id"].as_str().map(|v| v.to_string()))
+        .collect();
+    let mcp_ids: BTreeSet<String> = mcp_restore_json["workstreams"]
+        .as_array()
+        .expect("workstreams array")
+        .iter()
+        .filter_map(|entry| entry["id"].as_str().map(|v| v.to_string()))
+        .collect();
+    assert_eq!(cli_ids, mcp_ids);
+    assert!(cli_ids.contains(&ws_a_id));
+    assert!(cli_ids.contains(&ws_b_id));
+
+    // Ensure required fields exist and session ids were linked.
+    for entry in cli_restore_json["workstreams"]
+        .as_array()
+        .expect("workstreams array")
+        .iter()
+    {
+        assert!(entry["worktree_path"].as_str().is_some());
+        assert!(entry["context"].is_object());
+        assert!(entry["resume_script"].as_array().is_some());
+    }
+
+    let session_ids: BTreeSet<String> = cli_restore_json["workstreams"]
+        .as_array()
+        .expect("workstreams array")
+        .iter()
+        .filter_map(|entry| entry["session_id"].as_str().map(|v| v.to_string()))
+        .collect();
+    assert!(session_ids.contains(&session_a_id));
+    assert!(session_ids.contains(&session_b_id));
+
+    client.shut_down().await.expect("shutdown");
+}

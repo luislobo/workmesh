@@ -75,8 +75,9 @@ use workmesh_core::views::{
     blockers_report_with_context, board_lanes, scope_ids_from_context, BoardBy,
 };
 use workmesh_core::workstreams::{
-    list_workstreams_for_repo, update_workstream_for_repo_by_id, upsert_workstream_record,
-    WorkstreamContextSnapshot, WorkstreamRecord, WorkstreamStatus,
+    build_workstream_restore_plan, list_workstreams_for_repo, resolve_repo_root_for_registry,
+    update_workstream_for_repo_by_id, upsert_workstream_record, WorkstreamContextSnapshot,
+    WorkstreamRecord, WorkstreamRestoreOptions, WorkstreamStatus,
 };
 use workmesh_core::worktrees::{
     create_git_worktree, current_branch as current_worktree_branch, doctor_worktrees,
@@ -1134,6 +1135,14 @@ enum ContextCommand {
 enum WorkstreamCommand {
     /// List known workstreams for this repo
     List {
+        #[arg(long, action = ArgAction::SetTrue)]
+        json: bool,
+    },
+    /// Build a deterministic restore plan for active workstreams (after reboot / lost terminals)
+    Restore {
+        /// Include paused/closed workstreams (default: active only)
+        #[arg(long, action = ArgAction::SetTrue)]
+        all: bool,
         #[arg(long, action = ArgAction::SetTrue)]
         json: bool,
     },
@@ -2953,7 +2962,8 @@ fn main() -> Result<()> {
                     let mut checkpoint: Option<CheckpointRef> = None;
                     let mut recent_changes: Option<workmesh_core::global_sessions::RecentChanges> =
                         None;
-                    let mut repo_root_path_for_link: Option<PathBuf> = None;
+                    let mut registry_repo_root_for_link: Option<PathBuf> = None;
+                    let mut checkout_repo_root_for_link: Option<PathBuf> = None;
                     let mut active_workstream_id: Option<String> = None;
                     let mut workstream_context_snapshot: Option<WorkstreamContextSnapshot> = None;
 
@@ -2967,7 +2977,8 @@ fn main() -> Result<()> {
                             .and_then(|state| state.workstream_id.clone())
                             .filter(|value| !value.trim().is_empty());
                         if active_workstream_id.is_some() {
-                            repo_root_path_for_link = Some(rr.clone());
+                            registry_repo_root_for_link = Some(resolve_repo_root_for_registry(&rr));
+                            checkout_repo_root_for_link = Some(rr.clone());
                             workstream_context_snapshot = context_state
                                 .as_ref()
                                 .map(WorkstreamContextSnapshot::from_context_state);
@@ -3051,16 +3062,22 @@ fn main() -> Result<()> {
                     append_session_saved(&home, session.clone())?;
                     set_current_session(&home, &session.id)?;
 
-                    if let (Some(repo_root), Some(workstream_id), Some(snapshot)) = (
-                        repo_root_path_for_link.as_ref(),
+                    if let (
+                        Some(registry_repo_root),
+                        Some(checkout_repo_root),
+                        Some(workstream_id),
+                        Some(snapshot),
+                    ) = (
+                        registry_repo_root_for_link.as_ref(),
+                        checkout_repo_root_for_link.as_ref(),
                         active_workstream_id.as_deref(),
                         workstream_context_snapshot.as_ref(),
                     ) {
-                        let branch = current_worktree_branch(repo_root);
+                        let branch = current_worktree_branch(checkout_repo_root);
                         let record = set_worktree_attached_session_id(
                             &home,
-                            repo_root,
-                            repo_root,
+                            registry_repo_root,
+                            checkout_repo_root,
                             branch.clone(),
                             Some(session.id.clone()),
                         )?;
@@ -3073,7 +3090,7 @@ fn main() -> Result<()> {
 
                         let _ = update_workstream_for_repo_by_id(
                             &home,
-                            repo_root,
+                            registry_repo_root,
                             workstream_id,
                             |record| {
                                 record.session_id = Some(session.id.clone());
@@ -4743,9 +4760,10 @@ fn handle_workstream_command(
     home: &Path,
     command: WorkstreamCommand,
 ) -> Result<()> {
+    let registry_repo_root = resolve_repo_root_for_registry(repo_root);
     match command {
         WorkstreamCommand::List { json } => {
-            let streams = list_workstreams_for_repo(home, repo_root)?;
+            let streams = list_workstreams_for_repo(home, &registry_repo_root)?;
             let active_id = load_context(backlog_dir)?
                 .and_then(|ctx| ctx.workstream_id)
                 .filter(|value| !value.trim().is_empty());
@@ -4771,7 +4789,7 @@ fn handle_workstream_command(
                 println!(
                     "{}",
                     serde_json::to_string_pretty(&serde_json::json!({
-                        "repo_root": normalize_path_string(repo_root),
+                        "repo_root": normalize_path_string(&registry_repo_root),
                         "registry_path": workmesh_core::workstreams::workstreams_registry_path(home),
                         "active_workstream_id": active_id,
                         "workstreams": views
@@ -4796,6 +4814,64 @@ fn handle_workstream_command(
                 }
             }
         }
+        WorkstreamCommand::Restore { all, json } => {
+            let plan = build_workstream_restore_plan(
+                home,
+                repo_root,
+                WorkstreamRestoreOptions {
+                    include_inactive: all,
+                },
+            )?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&plan)?);
+            } else if plan.workstreams.is_empty() {
+                if all {
+                    println!("(no workstreams)");
+                } else {
+                    println!("(no active workstreams)");
+                }
+            } else {
+                println!("repo_root: {}", plan.repo_root);
+                println!("workstreams: {}", plan.workstreams.len());
+                println!();
+                for entry in plan.workstreams {
+                    let key = entry.key.as_deref().unwrap_or("-");
+                    let path = entry.worktree_path.as_deref().unwrap_or("-");
+                    let session_id = entry.session_id.as_deref().unwrap_or("-");
+                    let objective = entry.context.objective.as_deref().unwrap_or("-");
+                    let next = entry
+                        .next_task
+                        .as_ref()
+                        .map(|task| format!("{} | {} | {}", task.id, task.status, task.title))
+                        .unwrap_or_else(|| "-".to_string());
+                    println!(
+                        "{} | key={} | status={} | path={} | session_id={}",
+                        entry.id,
+                        key,
+                        entry.status.as_str(),
+                        path,
+                        session_id
+                    );
+                    println!("objective: {}", objective);
+                    println!("next_task: {}", next);
+                    if entry.issues.is_empty() {
+                        println!("issues: ok");
+                    } else {
+                        println!("issues:");
+                        for issue in entry.issues {
+                            println!("- {}", issue);
+                        }
+                    }
+                    if !entry.resume_script.is_empty() {
+                        println!("resume:");
+                        for line in entry.resume_script {
+                            println!("{}", line);
+                        }
+                    }
+                    println!();
+                }
+            }
+        }
         WorkstreamCommand::Show { id, json } => {
             let active_id = load_context(backlog_dir)?
                 .and_then(|ctx| ctx.workstream_id)
@@ -4810,7 +4886,7 @@ fn handle_workstream_command(
                 die("No workstream id provided and no active workstream set in context");
             };
 
-            let record = resolve_workstream_for_repo(home, repo_root, &query)?;
+            let record = resolve_workstream_for_repo(home, &registry_repo_root, &query)?;
             let mut issues: Vec<String> = Vec::new();
             if let Some(worktree) = record.worktree.as_ref() {
                 if !Path::new(&worktree.path).exists() {
@@ -4987,7 +5063,7 @@ fn handle_workstream_command(
                 .map(|value| value.trim())
                 .filter(|value| !value.is_empty())
             {
-                let existing = list_workstreams_for_repo(home, repo_root)?;
+                let existing = list_workstreams_for_repo(home, &registry_repo_root)?;
                 if existing.iter().any(|record| {
                     record
                         .key
@@ -5006,7 +5082,7 @@ fn handle_workstream_command(
                 home,
                 WorkstreamRecord {
                     id: String::new(),
-                    repo_root: normalize_path_string(repo_root),
+                    repo_root: normalize_path_string(&registry_repo_root),
                     key,
                     name,
                     status: WorkstreamStatus::Active,
@@ -5072,7 +5148,7 @@ fn handle_workstream_command(
             }
         }
         WorkstreamCommand::Switch { id, json } => {
-            let record = resolve_workstream_for_repo(home, repo_root, &id)?;
+            let record = resolve_workstream_for_repo(home, &registry_repo_root, &id)?;
             let existing = load_context(backlog_dir)?.unwrap_or_default();
             let mut next = existing.clone();
             next.workstream_id = Some(record.id.clone());
@@ -5108,7 +5184,7 @@ fn handle_workstream_command(
             }
         }
         WorkstreamCommand::Doctor { json } => {
-            let streams = list_workstreams_for_repo(home, repo_root)?;
+            let streams = list_workstreams_for_repo(home, &registry_repo_root)?;
             let active_id = load_context(backlog_dir)?
                 .and_then(|ctx| ctx.workstream_id)
                 .filter(|value| !value.trim().is_empty());
@@ -5156,7 +5232,7 @@ fn handle_workstream_command(
                 println!(
                     "{}",
                     serde_json::to_string_pretty(&serde_json::json!({
-                        "repo_root": normalize_path_string(repo_root),
+                        "repo_root": normalize_path_string(&registry_repo_root),
                         "registry_path": workmesh_core::workstreams::workstreams_registry_path(home),
                         "active_workstream_id": active_id,
                         "issues": issues,
@@ -5417,6 +5493,7 @@ fn handle_worktree_command(repo_root: &Path, home: &Path, command: WorktreeComma
             append_session_saved(home, updated.clone())?;
             set_current_session(home, &updated.id)?;
 
+            let registry_repo_root = resolve_repo_root_for_registry(repo_root);
             if let Ok(backlog_dir) = locate_backlog_dir(repo_root) {
                 if let Ok(Some(ctx)) = load_context(&backlog_dir) {
                     if let Some(workstream_id) = ctx
@@ -5427,7 +5504,7 @@ fn handle_worktree_command(repo_root: &Path, home: &Path, command: WorktreeComma
                         let snapshot = WorkstreamContextSnapshot::from_context_state(&ctx);
                         update_workstream_for_repo_by_id(
                             home,
-                            repo_root,
+                            &registry_repo_root,
                             &workstream_id,
                             |record| {
                                 record.session_id = Some(updated.id.clone());
@@ -5500,6 +5577,7 @@ fn handle_worktree_command(repo_root: &Path, home: &Path, command: WorktreeComma
                 }
             }
 
+            let registry_repo_root = resolve_repo_root_for_registry(repo_root);
             if let Ok(backlog_dir) = locate_backlog_dir(repo_root) {
                 if let Ok(Some(ctx)) = load_context(&backlog_dir) {
                     if let Some(workstream_id) = ctx
@@ -5510,7 +5588,7 @@ fn handle_worktree_command(repo_root: &Path, home: &Path, command: WorktreeComma
                         let snapshot = WorkstreamContextSnapshot::from_context_state(&ctx);
                         update_workstream_for_repo_by_id(
                             home,
-                            repo_root,
+                            &registry_repo_root,
                             &workstream_id,
                             |record| {
                                 if record.session_id.as_deref() == Some(session_id.as_str()) {
