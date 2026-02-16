@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 use std::fs::{self, File};
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -9,6 +9,7 @@ use sha2::{Digest, Sha256};
 use thiserror::Error;
 
 use crate::project::repo_root_from_backlog;
+use crate::storage::write_string_atomic_locked;
 use crate::task::{load_tasks, Task};
 
 #[derive(Debug, Error)]
@@ -255,14 +256,18 @@ fn read_index(path: &Path) -> Result<Vec<IndexEntry>, IndexError> {
 }
 
 fn write_index(path: &Path, entries: &[IndexEntry]) -> Result<(), IndexError> {
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)?;
-    }
-    let mut file = File::create(path)?;
+    let mut lines = Vec::with_capacity(entries.len());
     for entry in entries {
-        let line = serde_json::to_string(entry)?;
-        writeln!(file, "{}", line)?;
+        lines.push(serde_json::to_string(entry)?);
     }
+    let payload = if lines.is_empty() {
+        String::new()
+    } else {
+        let mut body = lines.join("\n");
+        body.push('\n');
+        body
+    };
+    write_string_atomic_locked(path, &payload)?;
     Ok(())
 }
 

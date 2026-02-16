@@ -7,6 +7,8 @@ use anyhow::{anyhow, Context, Result};
 use serde::{Deserialize, Serialize};
 use ulid::Ulid;
 
+use crate::storage::{with_path_lock, write_string_atomic};
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct GitWorktreeEntry {
     pub path: String,
@@ -93,6 +95,10 @@ pub fn worktrees_registry_path(home: &Path) -> PathBuf {
 
 pub fn load_worktree_registry(home: &Path) -> Result<WorktreeRegistry> {
     let path = worktrees_registry_path(home);
+    read_worktree_registry(&path)
+}
+
+fn read_worktree_registry(path: &Path) -> Result<WorktreeRegistry> {
     if !path.exists() {
         return Ok(WorktreeRegistry::default());
     }
@@ -103,16 +109,9 @@ pub fn load_worktree_registry(home: &Path) -> Result<WorktreeRegistry> {
 }
 
 pub fn save_worktree_registry(home: &Path, mut registry: WorktreeRegistry) -> Result<PathBuf> {
-    registry.version = default_registry_version();
-    registry
-        .worktrees
-        .sort_by(|a, b| a.path.to_lowercase().cmp(&b.path.to_lowercase()));
     let path = worktrees_registry_path(home);
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent).with_context(|| format!("create {}", parent.display()))?;
-    }
-    fs::write(&path, serde_json::to_string_pretty(&registry)?)
-        .with_context(|| format!("write {}", path.display()))?;
+    normalize_registry(&mut registry);
+    with_path_lock(&path, || write_worktree_registry_unlocked(&path, &registry))?;
     Ok(path)
 }
 
@@ -126,7 +125,8 @@ pub fn find_worktree_record_by_path(home: &Path, path: &Path) -> Result<Option<W
 }
 
 pub fn upsert_worktree_record(home: &Path, mut record: WorktreeRecord) -> Result<WorktreeRecord> {
-    let mut registry = load_worktree_registry(home)?;
+    let path = worktrees_registry_path(home);
+    let locked_path = path.clone();
     let now = now_rfc3339();
     record.path = normalize_path_string(Path::new(&record.path))?;
     record.repo_root = normalize_path_string(Path::new(&record.repo_root))?;
@@ -134,42 +134,61 @@ pub fn upsert_worktree_record(home: &Path, mut record: WorktreeRecord) -> Result
         record.id = Ulid::new().to_string();
     }
 
-    if let Some(index) = registry
-        .worktrees
-        .iter()
-        .position(|entry| entry.id == record.id || entry.path.eq_ignore_ascii_case(&record.path))
-    {
-        let existing = &mut registry.worktrees[index];
-        let created_at = existing.created_at.clone();
-        existing.repo_root = record.repo_root.clone();
-        existing.path = record.path.clone();
-        existing.branch = record.branch.clone();
-        existing.attached_session_id = record.attached_session_id.clone();
-        existing.updated_at = now.clone();
-        existing.created_at = created_at;
-        let updated = existing.clone();
-        save_worktree_registry(home, registry)?;
-        return Ok(updated);
-    }
+    with_path_lock(&path, move || {
+        let mut registry = read_worktree_registry(&locked_path)?;
+        if let Some(index) = registry.worktrees.iter().position(|entry| {
+            entry.id == record.id || entry.path.eq_ignore_ascii_case(&record.path)
+        }) {
+            let existing = &mut registry.worktrees[index];
+            let created_at = existing.created_at.clone();
+            existing.repo_root = record.repo_root.clone();
+            existing.path = record.path.clone();
+            existing.branch = record.branch.clone();
+            existing.attached_session_id = record.attached_session_id.clone();
+            existing.updated_at = now.clone();
+            existing.created_at = created_at;
+            let updated = existing.clone();
+            normalize_registry(&mut registry);
+            write_worktree_registry_unlocked(&locked_path, &registry)?;
+            return Ok(updated);
+        }
 
-    if record.created_at.trim().is_empty() {
-        record.created_at = now.clone();
-    }
-    record.updated_at = now;
-    registry.worktrees.push(record.clone());
-    save_worktree_registry(home, registry)?;
-    Ok(record)
+        if record.created_at.trim().is_empty() {
+            record.created_at = now.clone();
+        }
+        record.updated_at = now;
+        registry.worktrees.push(record.clone());
+        normalize_registry(&mut registry);
+        write_worktree_registry_unlocked(&locked_path, &registry)?;
+        Ok(record)
+    })
 }
 
 pub fn remove_worktree_record(home: &Path, id: &str) -> Result<bool> {
-    let mut registry = load_worktree_registry(home)?;
-    let before = registry.worktrees.len();
-    registry.worktrees.retain(|record| record.id != id);
-    if registry.worktrees.len() == before {
-        return Ok(false);
-    }
-    save_worktree_registry(home, registry)?;
-    Ok(true)
+    let path = worktrees_registry_path(home);
+    with_path_lock(&path, || {
+        let mut registry = read_worktree_registry(&path)?;
+        let before = registry.worktrees.len();
+        registry.worktrees.retain(|record| record.id != id);
+        if registry.worktrees.len() == before {
+            return Ok(false);
+        }
+        normalize_registry(&mut registry);
+        write_worktree_registry_unlocked(&path, &registry)?;
+        Ok(true)
+    })
+}
+
+fn normalize_registry(registry: &mut WorktreeRegistry) {
+    registry.version = default_registry_version();
+    registry
+        .worktrees
+        .sort_by(|a, b| a.path.to_lowercase().cmp(&b.path.to_lowercase()));
+}
+
+fn write_worktree_registry_unlocked(path: &Path, registry: &WorktreeRegistry) -> Result<()> {
+    let raw = serde_json::to_string_pretty(registry)?;
+    write_string_atomic(path, &raw).with_context(|| format!("write {}", path.display()))
 }
 
 pub fn list_git_worktrees(repo_root: &Path) -> Result<Vec<GitWorktreeEntry>> {

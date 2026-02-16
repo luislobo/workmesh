@@ -1,12 +1,14 @@
 use std::collections::BTreeMap;
 use std::fs;
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 
 use anyhow::{anyhow, Context, Result};
 use chrono::{DateTime, Local};
 use serde::{Deserialize, Serialize};
 use ulid::Ulid;
+
+use crate::storage::{append_line_locked, write_string_atomic_locked};
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 pub struct GitSnapshot {
@@ -165,11 +167,9 @@ pub fn set_current_session(home: &Path, session_id: &str) -> Result<()> {
         "current_session_id": session_id,
         "updated_at": now_rfc3339(),
     });
-    fs::write(
-        sessions_current_path(home),
-        serde_json::to_string_pretty(&payload)?,
-    )
-    .context("write current session pointer")?;
+    let raw = serde_json::to_string_pretty(&payload)?;
+    write_string_atomic_locked(&sessions_current_path(home), &raw)
+        .context("write current session pointer")?;
     Ok(())
 }
 
@@ -235,16 +235,19 @@ pub fn rebuild_sessions_index(home: &Path) -> Result<SessionsIndexSummary> {
     ensure_global_dirs(home)?;
     let sessions = load_sessions_latest(home)?;
     let index_path = sessions_index_path(home);
-    let tmp = index_path.with_extension("jsonl.tmp");
-
-    let mut file =
-        fs::File::create(&tmp).with_context(|| format!("create temp index {}", tmp.display()))?;
+    let mut lines = Vec::with_capacity(sessions.len());
     for session in &sessions {
-        let line = serde_json::to_string(session).context("serialize session for index")?;
-        writeln!(file, "{}", line).context("write index line")?;
+        lines.push(serde_json::to_string(session).context("serialize session for index")?);
     }
-    fs::rename(&tmp, &index_path)
-        .with_context(|| format!("rename {} -> {}", tmp.display(), index_path.display()))?;
+    let payload = if lines.is_empty() {
+        String::new()
+    } else {
+        let mut body = lines.join("\n");
+        body.push('\n');
+        body
+    };
+    write_string_atomic_locked(&index_path, &payload)
+        .with_context(|| format!("write {}", index_path.display()))?;
 
     Ok(SessionsIndexSummary {
         indexed: sessions.len(),
@@ -338,12 +341,8 @@ pub fn verify_sessions_index(home: &Path) -> Result<SessionsIndexReport> {
 }
 
 fn append_jsonl_line(path: &Path, line: &str) -> Result<()> {
-    let mut file = fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(path)
-        .with_context(|| format!("open for append {}", path.display()))?;
-    writeln!(file, "{}", line).context("append jsonl line")?;
+    append_line_locked(path, line)
+        .with_context(|| format!("append jsonl line {}", path.display()))?;
     Ok(())
 }
 

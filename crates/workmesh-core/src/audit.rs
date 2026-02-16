@@ -1,10 +1,10 @@
-use std::fs::OpenOptions;
-use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use thiserror::Error;
+
+use crate::storage::append_line_locked;
 
 #[derive(Debug, Error)]
 pub enum AuditError {
@@ -29,9 +29,8 @@ pub fn audit_log_path(backlog_dir: &Path) -> PathBuf {
 
 pub fn append_audit_event(backlog_dir: &Path, event: &AuditEvent) -> Result<(), AuditError> {
     let path = audit_log_path(backlog_dir);
-    let mut file = OpenOptions::new().create(true).append(true).open(path)?;
     let line = serde_json::to_string(event)?;
-    writeln!(file, "{}", line)?;
+    append_line_locked(&path, &line)?;
     Ok(())
 }
 

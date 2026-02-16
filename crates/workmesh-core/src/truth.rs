@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, HashSet};
 use std::fs;
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 
 use chrono::Local;
@@ -11,6 +11,7 @@ use thiserror::Error;
 use ulid::Ulid;
 
 use crate::global_sessions::{load_sessions_latest, resolve_workmesh_home};
+use crate::storage::{append_line_locked, with_path_lock, write_string_atomic};
 use crate::task::load_tasks;
 
 #[derive(Debug, Error)]
@@ -480,6 +481,15 @@ pub fn list_truths(backlog_dir: &Path, query: &TruthQuery) -> Result<Vec<TruthRe
 
 pub fn rebuild_truth_projection(backlog_dir: &Path) -> Result<TruthProjectionSummary, TruthError> {
     ensure_truth_dirs(backlog_dir)?;
+    let events_path = truth_events_path(backlog_dir);
+    with_path_lock(&events_path, || {
+        rebuild_truth_projection_unlocked(backlog_dir)
+    })
+}
+
+fn rebuild_truth_projection_unlocked(
+    backlog_dir: &Path,
+) -> Result<TruthProjectionSummary, TruthError> {
     let events = read_events_strict(backlog_dir)?;
     let projected = project_events(&events)?;
     write_current_projection(backlog_dir, projected.values())?;
@@ -801,12 +811,8 @@ fn apply_transition(
 fn append_truth_event(backlog_dir: &Path, event: &TruthEvent) -> Result<(), TruthError> {
     ensure_truth_dirs(backlog_dir)?;
     let path = truth_events_path(backlog_dir);
-    let mut file = fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(&path)?;
     let line = serde_json::to_string(event)?;
-    writeln!(file, "{}", line)?;
+    append_line_locked(&path, &line)?;
     Ok(())
 }
 
@@ -1026,14 +1032,19 @@ where
             .then_with(|| a.id.to_lowercase().cmp(&b.id.to_lowercase()))
     });
 
-    let path = truth_current_path(backlog_dir);
-    let tmp = path.with_extension("jsonl.tmp");
-    let mut file = fs::File::create(&tmp)?;
+    let mut lines = Vec::with_capacity(ordered.len());
     for record in ordered {
-        let line = serde_json::to_string(&record)?;
-        writeln!(file, "{}", line)?;
+        lines.push(serde_json::to_string(&record)?);
     }
-    fs::rename(&tmp, &path)?;
+    let payload = if lines.is_empty() {
+        String::new()
+    } else {
+        let mut body = lines.join("\n");
+        body.push('\n');
+        body
+    };
+    let path = truth_current_path(backlog_dir);
+    write_string_atomic(&path, &payload)?;
     Ok(())
 }
 

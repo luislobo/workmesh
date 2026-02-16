@@ -5,6 +5,8 @@ use anyhow::Result;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
+use crate::storage::write_string_atomic_locked;
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum ContextScopeMode {
@@ -80,7 +82,7 @@ pub fn save_context(backlog_dir: &Path, mut state: ContextState) -> Result<PathB
     state.updated_at = Some(now_rfc3339());
     let path = context_path(backlog_dir);
     let raw = serde_json::to_string_pretty(&state)?;
-    fs::write(&path, raw)?;
+    write_string_atomic_locked(&path, &raw)?;
     Ok(path)
 }
 

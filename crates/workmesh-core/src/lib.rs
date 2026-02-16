@@ -21,6 +21,7 @@ pub mod quickstart;
 pub mod rekey;
 pub mod session;
 pub mod skills;
+pub mod storage;
 pub mod task;
 pub mod task_ops;
 pub mod truth;
