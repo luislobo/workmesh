@@ -26,6 +26,7 @@ pub mod task;
 pub mod task_ops;
 pub mod truth;
 pub mod views;
+pub mod workstreams;
 pub mod worktrees;
 
 pub fn version() -> &'static str {
