@@ -1,4 +1,5 @@
 use std::collections::{BTreeMap, BTreeSet};
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -81,6 +82,30 @@ pub struct WorktreeDoctorReport {
     pub registry_path: String,
     pub entries: Vec<WorktreeView>,
     pub issues: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AdoptClonePlan {
+    pub repo_root: String,
+    pub from_path: String,
+    pub to_path: String,
+    pub backup_path: Option<String>,
+    pub source_branch: String,
+    pub target_branch: String,
+    pub source_head: String,
+    pub dirty: bool,
+    pub actions: Vec<String>,
+    pub warnings: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AdoptCloneOutcome {
+    pub plan: AdoptClonePlan,
+    pub applied: bool,
+    #[serde(default)]
+    pub worktree: Option<GitWorktreeEntry>,
+    #[serde(default)]
+    pub registry: Option<WorktreeRecord>,
 }
 
 fn default_registry_version() -> u32 {
@@ -336,6 +361,314 @@ pub fn create_git_worktree(
         bare: false,
         locked: false,
         prunable: None,
+    })
+}
+
+fn git_run(repo_root: &Path, args: &[&str]) -> Result<()> {
+    let output = Command::new("git")
+        .arg("-C")
+        .arg(repo_root)
+        .args(args)
+        .output()
+        .with_context(|| format!("run git {:?} under {}", args, repo_root.display()))?;
+    if !output.status.success() {
+        return Err(anyhow!(
+            "git {:?} failed: {}",
+            args,
+            String::from_utf8_lossy(&output.stderr).trim()
+        ));
+    }
+    Ok(())
+}
+
+fn is_git_worktree(path: &Path) -> bool {
+    Command::new("git")
+        .arg("-C")
+        .arg(path)
+        .arg("rev-parse")
+        .arg("--is-inside-work-tree")
+        .output()
+        .ok()
+        .and_then(|output| {
+            if !output.status.success() {
+                return None;
+            }
+            Some(String::from_utf8_lossy(&output.stdout).trim().to_string())
+        })
+        .map(|value| value.eq_ignore_ascii_case("true"))
+        .unwrap_or(false)
+}
+
+fn git_head_sha(path: &Path) -> Option<String> {
+    Command::new("git")
+        .arg("-C")
+        .arg(path)
+        .arg("rev-parse")
+        .arg("HEAD")
+        .output()
+        .ok()
+        .and_then(|output| {
+            if !output.status.success() {
+                return None;
+            }
+            let raw = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            if raw.is_empty() {
+                None
+            } else {
+                Some(raw)
+            }
+        })
+}
+
+fn git_is_dirty(path: &Path) -> bool {
+    Command::new("git")
+        .arg("-C")
+        .arg(path)
+        .arg("status")
+        .arg("--porcelain")
+        .output()
+        .ok()
+        .and_then(|output| {
+            if !output.status.success() {
+                return None;
+            }
+            Some(String::from_utf8_lossy(&output.stdout).trim().to_string())
+        })
+        .map(|value| !value.is_empty())
+        .unwrap_or(false)
+}
+
+fn git_origin_url(path: &Path) -> Option<String> {
+    Command::new("git")
+        .arg("-C")
+        .arg(path)
+        .arg("remote")
+        .arg("get-url")
+        .arg("origin")
+        .output()
+        .ok()
+        .and_then(|output| {
+            if !output.status.success() {
+                return None;
+            }
+            let raw = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            if raw.is_empty() {
+                None
+            } else {
+                Some(raw)
+            }
+        })
+}
+
+fn normalize_origin(value: &str) -> String {
+    let mut s = value.trim().to_string();
+    if let Some(stripped) = s.strip_suffix(".git") {
+        s = stripped.to_string();
+    }
+    if let Some(rest) = s.strip_prefix("git@") {
+        // git@github.com:org/repo -> github.com/org/repo
+        if let Some((host, path)) = rest.split_once(':') {
+            s = format!("{}/{}", host, path);
+        }
+    }
+    if let Some(rest) = s.strip_prefix("https://") {
+        s = rest.to_string();
+    }
+    if let Some(rest) = s.strip_prefix("http://") {
+        s = rest.to_string();
+    }
+    s.to_lowercase()
+}
+
+fn unique_branch_name(base: &str, used: &std::collections::BTreeSet<String>) -> String {
+    if !used.contains(&base.to_ascii_lowercase()) {
+        return base.to_string();
+    }
+    for i in 2..=999u32 {
+        let candidate = format!("{}-{}", base, i);
+        if !used.contains(&candidate.to_ascii_lowercase()) {
+            return candidate;
+        }
+    }
+    base.to_string()
+}
+
+pub fn adopt_clone_to_worktree(
+    home: &Path,
+    repo_root: &Path,
+    from_path: &Path,
+    to_path: Option<&Path>,
+    target_branch: Option<&str>,
+    allow_dirty: bool,
+    apply: bool,
+) -> Result<AdoptCloneOutcome> {
+    let from_norm = normalize_path_string(from_path)?;
+    let to_norm = normalize_path_string(to_path.unwrap_or(from_path))?;
+    let repo_root_norm = normalize_path_string(repo_root)?;
+
+    if !is_git_worktree(from_path) {
+        return Err(anyhow!("source path is not a git worktree: {}", from_norm));
+    }
+    if !is_git_worktree(repo_root) {
+        return Err(anyhow!(
+            "repo_root is not a git worktree: {}",
+            repo_root.display()
+        ));
+    }
+
+    let source_branch = current_branch(from_path).ok_or_else(|| {
+        anyhow!(
+            "source clone is in detached HEAD state; checkout a branch before adopting (path={})",
+            from_norm
+        )
+    })?;
+    let source_head = git_head_sha(from_path).ok_or_else(|| {
+        anyhow!(
+            "unable to resolve source HEAD sha for clone at {}",
+            from_norm
+        )
+    })?;
+    let dirty = git_is_dirty(from_path);
+
+    let mut warnings = Vec::new();
+    if dirty && !allow_dirty {
+        warnings.push("source clone has uncommitted changes; adopt will refuse to apply unless allow_dirty=true".to_string());
+    }
+
+    let repo_origin = git_origin_url(repo_root);
+    let clone_origin = git_origin_url(from_path);
+    if let (Some(a), Some(b)) = (repo_origin.as_deref(), clone_origin.as_deref()) {
+        if normalize_origin(a) != normalize_origin(b) {
+            warnings.push(format!(
+                "origin mismatch (repo_root origin='{}', clone origin='{}')",
+                a, b
+            ));
+        }
+    }
+
+    let used_branches: std::collections::BTreeSet<String> = list_git_worktrees(repo_root)
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|entry| entry.branch)
+        .map(|b| b.to_ascii_lowercase())
+        .collect();
+
+    let branch_base = target_branch
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| format!("{}-adopt", source_branch));
+    let target_branch = unique_branch_name(&branch_base, &used_branches);
+
+    let backup_path = if to_norm.eq_ignore_ascii_case(&from_norm) {
+        let stamp = chrono::Local::now().format("%Y%m%d%H%M%S").to_string();
+        Some(format!("{}.clone-backup.{}", from_norm, stamp))
+    } else {
+        None
+    };
+
+    let mut actions = Vec::new();
+    if let Some(backup) = backup_path.as_deref() {
+        actions.push(format!("mv '{}' '{}'", from_norm, backup));
+    }
+    actions.push(format!(
+        "git -C '{}' fetch --no-tags '{}' '+refs/heads/{}:refs/workmesh-import/{}'",
+        repo_root_norm,
+        backup_path.as_deref().unwrap_or(from_norm.as_str()),
+        source_branch,
+        source_branch
+    ));
+    actions.push(format!(
+        "git -C '{}' worktree add -b '{}' '{}' 'refs/workmesh-import/{}'",
+        repo_root_norm, target_branch, to_norm, source_branch
+    ));
+    actions.push(format!(
+        "git -C '{}' update-ref -d 'refs/workmesh-import/{}'",
+        repo_root_norm, source_branch
+    ));
+    actions.push(format!(
+        "workmesh --root '{}' workstream create --name '{}' --existing --path '{}' --branch '{}' --json",
+        to_norm, source_branch, to_norm, target_branch
+    ));
+
+    let plan = AdoptClonePlan {
+        repo_root: repo_root_norm.clone(),
+        from_path: from_norm.clone(),
+        to_path: to_norm.clone(),
+        backup_path: backup_path.clone(),
+        source_branch: source_branch.clone(),
+        target_branch: target_branch.clone(),
+        source_head: source_head.clone(),
+        dirty,
+        actions,
+        warnings: warnings.clone(),
+    };
+
+    if !apply {
+        return Ok(AdoptCloneOutcome {
+            plan,
+            applied: false,
+            worktree: None,
+            registry: None,
+        });
+    }
+
+    if dirty && !allow_dirty {
+        return Err(anyhow!(
+            "refusing to adopt dirty clone (allow_dirty=false): {}",
+            from_norm
+        ));
+    }
+
+    let fetch_from_path = if let Some(backup) = backup_path.as_deref() {
+        let backup_path = PathBuf::from(backup);
+        fs::rename(from_path, &backup_path)
+            .with_context(|| format!("rename clone {} -> {}", from_norm, backup))?;
+        backup_path
+    } else {
+        from_path.to_path_buf()
+    };
+
+    let to_path_buf = PathBuf::from(&to_norm);
+    if to_path_buf.exists() {
+        return Err(anyhow!(
+            "target path already exists (expected empty/non-existent): {}",
+            to_norm
+        ));
+    }
+
+    // Fetch clone branch into a temporary ref, create worktree branch at that ref, then clean up.
+    let import_ref = format!("refs/workmesh-import/{}", source_branch);
+    git_run(
+        repo_root,
+        &[
+            "fetch",
+            "--no-tags",
+            fetch_from_path.to_string_lossy().as_ref(),
+            &format!("+refs/heads/{}:{}", source_branch, import_ref),
+        ],
+    )?;
+
+    let created = create_git_worktree(repo_root, &to_path_buf, &target_branch, Some(&import_ref))?;
+    let _ = git_run(repo_root, &["update-ref", "-d", &import_ref]);
+
+    let record = upsert_worktree_record(
+        home,
+        WorktreeRecord {
+            id: String::new(),
+            repo_root: repo_root_norm,
+            path: created.path.clone(),
+            branch: created.branch.clone().or_else(|| Some(target_branch)),
+            created_at: String::new(),
+            updated_at: String::new(),
+            attached_session_id: crate::global_sessions::read_current_session_id(home),
+        },
+    )?;
+
+    Ok(AdoptCloneOutcome {
+        plan,
+        applied: true,
+        worktree: Some(created),
+        registry: Some(record),
     })
 }
 

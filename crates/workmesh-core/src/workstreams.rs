@@ -107,6 +107,84 @@ fn default_registry_schema_version() -> u32 {
     1
 }
 
+pub fn derive_workstream_key_base(name: &str) -> Option<String> {
+    let trimmed = name.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    // Prefer explicit acronyms when present (e.g. "OCA integration" -> "oca").
+    for token in trimmed.split_whitespace() {
+        let cleaned = token
+            .trim_matches(|c: char| !c.is_ascii_alphanumeric())
+            .trim();
+        if cleaned.len() < 2 || cleaned.len() > 16 {
+            continue;
+        }
+        let is_acronym = cleaned
+            .chars()
+            .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit());
+        if is_acronym {
+            return Some(cleaned.to_ascii_lowercase());
+        }
+    }
+
+    // Fallback: simple slug.
+    let mut out = String::new();
+    let mut last_dash = false;
+    for c in trimmed.chars() {
+        if c.is_ascii_alphanumeric() {
+            out.push(c.to_ascii_lowercase());
+            last_dash = false;
+        } else if !out.is_empty() && !last_dash {
+            out.push('-');
+            last_dash = true;
+        }
+    }
+    while out.ends_with('-') {
+        out.pop();
+    }
+    if out.len() > 40 {
+        out.truncate(40);
+        while out.ends_with('-') {
+            out.pop();
+        }
+    }
+    if out.is_empty() {
+        None
+    } else {
+        Some(out)
+    }
+}
+
+pub fn derive_unique_workstream_key(home: &Path, repo_root: &Path, name: &str) -> Result<String> {
+    let base = derive_workstream_key_base(name).unwrap_or_else(|| "ws".to_string());
+    let mut existing: HashSet<String> = HashSet::new();
+    for record in list_workstreams_for_repo(home, repo_root)? {
+        if let Some(key) = record.key.as_deref() {
+            let trimmed = key.trim();
+            if !trimmed.is_empty() {
+                existing.insert(trimmed.to_ascii_lowercase());
+            }
+        }
+    }
+
+    let mut candidate = base.clone();
+    if !existing.contains(&candidate) {
+        return Ok(candidate);
+    }
+    for i in 2..=999u32 {
+        candidate = format!("{}-{}", base, i);
+        if !existing.contains(&candidate) {
+            return Ok(candidate);
+        }
+    }
+    Err(anyhow!(
+        "unable to derive unique workstream key for '{}'",
+        name
+    ))
+}
+
 pub fn now_rfc3339() -> String {
     chrono::Local::now().to_rfc3339()
 }
@@ -754,6 +832,50 @@ mod tests {
     use std::sync::{Arc, Barrier};
     use std::thread;
     use tempfile::TempDir;
+
+    #[test]
+    fn derive_workstream_key_prefers_acronyms_then_slugifies() {
+        assert_eq!(
+            derive_workstream_key_base("OCA integration").as_deref(),
+            Some("oca")
+        );
+        assert_eq!(
+            derive_workstream_key_base("Tapestry Upgrade").as_deref(),
+            Some("tapestry-upgrade")
+        );
+        assert_eq!(derive_workstream_key_base("   ").as_deref(), None);
+    }
+
+    #[test]
+    fn derive_unique_workstream_key_deduplicates_with_suffix() {
+        let temp = TempDir::new().expect("tempdir");
+        let home = temp.path();
+        let repo_root = home.join("repo");
+        std::fs::create_dir_all(&repo_root).expect("repo dir");
+
+        let _ = upsert_workstream_record(
+            home,
+            WorkstreamRecord {
+                id: "".to_string(),
+                repo_root: repo_root.to_string_lossy().to_string(),
+                key: Some("tapestry-upgrade".to_string()),
+                name: "Tapestry Upgrade".to_string(),
+                status: WorkstreamStatus::Active,
+                created_at: "".to_string(),
+                updated_at: "".to_string(),
+                worktree: None,
+                session_id: None,
+                context: None,
+                truth_refs: vec![],
+                notes: None,
+            },
+        )
+        .expect("insert");
+
+        let derived =
+            derive_unique_workstream_key(home, &repo_root, "Tapestry Upgrade").expect("derive");
+        assert_eq!(derived, "tapestry-upgrade-2");
+    }
 
     #[test]
     fn registry_round_trip_and_upsert() {

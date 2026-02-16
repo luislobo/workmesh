@@ -115,12 +115,27 @@ Phase 0 storage guarantees are now active for tracking files.
   - MCP: `doctor` with `fix_storage=true`
 - CLI and MCP share the same recovery behavior contract.
 
-## Workstreams (Phase 1)
-Workstreams let you manage multiple parallel streams of work in the same repo (often one git worktree per stream), with durable pointers to context and sessions.
+## Workstreams
+Workstreams let you manage multiple parallel streams of work in the same repo (often one git worktree per stream), with durable pointers to context, sessions, and per-stream scope/objective.
 
 When a workstream is active in a worktree, `session save` and `worktree attach/detach` keep the stream's session/worktree pointers updated automatically.
 
 After reboot (or losing terminals), run `workmesh --root . workstream restore --json` to get per-stream resume commands (path, session id, objective/scope, next task).
+
+Lifecycle (pause/close/reopen/rename/set):
+- `workmesh --root . workstream pause [<id-or-key>] --json`
+- `workmesh --root . workstream close [<id-or-key>] --json`
+- `workmesh --root . workstream reopen [<id-or-key>] --json`
+- `workmesh --root . workstream rename [<id-or-key>] --name "..." --json`
+- `workmesh --root . workstream set [<id-or-key>] --key ... --notes "..." --objective "..." --json`
+
+Adopting multiple full clones into worktrees:
+- `workmesh --root . worktree adopt-clone --from <path-to-clone> --apply --json`
+- then bind a workstream to the created worktree with `workstream create --existing` (see the emitted plan).
+
+Truth Ledger for durable decisions per stream:
+- `workmesh --root . truth propose --title "..." --statement "..." --current --json`
+- `workmesh --root . workstream show [<id-or-key>] --truth --json`
 
 See [`docs/reference/commands.md`](docs/reference/commands.md) for `workstream ...` (CLI) and `workstream_*` (MCP tools).
 

@@ -38,13 +38,18 @@ workmesh --root . next --json
 5. If clone-based stream workflow is detected:
 - Do not block feature work.
 - Recommend canonical repo + worktree migration path.
+- Helper command (safe by default; dry-run plan unless `--apply` is passed):
+```bash
+workmesh --root . worktree adopt-clone --from <path-to-clone> --json
+workmesh --root . worktree adopt-clone --from <path-to-clone> --apply --json
+```
 
 ## Feature work contract
 When user says to use WorkMesh for feature development:
 - maintain PRD/task documentation continuously
 - keep context current
 - maintain acceptance criteria and definition of done quality
-- capture stable decisions as truths
+- capture stable decisions as truths (use `truth propose --current` for stream-aware defaults)
 
 ## Multi-stream restore (after reboot)
 If the user runs multiple workstreams in parallel (often one git worktree per stream), use:
@@ -52,6 +57,15 @@ If the user runs multiple workstreams in parallel (often one git worktree per st
 workmesh --root . workstream restore --json
 ```
 Each entry includes a `resume_script` with the exact commands to run in that worktree (session resume, context show, next).
+
+## Workstream lifecycle helpers
+- Pause/close when parking a stream:
+  - `workmesh --root . workstream pause [<id-or-key>] --json`
+  - `workmesh --root . workstream close [<id-or-key>] --json`
+- Reopen when resuming:
+  - `workmesh --root . workstream reopen [<id-or-key>] --json`
+- Update key/notes/snapshot:
+  - `workmesh --root . workstream set [<id-or-key>] --key ... --notes "..." --objective "..." --json`
 
 ## High-signal loop
 - `workmesh --root . next --json`

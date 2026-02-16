@@ -99,10 +99,25 @@
     }
   },
   "workstreams": {
-    "phase": "Phase 1",
-    "summary": "Workstreams let you manage multiple parallel streams of work in the same repo (often one git worktree per stream), with durable pointers to context and sessions.",
+    "phase": "Phase 1 + Phase WS2",
+    "summary": "Workstreams let you manage multiple parallel streams of work in the same repo (often one git worktree per stream), with durable pointers to context, sessions, and per-stream scope/objective.",
     "auto_linking": "When a workstream is active in a worktree, session save and worktree attach/detach keep the stream's session/worktree pointers updated automatically.",
     "restore": "After reboot (or losing terminals), run `workmesh --root . workstream restore --json` to get per-stream resume commands (path, session id, objective/scope, next task).",
+    "lifecycle_commands": [
+      "workmesh --root . workstream pause [<id-or-key>] --json",
+      "workmesh --root . workstream close [<id-or-key>] --json",
+      "workmesh --root . workstream reopen [<id-or-key>] --json",
+      "workmesh --root . workstream rename [<id-or-key>] --name \"...\" --json",
+      "workmesh --root . workstream set [<id-or-key>] --key ... --notes \"...\" --objective \"...\" --json"
+    ],
+    "adopt_clones": {
+      "command": "workmesh --root . worktree adopt-clone --from <path-to-clone> --apply --json",
+      "next": "Bind a workstream to the created worktree with `workstream create --existing` (the adoption plan includes the exact command)."
+    },
+    "truth_ledger": {
+      "propose_current": "workmesh --root . truth propose --title \"...\" --statement \"...\" --current --json",
+      "show_truths": "workmesh --root . workstream show [<id-or-key>] --truth --json"
+    },
     "registry_path": "$WORKMESH_HOME/workstreams/registry.json",
     "context_pointer": "workmesh/context.json -> workstream_id",
     "see": "docs/reference/commands.md"

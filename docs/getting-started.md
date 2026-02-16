@@ -90,9 +90,16 @@ If you currently keep multiple full clones for parallel streams, migrate progres
 
 1. Pick one canonical repo clone.
 2. Keep current stream moving.
-3. Create one worktree per stream from canonical repo.
-4. Attach/save session metadata to each worktree.
-5. Retire old clone directories after validation.
+3. For each old clone, adopt it into a git worktree (backup + worktree add):
+
+```bash
+workmesh --root . worktree adopt-clone --from <path-to-clone> --json
+workmesh --root . worktree adopt-clone --from <path-to-clone> --apply --json
+```
+
+4. Bind a workstream to the created worktree with `workstream create --existing` (the adoption plan includes the exact command).
+5. Attach/save session metadata to each worktree (`session save`, `worktree attach`).
+6. Retire old clone directories after validation.
 
 This migration is operationally helpful, but it should not block you from feature work.
 
@@ -105,6 +112,7 @@ Only use this if you explicitly want direct CLI execution.
 - Session resume: `workmesh --root . session resume --json`
 - Workstream restore (all active streams): `workmesh --root . workstream restore --json`
 - Worktrees: `workmesh --root . worktree list --json`
+- Adopt clone into worktree: `workmesh --root . worktree adopt-clone --from <path-to-clone> --apply --json`
 - Archive (default terminal statuses): `workmesh --root . archive --before 30d --json`
 - Archive (explicit override): `workmesh --root . archive --status "To Do" --before 2026-12-31 --json`
 - Migrate legacy: `workmesh --root . migrate audit|plan|apply --apply`

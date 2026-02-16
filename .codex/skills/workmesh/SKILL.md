@@ -27,7 +27,7 @@ On bootstrap intent, do the following in order:
    - initialize if missing
    - migrate if legacy
    - validate and set context if modern
-   - keep work unblocked and suggest worktree consolidation if clone-based
+   - keep work unblocked and suggest worktree consolidation if clone-based (use `worktree adopt-clone` + `workstream create --existing`)
 4. Return a short summary:
    - detected state
    - actions taken
@@ -39,7 +39,7 @@ After bootstrap, if user asks to work on a feature, maintain WorkMesh continuous
 - create/update PRD docs
 - create/maintain tasks
 - keep context current
-- capture durable decisions in Truth Ledger
+- capture durable decisions in Truth Ledger (prefer `truth propose --current` when a workstream is active)
 - if the user is restoring after reboot / lost terminals, use `workstream restore` to enumerate active streams and provide deterministic resume commands per stream
 
 ## Rules

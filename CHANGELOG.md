@@ -13,6 +13,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - CLI workstream runtime: `workstream list|create|show|switch|doctor|restore`.
   - MCP parity tools: `workstream_list|create|show|switch|doctor|restore`.
   - deterministic multi-stream restore plan (`workstream restore`) with per-stream resume commands.
+- Phase WS2 Workstream lifecycle + adoption:
+  - CLI workstream lifecycle: `workstream pause|close|reopen|rename|set` (+ `workstream show --truth`).
+  - MCP parity tools: `workstream_pause|close|reopen|rename|set` (+ `workstream_show` with `truths=true`).
+  - `workstream create --existing` to bind a new workstream to an existing worktree checkout.
+  - Clone-to-worktree adoption helper:
+    - CLI: `worktree adopt-clone` (plan + apply)
+    - MCP: `worktree_adopt_clone`
+  - Truth Ledger can be linked to workstreams via `workstream_id` context field and filters.
 - Expanded test gates for workstreams:
   - CLI/MCP parity coverage for workstream restore.
   - Concurrency tests proving safe concurrent read-modify-write updates.
@@ -20,6 +28,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - Workstream registry repo-root resolution is stable across git worktrees (uses git common dir when available).
 - When a workstream is active in a worktree, `session save` and `worktree attach/detach` keep the stream's session/worktree pointers updated automatically.
+- `context set` now persists the updated context snapshot into the active workstream record (best-effort).
 
 ### Fixed
 - Workstream read-modify-write updates now preserve concurrent field changes (no silent lost updates under contention).

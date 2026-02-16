@@ -2,7 +2,7 @@
 
 Date: 2026-02-04
 Owner: Luis Lobo
-Status: Draft
+Status: Implemented
 
 ## Problem
 Agents lose context between sessions. We need lightweight, deterministic artifacts that allow

@@ -68,6 +68,9 @@ pub struct TruthContext {
     pub epic_id: Option<String>,
     #[serde(default)]
     pub feature: Option<String>,
+    /// Optional workstream id (WorkMesh workstream registry ULID).
+    #[serde(default)]
+    pub workstream_id: Option<String>,
     #[serde(default)]
     pub session_id: Option<String>,
     #[serde(default)]
@@ -239,6 +242,7 @@ pub struct TruthQuery {
     pub project_id: Option<String>,
     pub epic_id: Option<String>,
     pub feature: Option<String>,
+    pub workstream_id: Option<String>,
     pub session_id: Option<String>,
     pub worktree_id: Option<String>,
     pub worktree_path: Option<String>,
@@ -588,6 +592,7 @@ pub fn truth_migration_audit(backlog_dir: &Path) -> Result<TruthMigrationAudit, 
                     project_id: task.project.clone(),
                     epic_id: Some(task.id.clone()),
                     feature: Some(task.id.clone()),
+                    workstream_id: None,
                     session_id: None,
                     worktree_id: None,
                     worktree_path: None,
@@ -628,6 +633,7 @@ pub fn truth_migration_audit(backlog_dir: &Path) -> Result<TruthMigrationAudit, 
                                 project_id: session.project_id.clone(),
                                 epic_id: session.epic_id.clone(),
                                 feature: session.epic_id.clone(),
+                                workstream_id: None,
                                 session_id: Some(session.id.clone()),
                                 worktree_id: session.worktree.as_ref().and_then(|w| w.id.clone()),
                                 worktree_path: session.worktree.as_ref().map(|w| w.path.clone()),
@@ -1137,6 +1143,12 @@ fn matches_query(record: &TruthRecord, query: &TruthQuery) -> bool {
     if !matches_opt(&record.context.feature, query.feature.as_deref()) {
         return false;
     }
+    if !matches_opt(
+        &record.context.workstream_id,
+        query.workstream_id.as_deref(),
+    ) {
+        return false;
+    }
     if !matches_opt(&record.context.session_id, query.session_id.as_deref()) {
         return false;
     }
@@ -1218,6 +1230,7 @@ fn normalize_context(mut context: TruthContext) -> TruthContext {
     context.project_id = normalize_optional(context.project_id);
     context.epic_id = normalize_optional(context.epic_id);
     context.feature = normalize_optional(context.feature);
+    context.workstream_id = normalize_optional(context.workstream_id);
     context.session_id = normalize_optional(context.session_id);
     context.worktree_id = normalize_optional(context.worktree_id);
     context.worktree_path = normalize_optional(context.worktree_path);
@@ -1281,6 +1294,7 @@ mod tests {
                     project_id: Some("workmesh".to_string()),
                     epic_id: Some("task-main-001".to_string()),
                     feature: Some("truth-ledger".to_string()),
+                    workstream_id: Some("01KWORKSTREAM".to_string()),
                     session_id: Some("01KTESTSESSION".to_string()),
                     worktree_id: Some("01KWORKTREE".to_string()),
                     worktree_path: Some("/tmp/worktree-a".to_string()),
@@ -1311,6 +1325,7 @@ mod tests {
                 project_id: Some("workmesh".to_string()),
                 epic_id: Some("task-main-001".to_string()),
                 feature: Some("truth-ledger".to_string()),
+                workstream_id: Some("01KWORKSTREAM".to_string()),
                 session_id: None,
                 worktree_id: None,
                 worktree_path: None,

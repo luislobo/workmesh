@@ -137,12 +137,12 @@ MCP:
 
 ## Truth Ledger
 CLI:
-- `truth propose --title "..." --statement "..." [--project <pid>] [--epic task-123] [--feature <name>] [--session-id <id>] [--worktree-id <id>] [--worktree-path <path>] [--constraints "a,b"] [--tags "x,y"] [--json]`
+- `truth propose --title "..." --statement "..." [--project <pid>] [--epic task-123] [--feature <name>] [--workstream-id <id>] [--current] [--session-id <id>] [--worktree-id <id>] [--worktree-path <path>] [--constraints "a,b"] [--tags "x,y"] [--json]`
 - `truth accept <truth-id> [--note "..."] [--json]`
 - `truth reject <truth-id> [--note "..."] [--json]`
 - `truth supersede <truth-id> --by <accepted-truth-id> [--reason "..."] [--json]`
 - `truth show <truth-id> [--json]`
-- `truth list [--state proposed|accepted|rejected|superseded] [--project <pid>] [--epic task-123] [--feature <name>] [--session-id <id>] [--worktree-id <id>] [--worktree-path <path>] [--tag <tag>] [--limit N] [--json]`
+- `truth list [--state proposed|accepted|rejected|superseded] [--project <pid>] [--epic task-123] [--feature <name>] [--workstream-id <id>] [--session-id <id>] [--worktree-id <id>] [--worktree-path <path>] [--tag <tag>] [--limit N] [--json]`
 - `truth validate [--json]`
 - `truth migrate audit|plan|apply [--apply] [--json]`
 
@@ -162,16 +162,26 @@ MCP:
 CLI:
 - `workstream list [--json]`
 - `workstream restore [--all] [--json]`
-- `workstream create --name "..." [--key <key>] [--path <path> --branch <branch> --from <ref>] [--project <pid>] [--epic task-123] [--objective "..."] [--tasks task-001,task-002] [--json]`
-- `workstream show [<id-or-key>] [--json]`
+- `workstream create --name "..." [--key <key>] [--existing] [--path <path> --branch <branch> --from <ref>] [--project <pid>] [--epic task-123] [--objective "..."] [--tasks task-001,task-002] [--json]`
+- `workstream show [<id-or-key>] [--truth] [--json]`
 - `workstream switch <id-or-key> [--json]`
+- `workstream pause [<id-or-key>] [--json]`
+- `workstream close [<id-or-key>] [--json]`
+- `workstream reopen [<id-or-key>] [--json]`
+- `workstream rename [<id-or-key>] --name "..." [--json]`
+- `workstream set [<id-or-key>] [--key <key>] [--notes "..."] [--project <pid>] [--epic task-123] [--objective "..."] [--tasks task-001,task-002] [--json]`
 - `workstream doctor [--json]`
 
 MCP:
 - `workstream_list`
 - `workstream_create`
-- `workstream_show`
+- `workstream_show` (supports `truths=true`)
 - `workstream_switch`
+- `workstream_pause`
+- `workstream_close`
+- `workstream_reopen`
+- `workstream_rename`
+- `workstream_set`
 - `workstream_doctor`
 - `workstream_restore`
 
@@ -181,12 +191,14 @@ Notes:
 - `session save` updates the active workstream `session_id` and worktree binding.
 - `worktree attach` updates the active workstream `session_id` and worktree binding.
 - `worktree detach` clears the active workstream `session_id` when it matches the detached session.
-- `context set` preserves `workstream_id` (it updates objective/scope without clearing the active workstream pointer).
+- `context set` preserves `workstream_id` and persists the updated context snapshot into the workstream record (best-effort).
+- `workstream pause` and `workstream close` clear `context.json.workstream_id` when the paused/closed stream was active in this worktree.
 
 ## Worktree runtime
 CLI:
 - `worktree list [--json]`
 - `worktree create --path <path> --branch <branch> [--from <ref>] [--project <pid>] [--epic task-123] [--objective "..."] [--tasks task-001,task-002] [--json]`
+- `worktree adopt-clone --from <path> [--to <path>] [--branch <target-branch>] [--allow-dirty] [--apply] [--json]`
 - `worktree attach [--session-id <id>] [--path <path>] [--json]`
 - `worktree detach [--session-id <id>] [--json]`
 - `worktree doctor [--json]`
@@ -194,6 +206,7 @@ CLI:
 MCP:
 - `worktree_list`
 - `worktree_create`
+- `worktree_adopt_clone`
 - `worktree_attach`
 - `worktree_detach`
 - `worktree_doctor`

@@ -1,5 +1,9 @@
 # PRD: Onboarding + Core Developer Experience Commands
 
+Date: 2026-02-03
+Owner: Luis Lobo
+Status: Implemented
+
 ## Summary
 Make WorkMesh easy to adopt in a new repo and easy to operate day-to-day with a small set of
 high-leverage commands that are safe for agents and deterministic for humans.
