@@ -3,7 +3,7 @@ id: task-ws1-008
 uid: 01KHKS5DAJMTGR4KT6PWCSND2C
 title: Phase 1: docs skills and release freeze
 kind: task
-status: To Do
+status: Done
 priority: P1
 phase: PhaseWS1
 dependencies: [task-ws1-007]
@@ -14,7 +14,7 @@ relationships:
   parent: []
   child: []
   discovered_from: []
-updated_date: 2026-02-16 11:50
+updated_date: 2026-02-16 15:39
 ---
 Description:
 --------------------------------------------------

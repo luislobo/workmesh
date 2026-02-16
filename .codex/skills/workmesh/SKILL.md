@@ -40,6 +40,7 @@ After bootstrap, if user asks to work on a feature, maintain WorkMesh continuous
 - create/maintain tasks
 - keep context current
 - capture durable decisions in Truth Ledger
+- if the user is restoring after reboot / lost terminals, use `workstream restore` to enumerate active streams and provide deterministic resume commands per stream
 
 ## Rules
 - Keep task metadata complete: `Description`, `Acceptance Criteria`, `Definition of Done`.

@@ -63,6 +63,28 @@ When you come back later:
 
 `Rehydrate this session with WorkMesh: restore context, accepted truths, and next actionable tasks.`
 
+## Restore Multiple Workstreams (After Reboot)
+If you run multiple parallel workstreams (often one git worktree per stream), you can restore them deterministically from any checkout of the repo:
+
+1. `cd <repo-or-any-worktree>`
+2. Run:
+
+```bash
+workmesh --root . workstream restore --json
+```
+
+This returns a per-workstream restore plan. Each entry includes:
+- `worktree_path`: where to open a terminal for that stream
+- `session_id`: the last-known session for that stream (best effort)
+- `context`: objective/scope (from `context.json`, legacy `focus.json`, or the workstream snapshot)
+- `next_task`: the next recommended task under that stream's context
+- `resume_script`: the exact commands to run in that worktree to resume
+
+Typical usage:
+1. Open a terminal in `worktree_path`.
+2. Run the `resume_script` commands (they include `session resume`, `context show`, and `next`).
+3. Continue feature work in Codex from that worktree.
+
 ## Clone-to-Worktree Transition (When You Are Ready)
 If you currently keep multiple full clones for parallel streams, migrate progressively:
 
@@ -81,6 +103,7 @@ Only use this if you explicitly want direct CLI execution.
 - Context: `workmesh --root . context set --project <project-id> --epic <epic-id> --objective "<objective>"`
 - Next task: `workmesh --root . next --json`
 - Session resume: `workmesh --root . session resume --json`
+- Workstream restore (all active streams): `workmesh --root . workstream restore --json`
 - Worktrees: `workmesh --root . worktree list --json`
 - Archive (default terminal statuses): `workmesh --root . archive --before 30d --json`
 - Archive (explicit override): `workmesh --root . archive --status "To Do" --before 2026-12-31 --json`

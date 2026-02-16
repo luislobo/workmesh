@@ -2,7 +2,7 @@
 
 Date: 2026-02-16
 Owner: WorkMesh
-Status: Draft
+Status: Implemented
 
 ## Summary
 
@@ -317,3 +317,10 @@ Migration from clone-based parallel work (user-managed multiple clones):
 1. Keep command set small and role-specific.
 2. Define source-of-truth ownership for each state file.
 3. Enforce storage invariants in code review, tests, and docs.
+
+## Implementation Status
+
+Phase 1 workstream orchestration is implemented (registry + CLI/MCP parity + auto-linking + deterministic restore plan).
+
+Completion gate:
+- Backlog tasks `task-ws1-001` through `task-ws1-008` are marked `Done`.

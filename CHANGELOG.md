@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Phase 1 Workstreams (parallel streams of work per repo):
+  - global workstream registry (`$WORKMESH_HOME/workstreams/registry.json`) with versioned/CAS updates.
+  - CLI workstream runtime: `workstream list|create|show|switch|doctor|restore`.
+  - MCP parity tools: `workstream_list|create|show|switch|doctor|restore`.
+  - deterministic multi-stream restore plan (`workstream restore`) with per-stream resume commands.
+- Expanded test gates for workstreams:
+  - CLI/MCP parity coverage for workstream restore.
+  - Concurrency tests proving safe concurrent read-modify-write updates.
+
+### Changed
+- Workstream registry repo-root resolution is stable across git worktrees (uses git common dir when available).
+- When a workstream is active in a worktree, `session save` and `worktree attach/detach` keep the stream's session/worktree pointers updated automatically.
+
+### Fixed
+- Workstream read-modify-write updates now preserve concurrent field changes (no silent lost updates under contention).
+
 ## [0.2.15] - 2026-02-16
 
 ### Added

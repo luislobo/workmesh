@@ -208,12 +208,14 @@ pub fn upsert_workstream_record(
     mut record: WorkstreamRecord,
 ) -> Result<WorkstreamRecord> {
     let path = workstreams_registry_path(home);
-    record.repo_root = normalize_path_string(Path::new(&record.repo_root))?;
+    record.repo_root = normalize_path_string(&resolve_repo_root_for_registry(Path::new(
+        &record.repo_root,
+    )))?;
 
     if let Some(binding) = record.worktree.as_mut() {
         binding.path = normalize_path_string(Path::new(&binding.path))?;
         if let Some(root) = binding.repo_root.as_mut() {
-            *root = normalize_path_string(Path::new(root))?;
+            *root = normalize_path_string(&resolve_repo_root_for_registry(Path::new(root)))?;
         }
     }
 
@@ -307,11 +309,20 @@ pub fn remove_workstream_record(home: &Path, id: &str) -> Result<bool> {
 
 pub fn list_workstreams_for_repo(home: &Path, repo_root: &Path) -> Result<Vec<WorkstreamRecord>> {
     let registry = load_workstream_registry(home)?;
-    let normalized_repo_root = normalize_path_string(repo_root)?;
+    let normalized_repo_root = normalize_path_string(&resolve_repo_root_for_registry(repo_root))?;
     Ok(registry
         .workstreams
         .into_iter()
-        .filter(|record| record.repo_root.eq_ignore_ascii_case(&normalized_repo_root))
+        .filter(|record| {
+            if record.repo_root.eq_ignore_ascii_case(&normalized_repo_root) {
+                return true;
+            }
+            normalize_path_string(&resolve_repo_root_for_registry(Path::new(
+                &record.repo_root,
+            )))
+            .map(|value| value.eq_ignore_ascii_case(&normalized_repo_root))
+            .unwrap_or(false)
+        })
         .collect())
 }
 
@@ -332,12 +343,86 @@ pub fn update_workstream_for_repo_by_id(
     home: &Path,
     repo_root: &Path,
     id: &str,
-    update: impl FnOnce(&mut WorkstreamRecord),
+    mut update: impl FnMut(&mut WorkstreamRecord),
 ) -> Result<WorkstreamRecord> {
-    let mut record = find_workstream_for_repo_by_id(home, repo_root, id)?
-        .ok_or_else(|| anyhow!("workstream not found for repo: {}", id.trim()))?;
-    update(&mut record);
-    upsert_workstream_record(home, record)
+    let id = id.trim();
+    if id.is_empty() {
+        return Err(anyhow!("workstream id is blank"));
+    }
+
+    let normalized_repo_root = normalize_path_string(&resolve_repo_root_for_registry(repo_root))?;
+    let path = workstreams_registry_path(home);
+    let lock_key = global_registry_key(home);
+
+    const MAX_RETRIES: usize = 8;
+    for _ in 0..MAX_RETRIES {
+        let (expected_version, mut registry) = load_workstream_registry_with_version(home)?;
+        let index = registry
+            .workstreams
+            .iter()
+            .enumerate()
+            .find_map(|(idx, record)| {
+                if record.id != id {
+                    return None;
+                }
+                if record.repo_root.eq_ignore_ascii_case(&normalized_repo_root) {
+                    return Some(idx);
+                }
+                let matches = normalize_path_string(&resolve_repo_root_for_registry(Path::new(
+                    &record.repo_root,
+                )))
+                .map(|value| value.eq_ignore_ascii_case(&normalized_repo_root))
+                .unwrap_or(false);
+                if matches {
+                    Some(idx)
+                } else {
+                    None
+                }
+            });
+        let Some(index) = index else {
+            return Err(anyhow!("workstream not found for repo: {}", id));
+        };
+
+        let existing = registry.workstreams[index].clone();
+        let mut next = existing.clone();
+        update(&mut next);
+
+        next.repo_root = normalized_repo_root.clone();
+        if let Some(binding) = next.worktree.as_mut() {
+            binding.path = normalize_path_string(Path::new(&binding.path))?;
+            if let Some(root) = binding.repo_root.as_mut() {
+                *root = normalize_path_string(&resolve_repo_root_for_registry(Path::new(root)))?;
+            }
+        }
+
+        if let Some(key) = next.key.as_mut() {
+            let trimmed = key.trim().to_lowercase();
+            if trimmed.is_empty() {
+                next.key = None;
+            } else {
+                *key = trimmed;
+            }
+        }
+
+        let now = now_rfc3339();
+        next.updated_at = now.clone();
+        if next.created_at.trim().is_empty() {
+            next.created_at = now;
+        }
+
+        registry.workstreams[index] = next.clone();
+        normalize_registry(&mut registry);
+
+        match cas_update_json_with_key(&path, &lock_key, expected_version, registry.clone()) {
+            Ok(_) => return Ok(next),
+            Err(StorageError::Conflict(_)) => continue,
+            Err(err) => return Err(anyhow!(err).context("update workstream registry")),
+        }
+    }
+
+    Err(anyhow!(
+        "unable to update workstream record after repeated CAS conflicts"
+    ))
 }
 
 fn normalize_registry(registry: &mut WorkstreamRegistry) {
@@ -763,5 +848,165 @@ mod tests {
 
         let listed = list_workstreams_for_repo(home, &repo_root).expect("list");
         assert_eq!(listed.len(), workers);
+    }
+
+    #[test]
+    fn update_by_id_preserves_concurrent_field_updates() {
+        let temp = TempDir::new().expect("tempdir");
+        let home = temp.path();
+        let repo_root = home.join("repo");
+        std::fs::create_dir_all(&repo_root).expect("repo dir");
+
+        let inserted = upsert_workstream_record(
+            home,
+            WorkstreamRecord {
+                id: "".to_string(),
+                repo_root: repo_root.to_string_lossy().to_string(),
+                key: Some("alpha".to_string()),
+                name: "Alpha".to_string(),
+                status: WorkstreamStatus::Active,
+                created_at: "".to_string(),
+                updated_at: "".to_string(),
+                worktree: None,
+                session_id: None,
+                context: None,
+                truth_refs: vec![],
+                notes: None,
+            },
+        )
+        .expect("insert");
+
+        let id = inserted.id.clone();
+
+        let workers = 12usize;
+        let barrier = Arc::new(Barrier::new(workers));
+        let mut handles = Vec::new();
+
+        for i in 0..workers {
+            let barrier = Arc::clone(&barrier);
+            let repo_root = repo_root.clone();
+            let home = home.to_path_buf();
+            let id = id.clone();
+            handles.push(thread::spawn(move || {
+                barrier.wait();
+                match i % 3 {
+                    0 => {
+                        update_workstream_for_repo_by_id(&home, &repo_root, &id, |record| {
+                            record.session_id = Some("session-1".to_string());
+                        })
+                        .expect("update session_id");
+                    }
+                    1 => {
+                        update_workstream_for_repo_by_id(&home, &repo_root, &id, |record| {
+                            record.notes = Some("notes-1".to_string());
+                        })
+                        .expect("update notes");
+                    }
+                    _ => {
+                        update_workstream_for_repo_by_id(&home, &repo_root, &id, |record| {
+                            if !record.truth_refs.iter().any(|t| t == "truth-1") {
+                                record.truth_refs.push("truth-1".to_string());
+                            }
+                        })
+                        .expect("update truth refs");
+                    }
+                }
+            }));
+        }
+
+        for handle in handles {
+            handle.join().expect("join");
+        }
+
+        let updated = find_workstream_for_repo_by_id(home, &repo_root, &id)
+            .expect("find")
+            .expect("record");
+        assert_eq!(updated.session_id.as_deref(), Some("session-1"));
+        assert_eq!(updated.notes.as_deref(), Some("notes-1"));
+        assert!(updated.truth_refs.iter().any(|t| t == "truth-1"));
+    }
+
+    #[test]
+    fn restore_plan_falls_back_when_sessions_index_is_corrupt() {
+        let temp = TempDir::new().expect("tempdir");
+        let home = temp.path();
+        let repo_root = home.join("repo");
+        std::fs::create_dir_all(repo_root.join("workmesh").join("tasks")).expect("tasks dir");
+
+        // Seed one task so restore can compute a next-task suggestion.
+        std::fs::write(
+            repo_root
+                .join("workmesh")
+                .join("tasks")
+                .join("task-001 - seed.md"),
+            "---\nid: task-001\ntitle: Seed\nstatus: To Do\npriority: P2\nphase: Phase3\ndependencies: []\nlabels: []\nassignee: []\n---\n\n## Notes\n- seed\n",
+        )
+        .expect("write task");
+
+        let stream = upsert_workstream_record(
+            home,
+            WorkstreamRecord {
+                id: "".to_string(),
+                repo_root: repo_root.to_string_lossy().to_string(),
+                key: Some("alpha".to_string()),
+                name: "Alpha".to_string(),
+                status: WorkstreamStatus::Active,
+                created_at: "".to_string(),
+                updated_at: "".to_string(),
+                worktree: Some(WorktreeBinding {
+                    id: None,
+                    path: repo_root.to_string_lossy().to_string(),
+                    branch: None,
+                    repo_root: Some(repo_root.to_string_lossy().to_string()),
+                }),
+                session_id: None,
+                context: None,
+                truth_refs: vec![],
+                notes: None,
+            },
+        )
+        .expect("insert stream");
+
+        let session = AgentSession {
+            id: "session-001".to_string(),
+            created_at: now_rfc3339(),
+            updated_at: now_rfc3339(),
+            cwd: repo_root.to_string_lossy().to_string(),
+            repo_root: Some(repo_root.to_string_lossy().to_string()),
+            project_id: Some("demo".to_string()),
+            epic_id: None,
+            objective: "restore test".to_string(),
+            working_set: Vec::new(),
+            notes: None,
+            git: None,
+            checkpoint: None,
+            recent_changes: None,
+            handoff: None,
+            worktree: Some(WorktreeBinding {
+                id: None,
+                path: repo_root.to_string_lossy().to_string(),
+                branch: None,
+                repo_root: Some(repo_root.to_string_lossy().to_string()),
+            }),
+            truth_refs: Vec::new(),
+        };
+
+        crate::global_sessions::append_session_saved(home, session.clone()).expect("save session");
+
+        // Corrupt the sessions index so restore must fall back to session events.
+        let index_path = crate::global_sessions::sessions_index_path(home);
+        std::fs::write(&index_path, "not valid json\n").expect("write corrupt index");
+        assert!(index_path.exists());
+
+        let plan =
+            build_workstream_restore_plan(home, &repo_root, WorkstreamRestoreOptions::default())
+                .expect("restore plan");
+        assert_eq!(plan.workstreams.len(), 1);
+        assert_eq!(plan.workstreams[0].id, stream.id);
+        assert_eq!(
+            plan.workstreams[0].session_id.as_deref(),
+            Some("session-001")
+        );
+        assert!(plan.workstreams[0].next_task.is_some());
     }
 }

@@ -46,6 +46,13 @@ When user says to use WorkMesh for feature development:
 - maintain acceptance criteria and definition of done quality
 - capture stable decisions as truths
 
+## Multi-stream restore (after reboot)
+If the user runs multiple workstreams in parallel (often one git worktree per stream), use:
+```bash
+workmesh --root . workstream restore --json
+```
+Each entry includes a `resume_script` with the exact commands to run in that worktree (session resume, context show, next).
+
 ## High-signal loop
 - `workmesh --root . next --json`
 - `workmesh --root . claim <task-id> <owner> --minutes 60`
