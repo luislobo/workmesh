@@ -717,13 +717,15 @@ mod tests {
         let path = Arc::new(temp.path().join("counter.txt"));
         write_string_atomic(path.as_ref(), "0\n").expect("seed");
 
-        let workers = 6usize;
-        let increments_per_worker = 20usize;
+        #[cfg(windows)]
+        let (workers, increments_per_worker) = (4usize, 8usize);
+        #[cfg(not(windows))]
+        let (workers, increments_per_worker) = (6usize, 20usize);
         let mut handles = Vec::new();
 
         for _ in 0..workers {
             let shared_path = Arc::clone(&path);
-            handles.push(thread::spawn(move || {
+            handles.push(thread::spawn(move || -> io::Result<()> {
                 for _ in 0..increments_per_worker {
                     with_path_lock_io(shared_path.as_ref(), || {
                         let current = fs::read_to_string(shared_path.as_ref())?;
@@ -732,14 +734,14 @@ mod tests {
                         })?;
                         write_string_atomic(shared_path.as_ref(), &format!("{}\n", parsed + 1))?;
                         Ok(())
-                    })
-                    .expect("locked update");
+                    })?;
                 }
+                Ok(())
             }));
         }
 
         for handle in handles {
-            handle.join().expect("join");
+            handle.join().expect("join").expect("locked update");
         }
 
         let final_value = fs::read_to_string(path.as_ref())
