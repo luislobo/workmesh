@@ -1,3 +1,5 @@
+#[cfg(windows)]
+use std::time::Duration;
 use tempfile::TempDir;
 
 use rust_mcp_sdk::schema::{
@@ -21,6 +23,20 @@ fn coverage_safe_env() -> std::collections::HashMap<String, String> {
     #[cfg(windows)]
     env.insert("LLVM_PROFILE_FILE".to_string(), "NUL".to_string());
     env
+}
+
+fn test_transport_options() -> TransportOptions {
+    #[cfg(windows)]
+    {
+        let mut options = TransportOptions::default();
+        options.timeout = Duration::from_secs(180);
+        return options;
+    }
+
+    #[cfg(not(windows))]
+    {
+        TransportOptions::default()
+    }
 }
 
 struct NoopClientHandler;
@@ -73,7 +89,7 @@ async fn mcp_list_tasks_and_checkpoint() {
         server_bin,
         vec![],
         Some(coverage_safe_env()),
-        TransportOptions::default(),
+        test_transport_options(),
     )
     .expect("transport");
 
@@ -182,7 +198,7 @@ async fn mcp_list_tasks_all_includes_archived_tasks() {
         server_bin,
         vec![],
         Some(coverage_safe_env()),
-        TransportOptions::default(),
+        test_transport_options(),
     )
     .expect("transport");
 
@@ -290,7 +306,7 @@ async fn mcp_smoke_more_tools() {
         server_bin,
         vec![],
         Some(coverage_safe_env()),
-        TransportOptions::default(),
+        test_transport_options(),
     )
     .expect("transport");
 
@@ -593,7 +609,7 @@ async fn mcp_truth_tools_smoke() {
         server_bin,
         vec![],
         Some(coverage_safe_env()),
-        TransportOptions::default(),
+        test_transport_options(),
     )
     .expect("transport");
 
