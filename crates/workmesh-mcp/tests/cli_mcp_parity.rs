@@ -71,6 +71,15 @@ macro_rules! assert_output_ok {
     };
 }
 
+fn init_git_repo(path: &Path) {
+    let output = Command::new("git")
+        .arg("init")
+        .current_dir(path)
+        .output()
+        .expect("git init");
+    assert_output_success(&output, "git init");
+}
+
 fn cli() -> Command {
     static BUILD: Once = Once::new();
     let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR not set");
@@ -2259,6 +2268,136 @@ async fn cli_and_mcp_workstream_parity() {
             .expect("workstream_id"),
         cli_id
     );
+
+    client.shut_down().await.expect("shutdown");
+}
+
+#[tokio::test]
+#[serial]
+async fn cli_and_mcp_workstream_session_link_parity() {
+    let _guard = env_lock().lock().expect("env lock");
+
+    let home = TempDir::new().expect("home tempdir");
+    std::env::set_var("WORKMESH_HOME", home.path());
+
+    let repo = TempDir::new().expect("repo tempdir");
+    init_git_repo(repo.path());
+    let tasks_dir = repo.path().join("workmesh").join("tasks");
+    std::fs::create_dir_all(&tasks_dir).expect("tasks dir");
+    write_task(&tasks_dir, "task-001", "Seed", "To Do", &[]);
+
+    let client = start_client(repo.path()).await;
+
+    // Create stream via CLI so context.workstream_id is set.
+    let created = cli()
+        .arg("--root")
+        .arg(repo.path())
+        .env("WORKMESH_HOME", home.path())
+        .arg("workstream")
+        .arg("create")
+        .arg("--name")
+        .arg("Stream A")
+        .arg("--key")
+        .arg("stream-a")
+        .arg("--project")
+        .arg("demo")
+        .arg("--objective")
+        .arg("Initial objective")
+        .arg("--json")
+        .output()
+        .expect("cli workstream create");
+    assert_output_ok!(created);
+    let created_json: serde_json::Value = serde_json::from_slice(&created.stdout).expect("json");
+    let workstream_id = created_json["workstream"]["id"]
+        .as_str()
+        .expect("workstream id")
+        .to_string();
+
+    // MCP context_set should preserve the active workstream id.
+    let _ = call_tool_text(
+        &client,
+        "context_set",
+        serde_json::json!({
+            "root": repo.path().display().to_string(),
+            "project_id": "demo",
+            "epic_id": "task-001",
+            "objective": "Updated objective",
+            "format": "json"
+        }),
+    )
+    .await;
+    let context_text = call_tool_text(
+        &client,
+        "context_show",
+        serde_json::json!({
+            "root": repo.path().display().to_string(),
+            "format": "json"
+        }),
+    )
+    .await;
+    let context_json: serde_json::Value = serde_json::from_str(&context_text).expect("json");
+    assert_eq!(
+        context_json["context"]["workstream_id"]
+            .as_str()
+            .expect("workstream_id"),
+        workstream_id
+    );
+
+    // MCP session_save should update the active stream's session pointer.
+    let saved_text = call_tool_text(
+        &client,
+        "session_save",
+        serde_json::json!({
+            "cwd": repo.path().display().to_string(),
+            "objective": "Test objective (mcp)",
+            "format": "json"
+        }),
+    )
+    .await;
+    let saved_json: serde_json::Value = serde_json::from_str(&saved_text).expect("json");
+    let session_id = saved_json["id"].as_str().expect("session id").to_string();
+
+    let shown = cli()
+        .arg("--root")
+        .arg(repo.path())
+        .env("WORKMESH_HOME", home.path())
+        .arg("workstream")
+        .arg("show")
+        .arg("--json")
+        .output()
+        .expect("cli workstream show");
+    assert_output_ok!(shown);
+    let shown_json: serde_json::Value = serde_json::from_slice(&shown.stdout).expect("json");
+    assert_eq!(
+        shown_json["workstream"]["session_id"]
+            .as_str()
+            .expect("session_id"),
+        session_id
+    );
+
+    // MCP worktree_detach should clear the stream session pointer when it matches.
+    let _ = call_tool_text(
+        &client,
+        "worktree_detach",
+        serde_json::json!({
+            "session_id": session_id,
+            "format": "json"
+        }),
+    )
+    .await;
+
+    let shown = cli()
+        .arg("--root")
+        .arg(repo.path())
+        .env("WORKMESH_HOME", home.path())
+        .arg("workstream")
+        .arg("show")
+        .arg("--json")
+        .output()
+        .expect("cli workstream show after detach");
+    assert_output_ok!(shown);
+    let shown_json: serde_json::Value = serde_json::from_slice(&shown.stdout).expect("json");
+    assert!(shown_json["workstream"]["session_id"].is_null());
 
     client.shut_down().await.expect("shutdown");
 }

@@ -171,6 +171,39 @@ pub fn upsert_worktree_record(home: &Path, mut record: WorktreeRecord) -> Result
     ))
 }
 
+/// Convenience wrapper to attach (or clear) an `attached_session_id` for a worktree path.
+///
+/// This preserves `created_at` and the existing branch when `branch` is not provided.
+pub fn set_worktree_attached_session_id(
+    home: &Path,
+    repo_root: &Path,
+    path: &Path,
+    branch: Option<String>,
+    attached_session_id: Option<String>,
+) -> Result<WorktreeRecord> {
+    let existing = find_worktree_record_by_path(home, path)?;
+    let effective_branch =
+        branch.or_else(|| existing.as_ref().and_then(|record| record.branch.clone()));
+    upsert_worktree_record(
+        home,
+        WorktreeRecord {
+            id: existing
+                .as_ref()
+                .map(|record| record.id.clone())
+                .unwrap_or_default(),
+            repo_root: normalize_path_string(repo_root)?,
+            path: normalize_path_string(path)?,
+            branch: effective_branch,
+            created_at: existing
+                .as_ref()
+                .map(|record| record.created_at.clone())
+                .unwrap_or_default(),
+            updated_at: String::new(),
+            attached_session_id,
+        },
+    )
+}
+
 pub fn remove_worktree_record(home: &Path, id: &str) -> Result<bool> {
     let path = worktrees_registry_path(home);
     let lock_key = global_registry_key(home);

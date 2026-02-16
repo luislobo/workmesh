@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 use ulid::Ulid;
 
 use crate::context::ContextScope;
+use crate::context::ContextState;
 use crate::global_sessions::WorktreeBinding;
 use crate::storage::{
     cas_update_json_with_key, read_versioned_or_legacy_json, ResourceKey, StorageError,
@@ -43,6 +44,16 @@ pub struct WorkstreamContextSnapshot {
     pub objective: Option<String>,
     #[serde(default)]
     pub scope: ContextScope,
+}
+
+impl WorkstreamContextSnapshot {
+    pub fn from_context_state(state: &ContextState) -> Self {
+        Self {
+            project_id: state.project_id.clone(),
+            objective: state.objective.clone(),
+            scope: state.scope.clone(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -111,7 +122,9 @@ fn read_workstream_registry(path: &Path) -> Result<WorkstreamRegistry> {
     Ok(registry)
 }
 
-fn read_workstream_registry_state(path: &Path) -> Result<Option<VersionedState<WorkstreamRegistry>>> {
+fn read_workstream_registry_state(
+    path: &Path,
+) -> Result<Option<VersionedState<WorkstreamRegistry>>> {
     read_versioned_or_legacy_json::<WorkstreamRegistry>(path)
         .with_context(|| format!("read {}", path.display()))
 }
@@ -127,7 +140,10 @@ fn load_workstream_registry_with_version(home: &Path) -> Result<(u64, Workstream
     Ok((expected_version, registry))
 }
 
-pub fn upsert_workstream_record(home: &Path, mut record: WorkstreamRecord) -> Result<WorkstreamRecord> {
+pub fn upsert_workstream_record(
+    home: &Path,
+    mut record: WorkstreamRecord,
+) -> Result<WorkstreamRecord> {
     let path = workstreams_registry_path(home);
     record.repo_root = normalize_path_string(Path::new(&record.repo_root))?;
 
@@ -234,6 +250,31 @@ pub fn list_workstreams_for_repo(home: &Path, repo_root: &Path) -> Result<Vec<Wo
         .into_iter()
         .filter(|record| record.repo_root.eq_ignore_ascii_case(&normalized_repo_root))
         .collect())
+}
+
+pub fn find_workstream_for_repo_by_id(
+    home: &Path,
+    repo_root: &Path,
+    id: &str,
+) -> Result<Option<WorkstreamRecord>> {
+    let id = id.trim();
+    if id.is_empty() {
+        return Ok(None);
+    }
+    let streams = list_workstreams_for_repo(home, repo_root)?;
+    Ok(streams.into_iter().find(|record| record.id == id))
+}
+
+pub fn update_workstream_for_repo_by_id(
+    home: &Path,
+    repo_root: &Path,
+    id: &str,
+    update: impl FnOnce(&mut WorkstreamRecord),
+) -> Result<WorkstreamRecord> {
+    let mut record = find_workstream_for_repo_by_id(home, repo_root, id)?
+        .ok_or_else(|| anyhow!("workstream not found for repo: {}", id.trim()))?;
+    update(&mut record);
+    upsert_workstream_record(home, record)
 }
 
 fn normalize_registry(registry: &mut WorkstreamRegistry) {
@@ -373,4 +414,3 @@ mod tests {
         assert_eq!(listed.len(), workers);
     }
 }
-

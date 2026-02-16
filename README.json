@@ -101,6 +101,7 @@
   "workstreams": {
     "phase": "Phase 1",
     "summary": "Workstreams let you manage multiple parallel streams of work in the same repo (often one git worktree per stream), with durable pointers to context and sessions.",
+    "auto_linking": "When a workstream is active in a worktree, session save and worktree attach/detach keep the stream's session/worktree pointers updated automatically.",
     "registry_path": "$WORKMESH_HOME/workstreams/registry.json",
     "context_pointer": "workmesh/context.json -> workstream_id",
     "see": "docs/reference/commands.md"

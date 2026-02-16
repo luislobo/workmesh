@@ -160,4 +160,3 @@ fn workstream_create_list_switch_updates_context_pointer() {
         .expect("context workstream id");
     assert_eq!(workstream_id, alpha_id);
 }
-

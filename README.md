@@ -118,6 +118,8 @@ Phase 0 storage guarantees are now active for tracking files.
 ## Workstreams (Phase 1)
 Workstreams let you manage multiple parallel streams of work in the same repo (often one git worktree per stream), with durable pointers to context and sessions.
 
+When a workstream is active in a worktree, `session save` and `worktree attach/detach` keep the stream's session/worktree pointers updated automatically.
+
 See [`docs/reference/commands.md`](docs/reference/commands.md) for `workstream ...` (CLI) and `workstream_*` (MCP tools).
 
 ## Documentation

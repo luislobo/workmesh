@@ -71,12 +71,13 @@ use workmesh_core::views::{
     blockers_report_with_context, board_lanes, scope_ids_from_context, BoardBy,
 };
 use workmesh_core::workstreams::{
-    list_workstreams_for_repo, upsert_workstream_record, WorkstreamContextSnapshot,
-    WorkstreamRecord, WorkstreamStatus,
+    list_workstreams_for_repo, update_workstream_for_repo_by_id, upsert_workstream_record,
+    WorkstreamContextSnapshot, WorkstreamRecord, WorkstreamStatus,
 };
 use workmesh_core::worktrees::{
     create_git_worktree, current_branch as current_worktree_branch, doctor_worktrees,
-    find_worktree_record_by_path, list_worktree_views, upsert_worktree_record, WorktreeRecord,
+    find_worktree_record_by_path, list_worktree_views, set_worktree_attached_session_id,
+    upsert_worktree_record, WorktreeRecord,
 };
 
 const ROOT_REQUIRED_ERROR: &str = "root is required for MCP calls unless the server is started within a repo containing tasks/ or backlog/tasks";
@@ -1876,6 +1877,9 @@ fn call_context_set(
         Err(err) => return ok_json(err),
     };
     let repo_root = resolve_repo_root(context, root);
+    let existing_workstream_id = load_context_state(&backlog_dir)
+        .and_then(|state| state.workstream_id)
+        .filter(|value| !value.trim().is_empty());
     let inferred_project = infer_project_id(&repo_root);
     let task_ids = parse_list_input(tasks);
     let scope = if epic_id
@@ -1905,7 +1909,7 @@ fn call_context_set(
         version: 1,
         project_id: project_id.or(inferred_project),
         objective,
-        workstream_id: None,
+        workstream_id: existing_workstream_id,
         scope,
         updated_at: None,
     };
@@ -2071,8 +2075,8 @@ impl WorkstreamListTool {
         let repo_root = repo_root_from_backlog(&backlog_dir);
         let home =
             resolve_workmesh_home().map_err(|err| CallToolError::from_message(err.to_string()))?;
-        let streams =
-            list_workstreams_for_repo(&home, &repo_root).map_err(|err| CallToolError::from_message(err.to_string()))?;
+        let streams = list_workstreams_for_repo(&home, &repo_root)
+            .map_err(|err| CallToolError::from_message(err.to_string()))?;
         let active_id = load_context(&backlog_dir)
             .ok()
             .flatten()
@@ -2228,10 +2232,11 @@ impl WorkstreamCreateTool {
 
         // Determine initial scope from explicit flags, falling back to branch-derived epic id.
         let task_ids = parse_list_input(self.tasks.clone());
-        let inferred_epic = self
-            .epic_id
-            .clone()
-            .or_else(|| self.branch.as_deref().and_then(|b| extract_task_id_from_branch(b)));
+        let inferred_epic = self.epic_id.clone().or_else(|| {
+            self.branch
+                .as_deref()
+                .and_then(|b| extract_task_id_from_branch(b))
+        });
         let scope = if inferred_epic
             .as_deref()
             .map(|value| !value.trim().is_empty())
@@ -2429,7 +2434,10 @@ impl WorkstreamSwitchTool {
             resolve_workmesh_home().map_err(|err| CallToolError::from_message(err.to_string()))?;
 
         let record = resolve_workstream_for_repo(&home, &repo_root, &self.id)?;
-        let existing = load_context(&backlog_dir).ok().flatten().unwrap_or_default();
+        let existing = load_context(&backlog_dir)
+            .ok()
+            .flatten()
+            .unwrap_or_default();
         let mut next = existing.clone();
         next.workstream_id = Some(record.id.clone());
         if let Some(snapshot) = record.context.as_ref() {
@@ -2475,8 +2483,8 @@ impl WorkstreamDoctorTool {
         let home =
             resolve_workmesh_home().map_err(|err| CallToolError::from_message(err.to_string()))?;
 
-        let streams =
-            list_workstreams_for_repo(&home, &repo_root).map_err(|err| CallToolError::from_message(err.to_string()))?;
+        let streams = list_workstreams_for_repo(&home, &repo_root)
+            .map_err(|err| CallToolError::from_message(err.to_string()))?;
         let active_id = load_context(&backlog_dir)
             .ok()
             .flatten()
@@ -2550,7 +2558,10 @@ impl WorkstreamDoctorTool {
                 } else {
                     record_issues.join(",")
                 };
-                lines.push(format!("{} | key={} | status={} | issues={}", id, key, status, summary));
+                lines.push(format!(
+                    "{} | key={} | status={} | issues={}",
+                    id, key, status, summary
+                ));
             }
             return ok_text(lines.join("\n"));
         }
@@ -2790,6 +2801,26 @@ impl WorktreeAttachTool {
             .map_err(|err| CallToolError::from_message(err.to_string()))?;
         set_current_session(&home, &updated.id)
             .map_err(|err| CallToolError::from_message(err.to_string()))?;
+
+        if let Ok(backlog_dir) = locate_backlog_dir(&path) {
+            if let Ok(Some(ctx)) = load_context(&backlog_dir) {
+                if let Some(workstream_id) = ctx
+                    .workstream_id
+                    .clone()
+                    .filter(|value| !value.trim().is_empty())
+                {
+                    let repo_root = repo_root_from_backlog(&backlog_dir);
+                    let snapshot = WorkstreamContextSnapshot::from_context_state(&ctx);
+                    update_workstream_for_repo_by_id(&home, &repo_root, &workstream_id, |record| {
+                        record.session_id = Some(updated.id.clone());
+                        record.worktree = Some(binding.clone());
+                        record.context = Some(snapshot.clone());
+                        record.truth_refs = updated.truth_refs.clone();
+                    })
+                    .map_err(|err| CallToolError::from_message(err.to_string()))?;
+                }
+            }
+        }
         ok_json(serde_json::json!({
             "ok": true,
             "session": updated,
@@ -2813,6 +2844,7 @@ impl WorktreeDetachTool {
             .into_iter()
             .find(|session| session.id == session_id)
             .ok_or_else(|| CallToolError::from_message("Session not found"))?;
+        let previous_worktree = existing.worktree.clone();
         let mut updated = existing.clone();
         updated.updated_at = now_rfc3339();
         updated.worktree = None;
@@ -2834,6 +2866,51 @@ impl WorktreeDetachTool {
             .map_err(|err| CallToolError::from_message(err.to_string()))?;
         set_current_session(&home, &updated.id)
             .map_err(|err| CallToolError::from_message(err.to_string()))?;
+
+        let link_path = previous_worktree
+            .as_ref()
+            .map(|binding| PathBuf::from(&binding.path))
+            .or_else(|| existing.repo_root.as_deref().map(PathBuf::from));
+
+        if let Some(path) = link_path {
+            if let Ok(Some(record)) = find_worktree_record_by_path(&home, &path) {
+                if record.attached_session_id.as_deref() == Some(session_id.as_str()) {
+                    set_worktree_attached_session_id(
+                        &home,
+                        Path::new(&record.repo_root),
+                        Path::new(&record.path),
+                        record.branch.clone(),
+                        None,
+                    )
+                    .map_err(|err| CallToolError::from_message(err.to_string()))?;
+                }
+            }
+
+            if let Ok(backlog_dir) = locate_backlog_dir(&path) {
+                if let Ok(Some(ctx)) = load_context(&backlog_dir) {
+                    if let Some(workstream_id) = ctx
+                        .workstream_id
+                        .clone()
+                        .filter(|value| !value.trim().is_empty())
+                    {
+                        let repo_root = repo_root_from_backlog(&backlog_dir);
+                        let snapshot = WorkstreamContextSnapshot::from_context_state(&ctx);
+                        update_workstream_for_repo_by_id(
+                            &home,
+                            &repo_root,
+                            &workstream_id,
+                            |record| {
+                                if record.session_id.as_deref() == Some(session_id.as_str()) {
+                                    record.session_id = None;
+                                }
+                                record.context = Some(snapshot.clone());
+                            },
+                        )
+                        .map_err(|err| CallToolError::from_message(err.to_string()))?;
+                    }
+                }
+            }
+        }
         ok_json(serde_json::to_value(updated).unwrap_or_default())
     }
 }
@@ -4741,12 +4818,25 @@ impl SessionSaveTool {
         let mut git: Option<GitSnapshot> = None;
         let mut checkpoint: Option<CheckpointRef> = None;
         let mut recent_changes: Option<RecentChanges> = None;
+        let mut repo_root_path_for_link: Option<PathBuf> = None;
+        let mut active_workstream_id: Option<String> = None;
+        let mut workstream_context_snapshot: Option<WorkstreamContextSnapshot> = None;
 
         if let Ok(backlog_dir) = locate_backlog_dir(&cwd) {
             let rr = repo_root_from_backlog(&backlog_dir);
             repo_root = Some(rr.to_string_lossy().to_string());
             let repo_tasks = load_tasks(&backlog_dir);
             let context_state = load_context_state(&backlog_dir);
+            active_workstream_id = context_state
+                .as_ref()
+                .and_then(|state| state.workstream_id.clone())
+                .filter(|value| !value.trim().is_empty());
+            if active_workstream_id.is_some() {
+                repo_root_path_for_link = Some(rr.clone());
+                workstream_context_snapshot = context_state
+                    .as_ref()
+                    .map(WorkstreamContextSnapshot::from_context_state);
+            }
             epic_id = context_state.as_ref().and_then(|c| c.scope.epic_id.clone());
 
             if project_id.is_none() {
@@ -4828,6 +4918,36 @@ impl SessionSaveTool {
             .map_err(|err| CallToolError::from_message(err.to_string()))?;
         set_current_session(&home, &session.id)
             .map_err(|err| CallToolError::from_message(err.to_string()))?;
+
+        if let (Some(repo_root), Some(workstream_id), Some(snapshot)) = (
+            repo_root_path_for_link.as_ref(),
+            active_workstream_id.as_deref(),
+            workstream_context_snapshot.as_ref(),
+        ) {
+            let branch = current_worktree_branch(repo_root);
+            let record = set_worktree_attached_session_id(
+                &home,
+                repo_root,
+                repo_root,
+                branch.clone(),
+                Some(session.id.clone()),
+            )
+            .map_err(|err| CallToolError::from_message(err.to_string()))?;
+            let binding = WorktreeBinding {
+                id: Some(record.id.clone()),
+                path: record.path.clone(),
+                branch: record.branch.clone().or(branch),
+                repo_root: Some(record.repo_root.clone()),
+            };
+
+            update_workstream_for_repo_by_id(&home, repo_root, workstream_id, |record| {
+                record.session_id = Some(session.id.clone());
+                record.worktree = Some(binding.clone());
+                record.context = Some(snapshot.clone());
+                record.truth_refs = session.truth_refs.clone();
+            })
+            .map_err(|err| CallToolError::from_message(err.to_string()))?;
+        }
 
         if self.format == "text" {
             return ok_text(format!("Saved session {}", session.id));

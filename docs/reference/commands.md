@@ -173,6 +173,14 @@ MCP:
 - `workstream_switch`
 - `workstream_doctor`
 
+Notes:
+- Active workstream pointer is per-worktree: `workmesh/context.json.workstream_id`.
+- When `workstream_id` is set, these commands keep workstream pointers up to date:
+- `session save` updates the active workstream `session_id` and worktree binding.
+- `worktree attach` updates the active workstream `session_id` and worktree binding.
+- `worktree detach` clears the active workstream `session_id` when it matches the detached session.
+- `context set` preserves `workstream_id` (it updates objective/scope without clearing the active workstream pointer).
+
 ## Worktree runtime
 CLI:
 - `worktree list [--json]`
