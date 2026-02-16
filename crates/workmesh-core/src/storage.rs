@@ -509,7 +509,7 @@ fn acquire_lock(lock_path: &Path, timeout: Duration) -> Result<PathLock, Storage
     loop {
         match file.try_lock_exclusive() {
             Ok(()) => return Ok(PathLock { file }),
-            Err(err) if err.kind() == io::ErrorKind::WouldBlock => {
+            Err(err) if is_lock_contention(&err) => {
                 if start.elapsed() >= timeout {
                     return Err(StorageError::LockTimeout {
                         lock_path: lock_path.to_path_buf(),
@@ -520,6 +520,24 @@ fn acquire_lock(lock_path: &Path, timeout: Duration) -> Result<PathLock, Storage
             }
             Err(err) => return Err(StorageError::Io(err)),
         }
+    }
+}
+
+fn is_lock_contention(err: &io::Error) -> bool {
+    if err.kind() == io::ErrorKind::WouldBlock {
+        return true;
+    }
+
+    #[cfg(windows)]
+    {
+        // fs2 maps "lock violation" to PermissionDenied on Windows.
+        // 33 = ERROR_LOCK_VIOLATION, 32 = ERROR_SHARING_VIOLATION.
+        return matches!(err.raw_os_error(), Some(33 | 32));
+    }
+
+    #[cfg(not(windows))]
+    {
+        false
     }
 }
 
@@ -644,6 +662,26 @@ mod tests {
                 .join(".locks")
                 .join("events.jsonl.lock")
         );
+    }
+
+    #[test]
+    fn lock_contention_detects_would_block() {
+        let err = io::Error::new(io::ErrorKind::WouldBlock, "busy");
+        assert!(is_lock_contention(&err));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn lock_contention_detects_windows_lock_violations() {
+        assert!(is_lock_contention(&io::Error::from_raw_os_error(33)));
+        assert!(is_lock_contention(&io::Error::from_raw_os_error(32)));
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn lock_contention_does_not_treat_permission_denied_as_contention() {
+        let err = io::Error::new(io::ErrorKind::PermissionDenied, "nope");
+        assert!(!is_lock_contention(&err));
     }
 
     #[test]
