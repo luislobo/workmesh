@@ -258,6 +258,10 @@ fn write_task_with_updated(
 fn find_task_path(tasks_dir: &Path, id: &str) -> PathBuf {
     let entries = std::fs::read_dir(tasks_dir).expect("read tasks dir");
     for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().and_then(|ext| ext.to_str()) != Some("md") {
+            continue;
+        }
         let name = entry.file_name().to_string_lossy().to_string();
         if name.to_lowercase().starts_with(&id.to_lowercase()) {
             return entry.path();

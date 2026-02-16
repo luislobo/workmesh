@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.14] - 2026-02-16
+
+### Added
+- Context orchestration as primary state (`context.json`) with migration audit/plan/apply support for legacy layouts and deprecated focus state.
+- Truth ledger domain with CLI + MCP workflows (propose/accept/reject/supersede/list/show), validation, and legacy-decision backfill tooling.
+- Worktree runtime tooling (list/create/attach/detach/doctor) and bootstrap flows for codex-first repo onboarding.
+- Namespaced seed task-id generation from feature/project initials for clearer, collision-resistant bootstraps.
+- Shared storage primitives for lock-protected and atomic file writes in core tracking state.
+
+### Changed
+- Command surface cleanup: removed deprecated aliases in favor of approved workflows.
+- Worktree guidance defaults now use explicit precedence (project config > global config > default).
+- Documentation clarified codex-first bootstrap and archive semantics across README, guides, and command reference.
+
+### Fixed
+- Archive default behavior now targets terminal statuses only, with explicit CLI/MCP parity.
+- Hardened multi-agent safety by serializing read-modify-write task mutations and protecting append/projection writes against cross-process races.
+
 ## [0.2.13] - 2026-02-08
 
 ### Added
@@ -124,7 +142,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Gantt support and best-practices command.
   - Docs-first project model and initial PRDs.
 
-[Unreleased]: https://github.com/luislobo/workmesh/compare/v0.2.13...HEAD
+[Unreleased]: https://github.com/luislobo/workmesh/compare/v0.2.14...HEAD
+[0.2.14]: https://github.com/luislobo/workmesh/compare/v0.2.13...v0.2.14
 [0.2.13]: https://github.com/luislobo/workmesh/compare/v0.2.12...v0.2.13
 [0.2.12]: https://github.com/luislobo/workmesh/compare/v0.2.11...v0.2.12
 [0.2.11]: https://github.com/luislobo/workmesh/compare/v0.2.10...v0.2.11

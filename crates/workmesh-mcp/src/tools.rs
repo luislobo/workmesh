@@ -4259,8 +4259,10 @@ impl SessionResumeTool {
 
 impl BestPracticesTool {
     fn call(&self, context: &McpContext) -> Result<CallToolResult, CallToolError> {
-        if resolve_root(context, self.root.as_deref()).is_err() {
-            return ok_json(serde_json::json!({"error": ROOT_REQUIRED_ERROR}));
+        if let Some(root) = self.root.as_deref() {
+            if resolve_root(context, Some(root)).is_err() {
+                return ok_json(serde_json::json!({"error": ROOT_REQUIRED_ERROR}));
+            }
         }
         if self.format == "json" {
             return ok_json(serde_json::json!({
