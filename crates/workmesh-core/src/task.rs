@@ -49,6 +49,12 @@ pub enum TaskParseError {
     Invalid(String),
 }
 
+impl From<std::io::Error> for TaskParseError {
+    fn from(err: std::io::Error) -> Self {
+        TaskParseError::Invalid(err.to_string())
+    }
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct Relationships {
     pub blocked_by: Vec<String>,

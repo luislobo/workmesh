@@ -10,6 +10,7 @@ use ulid::Ulid;
 use crate::context::{context_from_legacy_focus, ContextScopeMode, ContextState};
 use crate::focus::FocusState;
 use crate::project::{project_docs_dir, repo_root_from_backlog};
+use crate::storage::{with_path_lock, write_string_atomic, write_string_atomic_locked};
 use crate::task::{split_front_matter, Task, TaskParseError};
 
 #[derive(Serialize)]
@@ -347,38 +348,35 @@ pub fn update_task_field(
     key: &str,
     value: Option<FieldValue>,
 ) -> Result<(), TaskParseError> {
-    let text = fs::read_to_string(path).map_err(|err| TaskParseError::Invalid(err.to_string()))?;
-    let updated = update_front_matter_value(&text, key, value)?;
-    fs::write(path, updated).map_err(|err| TaskParseError::Invalid(err.to_string()))?;
-    Ok(())
+    mutate_task_file(path, |text| update_front_matter_value(text, key, value))
 }
 
 pub fn update_lease_fields(
     path: &Path,
     lease: Option<&crate::task::Lease>,
 ) -> Result<(), TaskParseError> {
-    let text = fs::read_to_string(path).map_err(|err| TaskParseError::Invalid(err.to_string()))?;
-    let mut updated = update_front_matter_value(
-        &text,
-        "lease_owner",
-        lease.map(|value| FieldValue::Scalar(value.owner.clone())),
-    )?;
-    updated = update_front_matter_value(
-        &updated,
-        "lease_acquired_at",
-        lease
-            .and_then(|value| value.acquired_at.clone())
-            .map(FieldValue::Scalar),
-    )?;
-    updated = update_front_matter_value(
-        &updated,
-        "lease_expires_at",
-        lease
-            .and_then(|value| value.expires_at.clone())
-            .map(FieldValue::Scalar),
-    )?;
-    fs::write(path, updated).map_err(|err| TaskParseError::Invalid(err.to_string()))?;
-    Ok(())
+    mutate_task_file(path, |text| {
+        let mut updated = update_front_matter_value(
+            text,
+            "lease_owner",
+            lease.map(|value| FieldValue::Scalar(value.owner.clone())),
+        )?;
+        updated = update_front_matter_value(
+            &updated,
+            "lease_acquired_at",
+            lease
+                .and_then(|value| value.acquired_at.clone())
+                .map(FieldValue::Scalar),
+        )?;
+        updated = update_front_matter_value(
+            &updated,
+            "lease_expires_at",
+            lease
+                .and_then(|value| value.expires_at.clone())
+                .map(FieldValue::Scalar),
+        )?;
+        Ok(updated)
+    })
 }
 
 pub fn set_list_field(path: &Path, key: &str, new_list: Vec<String>) -> Result<(), TaskParseError> {
@@ -391,14 +389,12 @@ pub fn update_task_field_or_section(
     value: Option<&str>,
 ) -> Result<(), TaskParseError> {
     if let Some(section) = section_name_for_field(key) {
-        let text =
-            fs::read_to_string(path).map_err(|err| TaskParseError::Invalid(err.to_string()))?;
-        let (front, body) = split_front_matter(&text)?;
-        let content = value.unwrap_or("");
-        let new_body = replace_section(&body, &section, content);
-        let updated = format!("---\n{}\n---\n{}", front, new_body);
-        fs::write(path, updated).map_err(|err| TaskParseError::Invalid(err.to_string()))?;
-        return Ok(());
+        let content = value.unwrap_or("").to_string();
+        return mutate_task_file(path, |text| {
+            let (front, body) = split_front_matter(text)?;
+            let new_body = replace_section(&body, &section, &content);
+            Ok(format!("---\n{}\n---\n{}", front, new_body))
+        });
     }
     let field_value = value.map(|val| FieldValue::Scalar(val.to_string()));
     update_task_field(path, key, field_value)
@@ -504,11 +500,11 @@ pub fn replace_section(body: &str, section: &str, content: &str) -> String {
 }
 
 pub fn update_body(path: &Path, new_body: &str) -> Result<(), TaskParseError> {
-    let text = fs::read_to_string(path).map_err(|err| TaskParseError::Invalid(err.to_string()))?;
-    let (front, _body) = split_front_matter(&text)?;
-    let updated = format!("---\n{}\n---\n{}", front, new_body);
-    fs::write(path, updated).map_err(|err| TaskParseError::Invalid(err.to_string()))?;
-    Ok(())
+    let next_body = new_body.to_string();
+    mutate_task_file(path, |text| {
+        let (front, _body) = split_front_matter(text)?;
+        Ok(format!("---\n{}\n---\n{}", front, next_body))
+    })
 }
 
 pub fn create_task_file(
@@ -540,8 +536,20 @@ pub fn create_task_file(
         labels,
         assignee,
     );
-    fs::write(&path, content).map_err(|err| TaskParseError::Invalid(err.to_string()))?;
+    write_string_atomic_locked(&path, &content)?;
     Ok(path)
+}
+
+fn mutate_task_file<F>(path: &Path, mutator: F) -> Result<(), TaskParseError>
+where
+    F: FnOnce(&str) -> Result<String, TaskParseError>,
+{
+    with_path_lock(path, || {
+        let text = fs::read_to_string(path)?;
+        let updated = mutator(&text)?;
+        write_string_atomic(path, &updated)?;
+        Ok(())
+    })
 }
 
 pub fn next_task(tasks: &[Task]) -> Option<Task> {
@@ -1273,6 +1281,9 @@ fn is_key_line(line: &str, key: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+    use std::thread;
+
     use super::*;
     use tempfile::TempDir;
 
@@ -1971,6 +1982,54 @@ mod tests {
         let content = fs::read_to_string(&path).expect("read");
         assert!(content.contains("Notes:"));
         assert!(content.contains("- note"));
+    }
+
+    #[test]
+    fn mutate_task_file_serializes_parallel_updates() {
+        let temp = TempDir::new().expect("tempdir");
+        let path = Arc::new(temp.path().join("task-001.md"));
+        fs::write(&*path, "---\nid: task-001\n---\ncount: 0\n").expect("seed");
+
+        let workers = 6usize;
+        let increments_per_worker = 40usize;
+        let mut handles = Vec::new();
+        for _ in 0..workers {
+            let file = Arc::clone(&path);
+            handles.push(thread::spawn(move || {
+                for _ in 0..increments_per_worker {
+                    mutate_task_file(file.as_ref(), |text| {
+                        let (front, body) = split_front_matter(text)?;
+                        let current = body
+                            .lines()
+                            .find_map(|line| {
+                                line.trim()
+                                    .strip_prefix("count:")
+                                    .and_then(|value| value.trim().parse::<usize>().ok())
+                            })
+                            .ok_or_else(|| {
+                                TaskParseError::Invalid("missing count line".to_string())
+                            })?;
+                        Ok(format!("---\n{}\n---\ncount: {}\n", front, current + 1))
+                    })
+                    .expect("increment");
+                }
+            }));
+        }
+        for handle in handles {
+            handle.join().expect("join");
+        }
+
+        let final_text = fs::read_to_string(&*path).expect("read");
+        let (_, body) = split_front_matter(&final_text).expect("front matter");
+        let count = body
+            .lines()
+            .find_map(|line| {
+                line.trim()
+                    .strip_prefix("count:")
+                    .and_then(|value| value.trim().parse::<usize>().ok())
+            })
+            .expect("count line");
+        assert_eq!(count, workers * increments_per_worker);
     }
 
     #[test]
