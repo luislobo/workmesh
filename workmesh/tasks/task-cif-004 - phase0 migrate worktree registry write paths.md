@@ -1,7 +1,7 @@
 ---
 id: task-cif-004
 title: 'Phase 0: migrate worktree registry write paths to storage primitives'
-status: To Do
+status: Done
 priority: P1
 phase: Phase0
 dependencies: [task-cif-001, task-cif-002]
@@ -13,8 +13,8 @@ relationships:
   parent: []
   child: []
   discovered_from: []
+updated_date: 2026-02-15 23:43
 ---
-
 Description:
 --------------------------------------------------
 - Migrate `~/.workmesh/worktrees/registry.json` writes in `worktrees.rs` to lock-safe RMW + atomic write.
@@ -35,4 +35,5 @@ Definition of Done:
 - No behavior regression in `worktree list/create/attach/detach/doctor` flows.
 
 Notes:
+- Migrated worktree registry writes to CAS + global lock key worktrees.registry. load path supports legacy and versioned formats. Added concurrent upsert test to verify no lost updates.
 - This is implementation sequence step 3.

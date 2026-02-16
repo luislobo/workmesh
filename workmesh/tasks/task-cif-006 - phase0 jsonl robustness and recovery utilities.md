@@ -1,7 +1,7 @@
 ---
 id: task-cif-006
 title: 'Phase 0: JSONL robustness and recovery utilities'
-status: To Do
+status: Done
 priority: P1
 phase: Phase0
 dependencies: [task-cif-001]
@@ -13,8 +13,8 @@ relationships:
   parent: []
   child: []
   discovered_from: []
+updated_date: 2026-02-15 23:43
 ---
-
 Description:
 --------------------------------------------------
 - Implement tolerant JSONL readers that handle trailing malformed partial lines for event streams.
@@ -35,4 +35,5 @@ Definition of Done:
 - Recovery behavior is deterministic and safe by default.
 
 Notes:
+- Implemented JSONL robustness utilities in storage (read_jsonl_tolerant, truncate_jsonl_trailing_invalid) and integrated with global sessions + truth event read/recovery paths. Added malformed trailing-line tolerance and recovery tests.
 - This task is a prerequisite for `doctor --fix-storage` implementation.

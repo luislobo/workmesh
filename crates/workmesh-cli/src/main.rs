@@ -19,7 +19,7 @@ use workmesh_core::context::{
     clear_context, context_path, extract_task_id_from_branch, infer_project_id, load_context,
     save_context, ContextScope, ContextScopeMode, ContextState,
 };
-use workmesh_core::doctor::doctor_report;
+use workmesh_core::doctor::{doctor_report, doctor_report_with_options};
 use workmesh_core::fix::{backfill_missing_uids, fix_dependencies, FixerKind};
 use workmesh_core::focus::load_focus;
 use workmesh_core::gantt::{
@@ -107,6 +107,8 @@ struct Cli {
 enum Command {
     /// Diagnostics for repo layout, context, index, and skill installation
     Doctor {
+        #[arg(long, action = ArgAction::SetTrue)]
+        fix_storage: bool,
         #[arg(long, action = ArgAction::SetTrue)]
         json: bool,
     },
@@ -2131,8 +2133,12 @@ fn main() -> Result<()> {
         return Ok(());
     }
 
-    if let Command::Doctor { json } = &cli.command {
-        let report = doctor_report(&cli.root, "workmesh");
+    if let Command::Doctor { json, fix_storage } = &cli.command {
+        let report = if *fix_storage {
+            doctor_report_with_options(&cli.root, "workmesh", true)
+        } else {
+            doctor_report(&cli.root, "workmesh")
+        };
         if *json {
             println!("{}", serde_json::to_string_pretty(&report)?);
         } else {
@@ -2166,6 +2172,31 @@ fn main() -> Result<()> {
                     report["truth"]["record_count"].as_i64().unwrap_or(0),
                     report["truth"]["validation_ok"].as_bool().unwrap_or(true)
                 );
+            }
+            if !report["storage"].is_null() {
+                println!(
+                    "storage: ok={} malformed_total={} projection_mismatches={}",
+                    report["storage"]["ok"].as_bool().unwrap_or(false),
+                    report["storage"]["jsonl"]["malformed_total"]
+                        .as_i64()
+                        .unwrap_or(0),
+                    report["storage"]["truth_projection"]["projection_mismatches"]
+                        .as_array()
+                        .map(|items| items.len())
+                        .unwrap_or(0)
+                );
+                if *fix_storage {
+                    println!(
+                        "storage_fix: ok={} sessions_trimmed={} truth_trimmed={}",
+                        report["storage"]["fix"]["ok"].as_bool().unwrap_or(false),
+                        report["storage"]["fix"]["sessions_trimmed"]
+                            .as_i64()
+                            .unwrap_or(0),
+                        report["storage"]["fix"]["truth_trimmed"]
+                            .as_i64()
+                            .unwrap_or(0),
+                    );
+                }
             }
             println!(
                 "versions: workmesh={} workmesh-mcp={}",

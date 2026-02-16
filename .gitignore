@@ -6,6 +6,20 @@
 /backlog/.index/
 /workmesh/.audit.log
 /workmesh/.index/
+#
+# WorkMesh runtime locks (cross-process locking artifacts)
+# Keep lock files out of git status while preserving Cargo.lock tracking.
+/workmesh/.locks/
+/workmesh/**/.locks/
+/.workmesh/.locks/
+/.workmesh/**/.locks/
+/backlog/.locks/
+/backlog/**/.locks/
+
+# Legacy lock-file layout (pre-.locks pathing)
+/workmesh/**/*.lock
+/.workmesh/**/*.lock
+/backlog/**/*.lock
 /.workmesh/.audit.log
 /.workmesh/.index/
 # Go

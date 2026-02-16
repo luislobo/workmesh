@@ -1,20 +1,20 @@
 ---
 id: task-cif-001
 title: 'Phase 0: implement storage primitives and typed errors'
-status: To Do
+status: Done
 priority: P1
 phase: Phase0
 dependencies: []
 labels: [phase0, concurrency, storage]
-assignee: []
+assignee: [luis]
 kind: task
 relationships:
   blocked_by: []
   parent: []
   child: []
   discovered_from: []
+updated_date: 2026-02-15 23:43
 ---
-
 Description:
 --------------------------------------------------
 - Implement `crates/workmesh-core/src/storage.rs` as the canonical storage safety module for Phase 0.
@@ -38,4 +38,5 @@ Definition of Done:
 - Interfaces are ready to migrate all target write paths without redesign.
 
 Notes:
+- Implemented storage.rs primitives: ResourceKey lock namespaces, atomic_write_json/text with fsync+rename+parent fsync, append_jsonl_locked, read_modify_write_json, cas_update_json, typed StorageConflict/StorageError, plus key-based lock APIs and tests.
 - This task is the prerequisite root for all migration and doctor/recovery tasks.

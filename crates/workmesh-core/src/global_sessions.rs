@@ -8,7 +8,11 @@ use chrono::{DateTime, Local};
 use serde::{Deserialize, Serialize};
 use ulid::Ulid;
 
-use crate::storage::{append_line_locked, write_string_atomic_locked};
+use crate::storage::{
+    append_jsonl_locked_with_key, atomic_write_text, cas_update_json_with_key, read_jsonl_tolerant,
+    read_versioned_or_legacy_json, truncate_jsonl_trailing_invalid, with_resource_lock,
+    ResourceKey, StorageError, DEFAULT_LOCK_TIMEOUT,
+};
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 pub struct GitSnapshot {
@@ -94,6 +98,16 @@ impl SessionSavedEvent {
     }
 }
 
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+struct CurrentSessionPointerPayload {
+    pub current_session_id: String,
+    #[serde(default)]
+    pub updated_at: Option<String>,
+}
+
+#[cfg(test)]
+type CurrentSessionPointerState = crate::storage::VersionedState<CurrentSessionPointerPayload>;
+
 pub fn now_rfc3339() -> String {
     let now: DateTime<Local> = Local::now();
     now.to_rfc3339()
@@ -158,49 +172,37 @@ pub fn append_session_saved(home: &Path, session: AgentSession) -> Result<()> {
     ensure_global_dirs(home)?;
     let event = SessionSavedEvent::new(session);
     let line = serde_json::to_string(&event).context("serialize session_saved event")?;
-    append_jsonl_line(&sessions_events_path(home), &line)
+    let path = sessions_events_path(home);
+    append_jsonl_locked_with_key(&path, &line, &global_lock_key(home, "sessions.events"))
+        .with_context(|| format!("append jsonl line {}", path.display()))?;
+    Ok(())
 }
 
 pub fn set_current_session(home: &Path, session_id: &str) -> Result<()> {
     ensure_global_dirs(home)?;
-    let payload = serde_json::json!({
-        "current_session_id": session_id,
-        "updated_at": now_rfc3339(),
-    });
-    let raw = serde_json::to_string_pretty(&payload)?;
-    write_string_atomic_locked(&sessions_current_path(home), &raw)
+    let path = sessions_current_path(home);
+    let resource_key = global_lock_key(home, "sessions.current");
+    let payload = CurrentSessionPointerPayload {
+        current_session_id: session_id.trim().to_string(),
+        updated_at: Some(now_rfc3339()),
+    };
+    cas_retry_set_current_session(&path, &resource_key, payload)
         .context("write current session pointer")?;
     Ok(())
 }
 
 pub fn read_current_session_id(home: &Path) -> Option<String> {
     let path = sessions_current_path(home);
-    let contents = fs::read_to_string(path).ok()?;
-    let value: serde_json::Value = serde_json::from_str(&contents).ok()?;
-    value
-        .get("current_session_id")
-        .and_then(|v| v.as_str())
-        .map(|v| v.to_string())
+    let state = read_versioned_or_legacy_json::<CurrentSessionPointerPayload>(&path).ok()??;
+    Some(state.payload.current_session_id)
 }
 
 pub fn load_sessions_latest(home: &Path) -> Result<Vec<AgentSession>> {
     let path = sessions_events_path(home);
-    if !path.exists() {
-        return Ok(Vec::new());
-    }
-
-    let file = fs::File::open(&path).with_context(|| format!("open {}", path.display()))?;
-    let reader = BufReader::new(file);
-
+    let parsed = read_jsonl_tolerant::<SessionSavedEvent>(&path)
+        .with_context(|| format!("read session events from {}", path.display()))?;
     let mut latest: BTreeMap<String, AgentSession> = BTreeMap::new();
-    for (idx, line) in reader.lines().enumerate() {
-        let line = line.with_context(|| format!("read line {}", idx + 1))?;
-        let trimmed = line.trim();
-        if trimmed.is_empty() {
-            continue;
-        }
-        let event: SessionSavedEvent = serde_json::from_str(trimmed)
-            .with_context(|| format!("parse session event on line {}", idx + 1))?;
+    for event in parsed.records {
         if event.event_type != "session_saved" {
             continue;
         }
@@ -215,6 +217,12 @@ pub fn load_sessions_latest(home: &Path) -> Result<Vec<AgentSession>> {
             .then_with(|| a.id.cmp(&b.id))
     });
     Ok(sessions)
+}
+
+pub fn recover_sessions_events(home: &Path) -> Result<usize> {
+    let path = sessions_events_path(home);
+    let trimmed = truncate_jsonl_trailing_invalid(&path).map_err(anyhow::Error::from)?;
+    Ok(trimmed)
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -246,8 +254,13 @@ pub fn rebuild_sessions_index(home: &Path) -> Result<SessionsIndexSummary> {
         body.push('\n');
         body
     };
-    write_string_atomic_locked(&index_path, &payload)
-        .with_context(|| format!("write {}", index_path.display()))?;
+    let key = global_lock_key(home, "sessions.index");
+    with_resource_lock(&key, DEFAULT_LOCK_TIMEOUT, || {
+        atomic_write_text(&index_path, &payload)?;
+        Ok(())
+    })
+    .map_err(anyhow::Error::from)
+    .with_context(|| format!("write {}", index_path.display()))?;
 
     Ok(SessionsIndexSummary {
         indexed: sessions.len(),
@@ -340,15 +353,38 @@ pub fn verify_sessions_index(home: &Path) -> Result<SessionsIndexReport> {
     })
 }
 
-fn append_jsonl_line(path: &Path, line: &str) -> Result<()> {
-    append_line_locked(path, line)
-        .with_context(|| format!("append jsonl line {}", path.display()))?;
-    Ok(())
+fn global_lock_key(home: &Path, resource: &str) -> ResourceKey {
+    ResourceKey::global(home, resource)
+}
+
+fn cas_retry_set_current_session(
+    path: &Path,
+    resource_key: &ResourceKey,
+    payload: CurrentSessionPointerPayload,
+) -> Result<()> {
+    const MAX_RETRIES: usize = 8;
+    let mut attempts = 0usize;
+    loop {
+        attempts += 1;
+        let expected_version = read_versioned_or_legacy_json::<CurrentSessionPointerPayload>(path)
+            .map_err(anyhow::Error::from)?
+            .map(|state| state.version)
+            .unwrap_or(0);
+
+        match cas_update_json_with_key(path, resource_key, expected_version, payload.clone()) {
+            Ok(_) => return Ok(()),
+            Err(StorageError::Conflict(_)) if attempts < MAX_RETRIES => continue,
+            Err(err) => return Err(anyhow!(err)),
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::Write;
+    use std::sync::{Arc, Barrier};
+    use std::thread;
     use tempfile::TempDir;
 
     fn session(id: &str, updated_at: &str, cwd: &str) -> AgentSession {
@@ -385,15 +421,41 @@ mod tests {
         let temp = TempDir::new().expect("tempdir");
         ensure_global_dirs(temp.path()).expect("dirs");
         let path = sessions_events_path(temp.path());
-        append_jsonl_line(&path, "").expect("append blank");
-        append_jsonl_line(&path, r#"{"type":"other","session":{"id":"x","created_at":"t","updated_at":"t","cwd":"c","objective":"o","working_set":[]}}"#)
-            .expect("append other");
+        fs::write(
+            &path,
+            "\n{\"type\":\"other\",\"session\":{\"id\":\"x\",\"created_at\":\"t\",\"updated_at\":\"t\",\"cwd\":\"c\",\"objective\":\"o\",\"working_set\":[]}}\n",
+        )
+        .expect("seed events");
         append_session_saved(temp.path(), session("s1", "2026-02-01T01:00:00Z", "/tmp"))
             .expect("append");
 
         let sessions = load_sessions_latest(temp.path()).expect("load");
         assert_eq!(sessions.len(), 1);
         assert_eq!(sessions[0].id, "s1");
+    }
+
+    #[test]
+    fn load_sessions_latest_tolerates_trailing_partial_line_and_recovery_trims_it() {
+        let temp = TempDir::new().expect("tempdir");
+        let home = temp.path();
+        append_session_saved(home, session("s1", "2026-02-01T01:00:00Z", "/a")).expect("append");
+        let path = sessions_events_path(home);
+        std::fs::OpenOptions::new()
+            .append(true)
+            .open(&path)
+            .expect("open append")
+            .write_all(b"{")
+            .expect("append partial");
+
+        let sessions = load_sessions_latest(home).expect("load tolerant");
+        assert_eq!(sessions.len(), 1);
+        assert_eq!(sessions[0].id, "s1");
+
+        let trimmed = recover_sessions_events(home).expect("recover");
+        assert_eq!(trimmed, 1);
+        let repaired = std::fs::read_to_string(path).expect("read repaired");
+        assert!(repaired.ends_with('\n'));
+        assert!(!repaired.ends_with("{"));
     }
 
     #[test]
@@ -510,13 +572,53 @@ mod tests {
     }
 
     #[test]
-    fn append_jsonl_line_creates_and_appends() {
+    fn set_current_session_migrates_legacy_snapshot() {
         let temp = TempDir::new().expect("tempdir");
-        let path = temp.path().join("events.jsonl");
-        append_jsonl_line(&path, r#"{"a":1}"#).expect("append 1");
-        append_jsonl_line(&path, r#"{"a":2}"#).expect("append 2");
-        let content = fs::read_to_string(&path).expect("read");
-        assert!(content.contains(r#"{"a":1}"#));
-        assert!(content.contains(r#"{"a":2}"#));
+        let home = temp.path();
+        ensure_global_dirs(home).expect("dirs");
+        fs::write(
+            sessions_current_path(home),
+            r#"{"current_session_id":"legacy","updated_at":"2026-02-01T00:00:00Z"}"#,
+        )
+        .expect("seed legacy current");
+
+        set_current_session(home, "s2").expect("set");
+        let stored = fs::read_to_string(sessions_current_path(home)).expect("read");
+        let parsed: CurrentSessionPointerState =
+            serde_json::from_str(&stored).expect("versioned state");
+        assert_eq!(parsed.version, 1);
+        assert_eq!(parsed.payload.current_session_id, "s2");
+        assert_eq!(read_current_session_id(home).as_deref(), Some("s2"));
+    }
+
+    #[test]
+    fn append_session_saved_is_lock_safe_under_parallel_writers() {
+        let temp = TempDir::new().expect("tempdir");
+        let home = Arc::new(temp.path().to_path_buf());
+        let workers = 8usize;
+        let barrier = Arc::new(Barrier::new(workers));
+        let mut handles = Vec::new();
+        for i in 0..workers {
+            let home = Arc::clone(&home);
+            let barrier = Arc::clone(&barrier);
+            handles.push(thread::spawn(move || {
+                barrier.wait();
+                append_session_saved(
+                    home.as_path(),
+                    session(
+                        &format!("s{}", i),
+                        &format!("2026-02-01T01:{:02}:00Z", i),
+                        &format!("/{}", i),
+                    ),
+                )
+                .expect("append session");
+            }));
+        }
+        for handle in handles {
+            handle.join().expect("join");
+        }
+
+        let sessions = load_sessions_latest(home.as_path()).expect("load");
+        assert_eq!(sessions.len(), workers);
     }
 }

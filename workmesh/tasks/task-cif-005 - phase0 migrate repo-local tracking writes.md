@@ -1,7 +1,7 @@
 ---
 id: task-cif-005
 title: 'Phase 0: migrate repo-local tracking write paths'
-status: To Do
+status: Done
 priority: P1
 phase: Phase0
 dependencies: [task-cif-001, task-cif-002]
@@ -13,8 +13,8 @@ relationships:
   parent: []
   child: []
   discovered_from: []
+updated_date: 2026-02-15 23:43
 ---
-
 Description:
 --------------------------------------------------
 - Migrate repo-local critical tracking writes to storage primitives:
@@ -38,4 +38,5 @@ Definition of Done:
 - Behavior remains backward-compatible except explicit conflict surfacing.
 
 Notes:
+- Migrated repo-local critical writes: context save/clear use repo-local lock + CAS; index write uses repo-local lock + atomic write; truth events append and projection rebuild/write use storage primitives and shared lock key; audit append uses strict JSONL append with repo-local key.
 - This task consolidates implementation sequence steps 4 and 5.

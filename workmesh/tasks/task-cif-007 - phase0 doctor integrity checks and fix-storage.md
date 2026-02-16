@@ -1,7 +1,7 @@
 ---
 id: task-cif-007
 title: 'Phase 0: doctor integrity checks and --fix-storage'
-status: To Do
+status: Done
 priority: P1
 phase: Phase0
 dependencies: [task-cif-003, task-cif-004, task-cif-005, task-cif-006]
@@ -13,8 +13,8 @@ relationships:
   parent: []
   child: []
   discovered_from: []
+updated_date: 2026-02-15 23:49
 ---
-
 Description:
 --------------------------------------------------
 - Extend `doctor` output with storage integrity checks:
@@ -40,4 +40,6 @@ Definition of Done:
 - Operators can detect and remediate storage anomalies reliably.
 
 Notes:
+- Clarification: storage doctor now includes --fix-storage safe remediation for trailing malformed JSONL and projection/index rebuilds.
+- Extended doctor diagnostics with storage integrity checks: lock-path accessibility, JSONL malformed counts (including trailing vs non-trailing), truth projection mismatch/transition errors, and versioned snapshot checks. Added  pathway (safe trailing trim + rebuild flows) and core test coverage.
 - This is implementation sequence step 6.

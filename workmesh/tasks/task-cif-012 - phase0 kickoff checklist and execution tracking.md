@@ -1,7 +1,7 @@
 ---
 id: task-cif-012
 title: 'Phase 0: kickoff checklist and execution tracking'
-status: To Do
+status: Done
 priority: P1
 phase: Phase0
 dependencies: [task-cif-001, task-cif-002, task-cif-003, task-cif-004, task-cif-005, task-cif-006, task-cif-007, task-cif-008, task-cif-009, task-cif-010, task-cif-011]
@@ -13,8 +13,8 @@ relationships:
   parent: []
   child: []
   discovered_from: []
+updated_date: 2026-02-15 23:51
 ---
-
 Description:
 --------------------------------------------------
 - Track strict execution order from the approved plan and keep dependencies accurate while work progresses.
@@ -34,4 +34,5 @@ Definition of Done:
 - This task is marked Done only after all prerequisite tasks are Done.
 
 Notes:
+- Execution order enforced and completed: primitives -> migrations -> doctor/recovery -> tests -> docs -> freeze. All dependent Phase 0 tasks are now closed.
 - Control-plane task; do not close early.

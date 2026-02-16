@@ -1,7 +1,7 @@
 ---
 id: task-cif-003
 title: 'Phase 0: migrate global sessions write paths to storage primitives'
-status: To Do
+status: Done
 priority: P1
 phase: Phase0
 dependencies: [task-cif-001, task-cif-002]
@@ -13,8 +13,8 @@ relationships:
   parent: []
   child: []
   discovered_from: []
+updated_date: 2026-02-15 23:43
 ---
-
 Description:
 --------------------------------------------------
 - Migrate all global sessions writes in `global_sessions.rs` to the new storage module primitives.
@@ -38,4 +38,5 @@ Definition of Done:
 - No regression in existing session CLI/MCP workflows.
 
 Notes:
+- Migrated global session writes to storage primitives with global lock keys: sessions/events.jsonl append_jsonl_locked_with_key, sessions/current.json CAS versioned write, .index/sessions.jsonl atomic write under lock. Added parallel append test and tolerant/recovery tests.
 - This is implementation sequence step 2.

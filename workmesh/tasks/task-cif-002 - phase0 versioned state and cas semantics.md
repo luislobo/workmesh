@@ -1,7 +1,7 @@
 ---
 id: task-cif-002
 title: 'Phase 0: versioned state and CAS semantics'
-status: To Do
+status: Done
 priority: P1
 phase: Phase0
 dependencies: [task-cif-001]
@@ -13,8 +13,8 @@ relationships:
   parent: []
   child: []
   discovered_from: []
+updated_date: 2026-02-15 23:43
 ---
-
 Description:
 --------------------------------------------------
 - Implement `VersionedState<T>` wrapper with `version`, `updated_at`, and `payload`.
@@ -36,4 +36,5 @@ Definition of Done:
 - API behavior is stable for CLI/MCP adapters to present explicit conflict responses.
 
 Notes:
+- Added VersionedState/CAS usage across mutable snapshots: context.json, sessions/current.json, and worktrees/registry.json now migrate legacy format (version 0) and persist versioned snapshots with CAS conflict protection.
 - This task defines the anti-lost-update contract for multi-agent writes.

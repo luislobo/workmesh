@@ -9,13 +9,17 @@ use sha2::{Digest, Sha256};
 use thiserror::Error;
 
 use crate::project::repo_root_from_backlog;
-use crate::storage::write_string_atomic_locked;
+use crate::storage::{
+    atomic_write_text, with_resource_lock, ResourceKey, StorageError, DEFAULT_LOCK_TIMEOUT,
+};
 use crate::task::{load_tasks, Task};
 
 #[derive(Debug, Error)]
 pub enum IndexError {
     #[error("Failed to access index: {0}")]
     Io(#[from] std::io::Error),
+    #[error("Storage operation failed: {0}")]
+    Storage(#[from] StorageError),
     #[error("Failed to serialize index: {0}")]
     Serialize(#[from] serde_json::Error),
 }
@@ -74,7 +78,7 @@ pub fn index_path(backlog_dir: &Path) -> PathBuf {
 pub fn rebuild_index(backlog_dir: &Path) -> Result<IndexSummary, IndexError> {
     let entries = build_entries(backlog_dir)?;
     let path = index_path(backlog_dir);
-    write_index(&path, &entries)?;
+    write_index(backlog_dir, &path, &entries)?;
     Ok(IndexSummary {
         path: path.to_string_lossy().to_string(),
         entries: entries.len(),
@@ -110,7 +114,7 @@ pub fn refresh_index(backlog_dir: &Path) -> Result<IndexSummary, IndexError> {
     entry_map.retain(|key, _| seen.contains(key));
     let mut updated_entries: Vec<IndexEntry> = entry_map.into_values().collect();
     sort_entries(&mut updated_entries);
-    write_index(&path, &updated_entries)?;
+    write_index(backlog_dir, &path, &updated_entries)?;
 
     Ok(IndexSummary {
         path: path.to_string_lossy().to_string(),
@@ -255,7 +259,7 @@ fn read_index(path: &Path) -> Result<Vec<IndexEntry>, IndexError> {
     Ok(entries)
 }
 
-fn write_index(path: &Path, entries: &[IndexEntry]) -> Result<(), IndexError> {
+fn write_index(backlog_dir: &Path, path: &Path, entries: &[IndexEntry]) -> Result<(), IndexError> {
     let mut lines = Vec::with_capacity(entries.len());
     for entry in entries {
         lines.push(serde_json::to_string(entry)?);
@@ -267,7 +271,11 @@ fn write_index(path: &Path, entries: &[IndexEntry]) -> Result<(), IndexError> {
         body.push('\n');
         body
     };
-    write_string_atomic_locked(path, &payload)?;
+    let key = ResourceKey::repo_local(backlog_dir, "index.tasks");
+    with_resource_lock(&key, DEFAULT_LOCK_TIMEOUT, || {
+        atomic_write_text(path, &payload)?;
+        Ok(())
+    })?;
     Ok(())
 }
 

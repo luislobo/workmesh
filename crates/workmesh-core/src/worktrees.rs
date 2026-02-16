@@ -1,5 +1,4 @@
 use std::collections::{BTreeMap, BTreeSet};
-use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -7,7 +6,10 @@ use anyhow::{anyhow, Context, Result};
 use serde::{Deserialize, Serialize};
 use ulid::Ulid;
 
-use crate::storage::{with_path_lock, write_string_atomic};
+use crate::storage::{
+    cas_update_json_with_key, read_versioned_or_legacy_json, ResourceKey, StorageError,
+    VersionedState,
+};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct GitWorktreeEntry {
@@ -95,23 +97,22 @@ pub fn worktrees_registry_path(home: &Path) -> PathBuf {
 
 pub fn load_worktree_registry(home: &Path) -> Result<WorktreeRegistry> {
     let path = worktrees_registry_path(home);
-    read_worktree_registry(&path)
+    read_worktree_registry(&path).with_context(|| format!("load {}", path.display()))
 }
 
 fn read_worktree_registry(path: &Path) -> Result<WorktreeRegistry> {
-    if !path.exists() {
-        return Ok(WorktreeRegistry::default());
-    }
-    let raw = fs::read_to_string(&path).with_context(|| format!("read {}", path.display()))?;
-    let parsed: WorktreeRegistry =
-        serde_json::from_str(&raw).with_context(|| format!("parse {}", path.display()))?;
-    Ok(parsed)
+    let state = read_worktree_registry_state(path)?;
+    let mut registry = state
+        .map(|snapshot| snapshot.payload)
+        .unwrap_or_else(WorktreeRegistry::default);
+    normalize_registry(&mut registry);
+    Ok(registry)
 }
 
 pub fn save_worktree_registry(home: &Path, mut registry: WorktreeRegistry) -> Result<PathBuf> {
     let path = worktrees_registry_path(home);
     normalize_registry(&mut registry);
-    with_path_lock(&path, || write_worktree_registry_unlocked(&path, &registry))?;
+    cas_retry_save_registry(home, registry)?;
     Ok(path)
 }
 
@@ -126,17 +127,18 @@ pub fn find_worktree_record_by_path(home: &Path, path: &Path) -> Result<Option<W
 
 pub fn upsert_worktree_record(home: &Path, mut record: WorktreeRecord) -> Result<WorktreeRecord> {
     let path = worktrees_registry_path(home);
-    let locked_path = path.clone();
-    let now = now_rfc3339();
     record.path = normalize_path_string(Path::new(&record.path))?;
     record.repo_root = normalize_path_string(Path::new(&record.repo_root))?;
     if record.id.trim().is_empty() {
         record.id = Ulid::new().to_string();
     }
 
-    with_path_lock(&path, move || {
-        let mut registry = read_worktree_registry(&locked_path)?;
-        if let Some(index) = registry.worktrees.iter().position(|entry| {
+    const MAX_RETRIES: usize = 8;
+    let lock_key = global_registry_key(home);
+    for _ in 0..MAX_RETRIES {
+        let (expected_version, mut registry) = load_worktree_registry_with_version(home)?;
+        let now = now_rfc3339();
+        let updated = if let Some(index) = registry.worktrees.iter().position(|entry| {
             entry.id == record.id || entry.path.eq_ignore_ascii_case(&record.path)
         }) {
             let existing = &mut registry.worktrees[index];
@@ -147,36 +149,49 @@ pub fn upsert_worktree_record(home: &Path, mut record: WorktreeRecord) -> Result
             existing.attached_session_id = record.attached_session_id.clone();
             existing.updated_at = now.clone();
             existing.created_at = created_at;
-            let updated = existing.clone();
-            normalize_registry(&mut registry);
-            write_worktree_registry_unlocked(&locked_path, &registry)?;
-            return Ok(updated);
-        }
-
-        if record.created_at.trim().is_empty() {
-            record.created_at = now.clone();
-        }
-        record.updated_at = now;
-        registry.worktrees.push(record.clone());
+            existing.clone()
+        } else {
+            let mut inserted = record.clone();
+            if inserted.created_at.trim().is_empty() {
+                inserted.created_at = now.clone();
+            }
+            inserted.updated_at = now;
+            registry.worktrees.push(inserted.clone());
+            inserted
+        };
         normalize_registry(&mut registry);
-        write_worktree_registry_unlocked(&locked_path, &registry)?;
-        Ok(record)
-    })
+        match cas_update_json_with_key(&path, &lock_key, expected_version, registry.clone()) {
+            Ok(_) => return Ok(updated),
+            Err(StorageError::Conflict(_)) => continue,
+            Err(err) => return Err(anyhow!(err).context("update worktree registry")),
+        }
+    }
+    Err(anyhow!(
+        "unable to upsert worktree record after repeated CAS conflicts"
+    ))
 }
 
 pub fn remove_worktree_record(home: &Path, id: &str) -> Result<bool> {
     let path = worktrees_registry_path(home);
-    with_path_lock(&path, || {
-        let mut registry = read_worktree_registry(&path)?;
+    let lock_key = global_registry_key(home);
+    const MAX_RETRIES: usize = 8;
+    for _ in 0..MAX_RETRIES {
+        let (expected_version, mut registry) = load_worktree_registry_with_version(home)?;
         let before = registry.worktrees.len();
         registry.worktrees.retain(|record| record.id != id);
         if registry.worktrees.len() == before {
             return Ok(false);
         }
         normalize_registry(&mut registry);
-        write_worktree_registry_unlocked(&path, &registry)?;
-        Ok(true)
-    })
+        match cas_update_json_with_key(&path, &lock_key, expected_version, registry.clone()) {
+            Ok(_) => return Ok(true),
+            Err(StorageError::Conflict(_)) => continue,
+            Err(err) => return Err(anyhow!(err).context("remove worktree record")),
+        }
+    }
+    Err(anyhow!(
+        "unable to remove worktree record after repeated CAS conflicts"
+    ))
 }
 
 fn normalize_registry(registry: &mut WorktreeRegistry) {
@@ -186,9 +201,42 @@ fn normalize_registry(registry: &mut WorktreeRegistry) {
         .sort_by(|a, b| a.path.to_lowercase().cmp(&b.path.to_lowercase()));
 }
 
-fn write_worktree_registry_unlocked(path: &Path, registry: &WorktreeRegistry) -> Result<()> {
-    let raw = serde_json::to_string_pretty(registry)?;
-    write_string_atomic(path, &raw).with_context(|| format!("write {}", path.display()))
+fn read_worktree_registry_state(path: &Path) -> Result<Option<VersionedState<WorktreeRegistry>>> {
+    read_versioned_or_legacy_json::<WorktreeRegistry>(path)
+        .with_context(|| format!("read {}", path.display()))
+}
+
+fn load_worktree_registry_with_version(home: &Path) -> Result<(u64, WorktreeRegistry)> {
+    let path = worktrees_registry_path(home);
+    let state = read_worktree_registry_state(&path)?;
+    let expected_version = state.as_ref().map(|snapshot| snapshot.version).unwrap_or(0);
+    let mut registry = state
+        .map(|snapshot| snapshot.payload)
+        .unwrap_or_else(WorktreeRegistry::default);
+    normalize_registry(&mut registry);
+    Ok((expected_version, registry))
+}
+
+fn cas_retry_save_registry(home: &Path, mut registry: WorktreeRegistry) -> Result<()> {
+    let path = worktrees_registry_path(home);
+    let lock_key = global_registry_key(home);
+    const MAX_RETRIES: usize = 8;
+    for _ in 0..MAX_RETRIES {
+        let (expected_version, _) = load_worktree_registry_with_version(home)?;
+        normalize_registry(&mut registry);
+        match cas_update_json_with_key(&path, &lock_key, expected_version, registry.clone()) {
+            Ok(_) => return Ok(()),
+            Err(StorageError::Conflict(_)) => continue,
+            Err(err) => return Err(anyhow!(err).context("save worktree registry")),
+        }
+    }
+    Err(anyhow!(
+        "unable to save worktree registry after repeated CAS conflicts"
+    ))
+}
+
+fn global_registry_key(home: &Path) -> ResourceKey {
+    ResourceKey::global(home, "worktrees.registry")
 }
 
 pub fn list_git_worktrees(repo_root: &Path) -> Result<Vec<GitWorktreeEntry>> {
@@ -447,6 +495,9 @@ fn normalize_path_string(path: &Path) -> Result<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs;
+    use std::sync::{Arc, Barrier};
+    use std::thread;
     use tempfile::TempDir;
 
     #[test]
@@ -501,5 +552,47 @@ locked
             .expect("find")
             .expect("record");
         assert_eq!(found.id, created.id);
+    }
+
+    #[test]
+    fn upsert_is_safe_under_parallel_updates() {
+        let temp = TempDir::new().expect("tempdir");
+        let home = Arc::new(temp.path().to_path_buf());
+        let repo = temp.path().join("repo");
+        fs::create_dir_all(&repo).expect("repo");
+
+        let workers = 6usize;
+        let barrier = Arc::new(Barrier::new(workers));
+        let mut handles = Vec::new();
+        for i in 0..workers {
+            let home = Arc::clone(&home);
+            let barrier = Arc::clone(&barrier);
+            let wt = temp.path().join(format!("repo-wt-{}", i));
+            fs::create_dir_all(&wt).expect("wt");
+            let repo = repo.clone();
+            handles.push(thread::spawn(move || {
+                barrier.wait();
+                upsert_worktree_record(
+                    home.as_path(),
+                    WorktreeRecord {
+                        id: String::new(),
+                        repo_root: repo.to_string_lossy().to_string(),
+                        path: wt.to_string_lossy().to_string(),
+                        branch: Some(format!("feature/{}", i)),
+                        created_at: String::new(),
+                        updated_at: String::new(),
+                        attached_session_id: None,
+                    },
+                )
+                .expect("upsert");
+            }));
+        }
+
+        for handle in handles {
+            handle.join().expect("join");
+        }
+
+        let loaded = load_worktree_registry(home.as_path()).expect("load");
+        assert_eq!(loaded.worktrees.len(), workers);
     }
 }

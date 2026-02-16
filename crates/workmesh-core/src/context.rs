@@ -5,7 +5,10 @@ use anyhow::Result;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
-use crate::storage::write_string_atomic_locked;
+use crate::storage::{
+    cas_update_json_with_key, read_versioned_or_legacy_json, with_resource_lock, ResourceKey,
+    StorageError, DEFAULT_LOCK_TIMEOUT,
+};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
@@ -68,12 +71,10 @@ pub fn context_path(backlog_dir: &Path) -> PathBuf {
 
 pub fn load_context(backlog_dir: &Path) -> Result<Option<ContextState>> {
     let path = context_path(backlog_dir);
-    if !path.exists() {
-        return Ok(None);
-    }
-    let raw = fs::read_to_string(&path)?;
-    let state: ContextState = serde_json::from_str(&raw)?;
-    Ok(Some(state))
+    let state = read_versioned_or_legacy_json::<ContextState>(&path)
+        .map_err(anyhow::Error::from)?
+        .map(|snapshot| snapshot.payload);
+    Ok(state)
 }
 
 pub fn save_context(backlog_dir: &Path, mut state: ContextState) -> Result<PathBuf> {
@@ -81,18 +82,40 @@ pub fn save_context(backlog_dir: &Path, mut state: ContextState) -> Result<PathB
     state.version = default_context_version();
     state.updated_at = Some(now_rfc3339());
     let path = context_path(backlog_dir);
-    let raw = serde_json::to_string_pretty(&state)?;
-    write_string_atomic_locked(&path, &raw)?;
-    Ok(path)
+    let key = context_lock_key(backlog_dir);
+    const MAX_RETRIES: usize = 8;
+    for _ in 0..MAX_RETRIES {
+        let expected = read_versioned_or_legacy_json::<ContextState>(&path)
+            .map_err(anyhow::Error::from)?
+            .map(|snapshot| snapshot.version)
+            .unwrap_or(0);
+        match cas_update_json_with_key(&path, &key, expected, state.clone()) {
+            Ok(_) => return Ok(path),
+            Err(StorageError::Conflict(_)) => continue,
+            Err(err) => return Err(anyhow::Error::from(err)),
+        }
+    }
+    Err(anyhow::anyhow!(
+        "unable to save context after repeated CAS conflicts"
+    ))
 }
 
 pub fn clear_context(backlog_dir: &Path) -> Result<bool> {
     let path = context_path(backlog_dir);
-    if !path.exists() {
-        return Ok(false);
-    }
-    fs::remove_file(&path)?;
-    Ok(true)
+    let key = context_lock_key(backlog_dir);
+    let deleted = with_resource_lock(&key, DEFAULT_LOCK_TIMEOUT, || {
+        if !path.exists() {
+            return Ok(false);
+        }
+        fs::remove_file(&path)?;
+        Ok(true)
+    })
+    .map_err(anyhow::Error::from)?;
+    Ok(deleted)
+}
+
+fn context_lock_key(backlog_dir: &Path) -> ResourceKey {
+    ResourceKey::repo_local(backlog_dir, "context")
 }
 
 pub fn context_from_legacy_focus(
@@ -218,6 +241,7 @@ pub fn extract_task_id_from_branch(branch: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::storage::VersionedState;
     use tempfile::TempDir;
 
     #[test]
@@ -268,5 +292,35 @@ mod tests {
         assert_eq!(state.scope.mode, ContextScopeMode::Epic);
         assert_eq!(state.scope.epic_id.as_deref(), Some("task-main-010"));
         assert!(state.scope.task_ids.is_empty());
+    }
+
+    #[test]
+    fn save_context_migrates_legacy_file_to_versioned_snapshot() {
+        let temp = TempDir::new().expect("tempdir");
+        let backlog = temp.path();
+        let path = context_path(backlog);
+        fs::write(
+            &path,
+            r#"{"version":1,"project_id":"demo","objective":"ship","scope":{"mode":"none","epic_id":null,"task_ids":[]},"updated_at":"2026-02-01T00:00:00Z"}"#,
+        )
+        .expect("seed legacy context");
+
+        save_context(
+            backlog,
+            ContextState {
+                version: 1,
+                project_id: Some("demo".to_string()),
+                objective: Some("ship-2".to_string()),
+                scope: ContextScope::default(),
+                updated_at: None,
+            },
+        )
+        .expect("save");
+
+        let raw = fs::read_to_string(path).expect("read");
+        let stored: VersionedState<ContextState> =
+            serde_json::from_str(&raw).expect("versioned context");
+        assert_eq!(stored.version, 1);
+        assert_eq!(stored.payload.objective.as_deref(), Some("ship-2"));
     }
 }

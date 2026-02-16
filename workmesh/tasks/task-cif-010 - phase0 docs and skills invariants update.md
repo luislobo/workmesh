@@ -1,7 +1,7 @@
 ---
 id: task-cif-010
 title: 'Phase 0: documentation and skills invariants update'
-status: To Do
+status: Done
 priority: P1
 phase: Phase0
 dependencies: [task-cif-007, task-cif-008, task-cif-009]
@@ -13,8 +13,8 @@ relationships:
   parent: []
   child: []
   discovered_from: []
+updated_date: 2026-02-15 23:51
 ---
-
 Description:
 --------------------------------------------------
 - Update required docs in same phase:
@@ -38,4 +38,5 @@ Definition of Done:
 - Docs are actionable for operators and agents without ambiguity.
 
 Notes:
+- Updated README.md and README.json with Concurrency Integrity Foundation guarantees; updated docs/reference/commands.md with doctor fix-storage, conflict semantics, and recovery behavior; updated docs/README.md with storage integrity policy; updated workmesh skills to enforce storage-primitive invariant.
 - This task fulfills Section 7 of the approved plan.

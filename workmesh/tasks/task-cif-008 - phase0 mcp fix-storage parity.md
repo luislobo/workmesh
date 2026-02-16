@@ -1,7 +1,7 @@
 ---
 id: task-cif-008
 title: 'Phase 0: MCP parity for storage fix pathway'
-status: To Do
+status: Done
 priority: P1
 phase: Phase0
 dependencies: [task-cif-007]
@@ -13,8 +13,8 @@ relationships:
   parent: []
   child: []
   discovered_from: []
+updated_date: 2026-02-15 23:49
 ---
-
 Description:
 --------------------------------------------------
 - Add MCP equivalent for storage remediation via doctor invocation (`fix_storage=true`).
@@ -34,4 +34,6 @@ Definition of Done:
 - No contract mismatch remains between CLI and MCP for this flow.
 
 Notes:
+- Clarification: MCP doctor exposes fix_storage=true and parity test validates CLI/MCP behavior for recovery and no-op rerun.
+- Added MCP parity for storage remediation via doctor  flag and wired core doctor options API. Implemented CLI/MCP parity test covering malformed recovery and no-op rerun behavior to prevent drift.
 - This task operationalizes the recovery command addition in the plan.
