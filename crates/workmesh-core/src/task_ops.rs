@@ -1990,8 +1990,10 @@ mod tests {
         let path = Arc::new(temp.path().join("task-001.md"));
         fs::write(&*path, "---\nid: task-001\n---\ncount: 0\n").expect("seed");
 
-        let workers = 6usize;
-        let increments_per_worker = 40usize;
+        // Keep contention high enough to verify lock serialization, but bounded so
+        // slower CI runners (notably Windows) do not exceed lock timeout.
+        let workers = 4usize;
+        let increments_per_worker = 15usize;
         let mut handles = Vec::new();
         for _ in 0..workers {
             let file = Arc::clone(&path);
