@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Phase 0 Concurrency Integrity Foundation:
+  - canonical storage safety primitives (`with_resource_lock`, atomic write helpers, JSONL append/recovery helpers, CAS updates with typed conflicts).
+  - versioned snapshot + CAS migration for critical mutable state (`context.json`, global session pointer, worktree registry).
+  - doctor storage integrity diagnostics and safe fix pathway (`--fix-storage` / `fix_storage=true`).
+
+### Changed
+- Global and repo-local tracking write paths now use centralized storage primitives (sessions, worktrees, context, truth, index, audit).
+- Truth and global session event readers now tolerate trailing malformed partial lines; explicit recovery trims only trailing invalid JSONL.
+- Doctor now reports lock accessibility, malformed JSONL counts, truth projection divergence, and versioned snapshot status.
+
+### Fixed
+- Removed silent lost-update risk on critical tracking snapshots by enforcing CAS conflict semantics.
+- Added deterministic CLI/MCP parity coverage for doctor storage remediation (malformed recovery + no-op rerun).
+
+### Notes
+- Phase 0 gate is mandatory and complete before adding further multi-agent orchestration features.
+- Phase 0 completion checks satisfied:
+  - all critical tracking writes migrated to storage primitives
+  - explicit conflict detection replaces silent overwrite on versioned snapshots
+  - doctor detects storage integrity anomalies and supports safe remediation
+  - expanded concurrency/recovery/parity tests are passing
+
 ## [0.2.14] - 2026-02-16
 
 ### Added

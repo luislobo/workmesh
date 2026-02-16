@@ -36,7 +36,7 @@ CLI:
 - `bootstrap [--project-id <id>] [--feature "..."] [--objective "..."] [--json]`
 - `quickstart <project-id> [--name "..."] [--feature "..."] [--agents-snippet]`
 - `project-init <project-id> [--name "..."]`
-- `doctor [--json]`
+- `doctor [--fix-storage] [--json]`
 - `validate [--json]`
 
 MCP:
@@ -45,6 +45,23 @@ MCP:
 - `project_init`
 - `doctor`
 - `validate`
+
+Doctor storage fix behavior:
+- `--fix-storage` (CLI) / `fix_storage=true` (MCP) performs safe remediation only:
+  - trim trailing malformed JSONL lines for sessions/truth event streams
+  - rebuild truth projection when applicable
+  - rebuild sessions index when applicable
+- Non-trailing malformed JSONL is reported but not auto-trimmed.
+- Doctor output includes storage integrity checks:
+  - lock-path accessibility
+  - malformed JSONL counts
+  - truth projection/event divergence
+  - versioned snapshot state
+
+Conflict semantics:
+- Versioned snapshot writes use compare-and-swap behavior.
+- Stale writes surface explicit conflict errors; they are not silently overwritten.
+- Legacy unversioned snapshots are treated as version `0` and migrated on first safe write.
 
 ## Task selection and read views
 CLI:

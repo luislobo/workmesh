@@ -74,6 +74,30 @@
       ]
     }
   },
+  "concurrency_integrity_foundation": {
+    "phase": "Phase 0",
+    "guarantees": [
+      "Critical tracking writes use lock-safe and atomic storage primitives.",
+      "Mutable snapshots are versioned and use CAS update semantics.",
+      "Trailing malformed JSONL is tolerated by event readers.",
+      "Safe recovery is available through doctor fix-storage pathways.",
+      "CLI and MCP expose the same storage recovery contract."
+    ],
+    "versioned_snapshots": [
+      "workmesh/context.json",
+      "$WORKMESH_HOME/sessions/current.json",
+      "$WORKMESH_HOME/worktrees/registry.json"
+    ],
+    "recovery": {
+      "cli": "workmesh --root . doctor --fix-storage --json",
+      "mcp": {
+        "tool": "doctor",
+        "arguments": {
+          "fix_storage": true
+        }
+      }
+    }
+  },
   "docs": {
     "onboarding": "docs/getting-started.md",
     "commands": "docs/reference/commands.md",

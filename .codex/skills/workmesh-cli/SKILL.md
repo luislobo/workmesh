@@ -66,3 +66,4 @@ When user says to use WorkMesh for feature development:
 - Keep dependencies and blockers current.
 - Keep task metadata complete: `Description`, `Acceptance Criteria`, `Definition of Done`.
 - Move to `Done` only when goals and criteria are fully met.
+- Do not bypass WorkMesh storage primitives for tracking files.

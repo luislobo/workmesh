@@ -11,13 +11,19 @@ use thiserror::Error;
 use ulid::Ulid;
 
 use crate::global_sessions::{load_sessions_latest, resolve_workmesh_home};
-use crate::storage::{append_line_locked, with_path_lock, write_string_atomic};
+use crate::storage::{
+    append_jsonl_locked_with_key, atomic_write_text, read_jsonl_tolerant,
+    truncate_jsonl_trailing_invalid, with_resource_lock_result, ResourceKey, StorageError,
+    DEFAULT_LOCK_TIMEOUT,
+};
 use crate::task::load_tasks;
 
 #[derive(Debug, Error)]
 pub enum TruthError {
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
+    #[error("Storage error: {0}")]
+    Storage(#[from] StorageError),
     #[error("Serialization error: {0}")]
     Serde(#[from] serde_json::Error),
     #[error("Invalid truth operation: {0}")]
@@ -481,8 +487,8 @@ pub fn list_truths(backlog_dir: &Path, query: &TruthQuery) -> Result<Vec<TruthRe
 
 pub fn rebuild_truth_projection(backlog_dir: &Path) -> Result<TruthProjectionSummary, TruthError> {
     ensure_truth_dirs(backlog_dir)?;
-    let events_path = truth_events_path(backlog_dir);
-    with_path_lock(&events_path, || {
+    let lock_key = truth_events_lock_key(backlog_dir);
+    with_resource_lock_result(&lock_key, DEFAULT_LOCK_TIMEOUT, || {
         rebuild_truth_projection_unlocked(backlog_dir)
     })
 }
@@ -812,20 +818,14 @@ fn append_truth_event(backlog_dir: &Path, event: &TruthEvent) -> Result<(), Trut
     ensure_truth_dirs(backlog_dir)?;
     let path = truth_events_path(backlog_dir);
     let line = serde_json::to_string(event)?;
-    append_line_locked(&path, &line)?;
+    append_jsonl_locked_with_key(&path, &line, &truth_events_lock_key(backlog_dir))?;
     Ok(())
 }
 
 fn read_events_strict(backlog_dir: &Path) -> Result<Vec<TruthEvent>, TruthError> {
-    let (events, malformed) = read_events_with_errors(backlog_dir)?;
-    if malformed.is_empty() {
-        Ok(events)
-    } else {
-        Err(TruthError::Invalid(format!(
-            "truth events contain malformed lines: {}",
-            malformed.join("; ")
-        )))
-    }
+    let path = truth_events_path(backlog_dir);
+    let parsed = read_jsonl_tolerant::<TruthEvent>(&path)?;
+    Ok(parsed.records)
 }
 
 fn read_events_with_errors(
@@ -854,6 +854,12 @@ fn read_events_with_errors(
     }
 
     Ok((events, malformed))
+}
+
+pub fn recover_truth_events(backlog_dir: &Path) -> Result<usize, TruthError> {
+    let path = truth_events_path(backlog_dir);
+    let trimmed = truncate_jsonl_trailing_invalid(&path)?;
+    Ok(trimmed)
 }
 
 fn project_from_events(backlog_dir: &Path) -> Result<BTreeMap<String, TruthRecord>, TruthError> {
@@ -1044,8 +1050,12 @@ where
         body
     };
     let path = truth_current_path(backlog_dir);
-    write_string_atomic(&path, &payload)?;
+    atomic_write_text(&path, &payload)?;
     Ok(())
+}
+
+fn truth_events_lock_key(backlog_dir: &Path) -> ResourceKey {
+    ResourceKey::repo_local(backlog_dir, "truth.events")
 }
 
 fn read_current_records_with_errors(
@@ -1240,6 +1250,7 @@ fn matches_opt(have: &Option<String>, want: Option<&str>) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::Write;
     use tempfile::TempDir;
 
     fn write_seed_task(backlog_dir: &Path) {
@@ -1472,6 +1483,43 @@ mod tests {
             .projection_mismatches
             .iter()
             .any(|line| line.contains("mismatch:truth-001")));
+    }
+
+    #[test]
+    fn projection_rebuild_tolerates_trailing_partial_event_and_recovery_trims_it() {
+        let temp = TempDir::new().expect("tempdir");
+        let backlog = temp.path();
+
+        let _ = propose_truth(
+            backlog,
+            TruthProposeInput {
+                id: Some("truth-001".to_string()),
+                title: "A".to_string(),
+                statement: "B".to_string(),
+                rationale: None,
+                constraints: Vec::new(),
+                tags: Vec::new(),
+                context: TruthContext::default(),
+                actor: None,
+            },
+        )
+        .expect("propose");
+
+        let events_path = truth_events_path(backlog);
+        std::fs::OpenOptions::new()
+            .append(true)
+            .open(&events_path)
+            .expect("open append")
+            .write_all(b"{")
+            .expect("append partial");
+
+        let summary = rebuild_truth_projection(backlog).expect("rebuild tolerant");
+        assert_eq!(summary.records, 1);
+
+        let trimmed = recover_truth_events(backlog).expect("recover");
+        assert_eq!(trimmed, 1);
+        let repaired = std::fs::read_to_string(events_path).expect("read repaired");
+        assert!(repaired.ends_with('\n'));
     }
 
     #[test]

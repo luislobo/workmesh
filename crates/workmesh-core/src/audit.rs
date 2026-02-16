@@ -4,12 +4,12 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use thiserror::Error;
 
-use crate::storage::append_line_locked;
+use crate::storage::{append_jsonl_locked_with_key, ResourceKey, StorageError};
 
 #[derive(Debug, Error)]
 pub enum AuditError {
     #[error("Failed to write audit log: {0}")]
-    Io(#[from] std::io::Error),
+    Storage(#[from] StorageError),
     #[error("Failed to serialize audit event: {0}")]
     Serialize(#[from] serde_json::Error),
 }
@@ -30,7 +30,11 @@ pub fn audit_log_path(backlog_dir: &Path) -> PathBuf {
 pub fn append_audit_event(backlog_dir: &Path, event: &AuditEvent) -> Result<(), AuditError> {
     let path = audit_log_path(backlog_dir);
     let line = serde_json::to_string(event)?;
-    append_line_locked(&path, &line)?;
+    append_jsonl_locked_with_key(
+        &path,
+        &line,
+        &ResourceKey::repo_local(backlog_dir, "audit.log"),
+    )?;
     Ok(())
 }
 

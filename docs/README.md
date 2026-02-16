@@ -24,3 +24,9 @@ Command catalog:
 - [`README.md`](../README.md) and [`README.json`](../README.json) stay synchronized for humans and agents.
 - Legacy migration guidance remains minimal and out of the main flow.
 - Archive defaults are safety-first: only terminal statuses are archived unless an explicit status override is provided.
+
+## Storage Integrity Policy
+- Tracking-file writes must use WorkMesh storage primitives (no ad-hoc direct writes for critical state).
+- Critical mutable snapshots are versioned and CAS-protected.
+- JSONL event streams must be append-safe and recoverable via doctor fix-storage pathways.
+- Doctor diagnostics are the canonical integrity signal for locks, JSONL health, snapshot versioning, and truth projection consistency.

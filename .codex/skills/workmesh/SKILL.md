@@ -46,3 +46,4 @@ After bootstrap, if user asks to work on a feature, maintain WorkMesh continuous
 - Move task to `Done` only when description goals and acceptance criteria are fully satisfied.
 - Treat `Code/config committed` and `Docs updated if needed` as hygiene checks.
 - Do not commit derived artifacts like `workmesh/.index/`.
+- Do not bypass WorkMesh storage primitives for tracking files.

@@ -101,6 +101,20 @@ Auto session behavior:
   - on: `--auto-session-save` or `WORKMESH_AUTO_SESSION=1`
   - off: `--no-auto-session-save` or `WORKMESH_AUTO_SESSION=0`
 
+## Concurrency Integrity Foundation
+Phase 0 storage guarantees are now active for tracking files.
+
+- Critical tracking writes use lock-safe + atomic write primitives.
+- Mutable snapshots are versioned and updated with CAS semantics:
+  - `workmesh/context.json`
+  - `$WORKMESH_HOME/sessions/current.json`
+  - `$WORKMESH_HOME/worktrees/registry.json`
+- Trailing malformed JSONL is tolerated for event readers and can be repaired safely.
+- Recovery command path:
+  - CLI: `workmesh --root . doctor --fix-storage --json`
+  - MCP: `doctor` with `fix_storage=true`
+- CLI and MCP share the same recovery behavior contract.
+
 ## Documentation
 - Codex-first onboarding: [`docs/getting-started.md`](docs/getting-started.md)
 - Command catalog: [`docs/reference/commands.md`](docs/reference/commands.md)

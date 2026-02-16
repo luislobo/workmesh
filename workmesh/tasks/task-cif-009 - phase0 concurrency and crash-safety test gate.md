@@ -1,7 +1,7 @@
 ---
 id: task-cif-009
 title: 'Phase 0: concurrency and crash-safety test gate'
-status: To Do
+status: Done
 priority: P1
 phase: Phase0
 dependencies: [task-cif-003, task-cif-004, task-cif-005, task-cif-006, task-cif-007, task-cif-008]
@@ -13,8 +13,8 @@ relationships:
   parent: []
   child: []
   discovered_from: []
+updated_date: 2026-02-15 23:49
 ---
-
 Description:
 --------------------------------------------------
 - Implement required Phase 0 test gate:
@@ -37,4 +37,5 @@ Definition of Done:
 - Results provide confidence for multi-agent parallel safety.
 
 Notes:
+- Expanded Phase 0 gate tests: storage atomicity/CAS/version migration, session/worktree parallel writer tests, JSONL trailing-corruption tolerance + recovery tests, and CLI/MCP parity regression including doctor fix path. Full core+MCP suites pass.
 - This is implementation sequence step 7.

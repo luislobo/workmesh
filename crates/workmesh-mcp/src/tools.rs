@@ -26,7 +26,7 @@ use workmesh_core::context::{
     clear_context, context_path, extract_task_id_from_branch, infer_project_id, load_context,
     save_context, ContextScope, ContextScopeMode, ContextState,
 };
-use workmesh_core::doctor::doctor_report;
+use workmesh_core::doctor::{doctor_report, doctor_report_with_options};
 use workmesh_core::focus::load_focus;
 use workmesh_core::gantt::{plantuml_gantt, render_plantuml_svg, write_text_file};
 use workmesh_core::global_sessions::{
@@ -427,6 +427,8 @@ pub struct ReadmeTool {
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct DoctorTool {
     pub root: Option<String>,
+    #[serde(default)]
+    pub fix_storage: bool,
     #[serde(default = "default_format")]
     pub format: String,
 }
@@ -1726,7 +1728,11 @@ impl ReadmeTool {
 impl DoctorTool {
     fn call(&self, context: &McpContext) -> Result<CallToolResult, CallToolError> {
         let repo_root = resolve_repo_root(context, self.root.as_deref());
-        let report = doctor_report(&repo_root, "workmesh-mcp");
+        let report = if self.fix_storage {
+            doctor_report_with_options(&repo_root, "workmesh-mcp", true)
+        } else {
+            doctor_report(&repo_root, "workmesh-mcp")
+        };
         if self.format == "text" {
             return ok_text(
                 serde_json::to_string_pretty(&report).unwrap_or_else(|_| "{}".to_string()),
@@ -5558,6 +5564,7 @@ Body\n",
 
         let tool = DoctorTool {
             root: Some(root_arg),
+            fix_storage: false,
             format: "json".to_string(),
         };
         let result = tool.call(&context).expect("doctor");

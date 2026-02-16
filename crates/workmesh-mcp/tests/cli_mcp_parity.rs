@@ -255,6 +255,24 @@ fn write_task_with_updated(
     path
 }
 
+fn seed_doctor_storage_fixture(repo: &Path, home: &Path) {
+    let tasks_dir = repo.join("workmesh").join("tasks");
+    std::fs::create_dir_all(&tasks_dir).expect("tasks dir");
+    write_task(&tasks_dir, "task-001", "Seed", "To Do", &[]);
+
+    let truth_dir = repo.join("workmesh").join("truth");
+    std::fs::create_dir_all(&truth_dir).expect("truth dir");
+    std::fs::write(truth_dir.join("events.jsonl"), "{\n").expect("truth events");
+
+    let sessions_dir = home.join("sessions");
+    std::fs::create_dir_all(&sessions_dir).expect("sessions dir");
+    std::fs::write(
+        sessions_dir.join("events.jsonl"),
+        "{\"type\":\"session_saved\",\"session\":{\"id\":\"s1\",\"created_at\":\"2026-02-01T00:00:00Z\",\"updated_at\":\"2026-02-01T00:00:00Z\",\"cwd\":\"/tmp\",\"repo_root\":null,\"project_id\":null,\"epic_id\":null,\"objective\":\"ship\",\"working_set\":[],\"notes\":null,\"git\":null,\"checkpoint\":null,\"recent_changes\":null,\"handoff\":null,\"worktree\":null,\"truth_refs\":[]}}\n{\n",
+    )
+    .expect("sessions events");
+}
+
 fn find_task_path(tasks_dir: &Path, id: &str) -> PathBuf {
     let entries = std::fs::read_dir(tasks_dir).expect("read tasks dir");
     for entry in entries.flatten() {
@@ -365,6 +383,87 @@ async fn cli_and_mcp_global_sessions_parity() {
             .unwrap(),
         "Test objective (cli)"
     );
+
+    client.shut_down().await.expect("shutdown");
+}
+
+#[tokio::test]
+async fn cli_and_mcp_doctor_fix_storage_parity() {
+    let _guard = env_lock().lock().expect("env lock");
+
+    let cli_home = TempDir::new().expect("cli home");
+    let cli_repo = TempDir::new().expect("cli repo");
+    seed_doctor_storage_fixture(cli_repo.path(), cli_home.path());
+
+    let cli_fix = cli()
+        .arg("--root")
+        .arg(cli_repo.path())
+        .env("WORKMESH_HOME", cli_home.path())
+        .arg("doctor")
+        .arg("--fix-storage")
+        .arg("--json")
+        .output()
+        .expect("cli doctor fix");
+    assert_output_ok!(cli_fix);
+    let cli_fix_json: serde_json::Value =
+        serde_json::from_slice(&cli_fix.stdout).expect("cli fix json");
+
+    let mcp_home = TempDir::new().expect("mcp home");
+    let mcp_repo = TempDir::new().expect("mcp repo");
+    seed_doctor_storage_fixture(mcp_repo.path(), mcp_home.path());
+    std::env::set_var("WORKMESH_HOME", mcp_home.path());
+    let client = start_client(mcp_repo.path()).await;
+
+    let mcp_fix_text = call_tool_text(
+        &client,
+        "doctor",
+        serde_json::json!({
+            "format": "json",
+            "fix_storage": true
+        }),
+    )
+    .await;
+    let mcp_fix_json: serde_json::Value =
+        serde_json::from_str(&mcp_fix_text).expect("mcp fix json");
+
+    for report in [&cli_fix_json, &mcp_fix_json] {
+        assert_eq!(report["storage"]["fix"]["attempted"], true);
+        assert_eq!(report["storage"]["fix"]["ok"], true);
+        assert_eq!(report["storage"]["fix"]["sessions_trimmed"], 1);
+        assert_eq!(report["storage"]["fix"]["truth_trimmed"], 1);
+        assert_eq!(report["storage"]["fix"]["sessions_index_rebuilt"], true);
+        assert_eq!(report["storage"]["fix"]["truth_projection_rebuilt"], true);
+    }
+
+    let cli_noop = cli()
+        .arg("--root")
+        .arg(cli_repo.path())
+        .env("WORKMESH_HOME", cli_home.path())
+        .arg("doctor")
+        .arg("--fix-storage")
+        .arg("--json")
+        .output()
+        .expect("cli doctor no-op");
+    assert_output_ok!(cli_noop);
+    let cli_noop_json: serde_json::Value =
+        serde_json::from_slice(&cli_noop.stdout).expect("cli noop json");
+
+    let mcp_noop_text = call_tool_text(
+        &client,
+        "doctor",
+        serde_json::json!({
+            "format": "json",
+            "fix_storage": true
+        }),
+    )
+    .await;
+    let mcp_noop_json: serde_json::Value =
+        serde_json::from_str(&mcp_noop_text).expect("mcp noop json");
+
+    assert_eq!(cli_noop_json["storage"]["fix"]["sessions_trimmed"], 0);
+    assert_eq!(cli_noop_json["storage"]["fix"]["truth_trimmed"], 0);
+    assert_eq!(mcp_noop_json["storage"]["fix"]["sessions_trimmed"], 0);
+    assert_eq!(mcp_noop_json["storage"]["fix"]["truth_trimmed"], 0);
 
     client.shut_down().await.expect("shutdown");
 }
