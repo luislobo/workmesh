@@ -18,3 +18,4 @@ workmesh-core = { path = "../workmesh-core" }
 
 [dev-dependencies]
 tempfile = "3.12"
+serial_test = "3.2"

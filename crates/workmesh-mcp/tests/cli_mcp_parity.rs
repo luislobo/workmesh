@@ -10,6 +10,7 @@ use std::sync::OnceLock;
 
 use async_trait::async_trait;
 use chrono::Local;
+use serial_test::serial;
 use tempfile::TempDir;
 
 use rust_mcp_sdk::schema::{
@@ -297,6 +298,7 @@ fn write_fake_plantuml(dir: &Path) -> PathBuf {
 }
 
 #[tokio::test]
+#[serial]
 async fn cli_and_mcp_global_sessions_parity() {
     let _guard = env_lock().lock().expect("env lock");
     let home = TempDir::new().expect("home tempdir");
@@ -388,6 +390,7 @@ async fn cli_and_mcp_global_sessions_parity() {
 }
 
 #[tokio::test]
+#[serial]
 async fn cli_and_mcp_doctor_fix_storage_parity() {
     let _guard = env_lock().lock().expect("env lock");
 
@@ -576,6 +579,7 @@ fn parse_lineset(text: &str) -> BTreeSet<String> {
 }
 
 #[tokio::test]
+#[serial]
 async fn cli_and_mcp_list_ready_parity() {
     let temp = TempDir::new().expect("tempdir");
     let backlog_dir = temp.path().join("backlog");
@@ -633,6 +637,7 @@ async fn cli_and_mcp_list_ready_parity() {
 }
 
 #[tokio::test]
+#[serial]
 async fn cli_and_mcp_show_next_stats_export_parity() {
     let temp = TempDir::new().expect("tempdir");
     let backlog_dir = temp.path().join("backlog");
@@ -738,6 +743,7 @@ async fn cli_and_mcp_show_next_stats_export_parity() {
 }
 
 #[tokio::test]
+#[serial]
 async fn cli_and_mcp_graph_issues_index_gantt_parity() {
     let temp = TempDir::new().expect("tempdir");
     let backlog_dir = temp.path().join("backlog");
@@ -971,6 +977,7 @@ async fn cli_and_mcp_graph_issues_index_gantt_parity() {
 }
 
 #[tokio::test]
+#[serial]
 async fn cli_and_mcp_write_and_session_parity() {
     let temp = TempDir::new().expect("tempdir");
     let backlog_dir = temp.path().join("backlog");
@@ -1495,6 +1502,7 @@ async fn cli_and_mcp_write_and_session_parity() {
 }
 
 #[tokio::test]
+#[serial]
 async fn cli_and_mcp_context_parity() {
     let temp = TempDir::new().expect("tempdir");
     let repo_root = temp.path();
@@ -1592,6 +1600,7 @@ async fn cli_and_mcp_context_parity() {
 }
 
 #[tokio::test]
+#[serial]
 async fn cli_and_mcp_project_scaffold_parity() {
     let temp = TempDir::new().expect("tempdir");
     let backlog_dir = temp.path().join("backlog");
@@ -1677,6 +1686,7 @@ fn cli_best_practices_command() {
 }
 
 #[tokio::test]
+#[serial]
 async fn cli_and_mcp_migrate_archive_parity() {
     let temp = TempDir::new().expect("tempdir");
     let legacy_tasks = temp.path().join("backlog").join("tasks");
@@ -1755,6 +1765,7 @@ async fn cli_and_mcp_migrate_archive_parity() {
 }
 
 #[tokio::test]
+#[serial]
 async fn cli_and_mcp_bulk_ops_parity() {
     let temp = TempDir::new().expect("tempdir");
     let backlog_dir = temp.path().join("backlog");
@@ -1965,6 +1976,7 @@ async fn cli_and_mcp_bulk_ops_parity() {
 }
 
 #[tokio::test]
+#[serial]
 async fn cli_and_mcp_truth_workflow_parity() {
     let temp = TempDir::new().expect("tempdir");
     let tasks_dir = temp.path().join("workmesh").join("tasks");
