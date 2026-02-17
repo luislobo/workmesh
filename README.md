@@ -88,7 +88,13 @@ Project config:
 
 Keys:
 - `worktrees_default = true|false`
+- `worktrees_dir = "<path>"`
 - `auto_session_default = true|false`
+
+Config helpers:
+- Show: `workmesh --root . config show --json`
+- Set (project): `workmesh --root . config set --scope project --key worktrees_dir --value "../myrepo.worktrees" --json`
+- Set (global): `workmesh --root . config set --scope global --key auto_session_default --value true --json`
 
 Archive default status filter (when `--status` is omitted):
 - `Done`, `Cancelled`, `Canceled`, `Won't Do`, `Wont Do`
@@ -118,9 +124,20 @@ Phase 0 storage guarantees are now active for tracking files.
 ## Workstreams
 Workstreams let you manage multiple parallel streams of work in the same repo (often one git worktree per stream), with durable pointers to context, sessions, and per-stream scope/objective.
 
+Start a new workstream (recommended):
+- `workmesh --root . workstream create --name "OCA integration" --project <project-id> --objective "..." --json`
+
+Behavior:
+- When run from the canonical checkout and the repo has a real `HEAD` commit, `workstream create` auto-provisions a new git worktree by default (unless you pass `--existing` or explicit `--path/--branch`).
+- Auto-provision uses `worktrees_dir` when set; otherwise it defaults to `<repo_parent>/<repo_name>.worktrees/`.
+- When run from a non-canonical git worktree checkout, `workstream create` binds the workstream to the current worktree by default (no new worktree).
+
 When a workstream is active in a worktree, `session save` and `worktree attach/detach` keep the stream's session/worktree pointers updated automatically.
 
 After reboot (or losing terminals), run `workmesh --root . workstream restore --json` to get per-stream resume commands (path, session id, objective/scope, next task).
+
+To get resume commands for a single stream:
+- `workmesh --root . workstream show <id-or-key> --restore --json`
 
 Lifecycle (pause/close/reopen/rename/set):
 - `workmesh --root . workstream pause [<id-or-key>] --json`

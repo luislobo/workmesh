@@ -58,6 +58,11 @@ workmesh --root . workstream restore --json
 ```
 Each entry includes a `resume_script` with the exact commands to run in that worktree (session resume, context show, next).
 
+For a single stream:
+```bash
+workmesh --root . workstream show <id-or-key> --restore --json
+```
+
 ## Workstream lifecycle helpers
 - Pause/close when parking a stream:
   - `workmesh --root . workstream pause [<id-or-key>] --json`
@@ -77,10 +82,18 @@ Each entry includes a `resume_script` with the exact commands to run in that wor
 
 ## Defaults and overrides
 - Worktree guidance default: `worktrees_default`.
+- Default worktree directory (for auto-provision): `worktrees_dir`.
 - Auto session update default: `auto_session_default`.
 - One-off overrides:
   - `--auto-session-save`
   - `--no-auto-session-save`
+
+Config helper (CLI):
+```bash
+workmesh --root . config show --json
+workmesh --root . config set --scope global --key auto_session_default --value true --json
+workmesh --root . config set --scope project --key worktrees_dir --value "../myrepo.worktrees" --json
+```
 
 ## Rules
 - Prefer `--json` when parsing output.

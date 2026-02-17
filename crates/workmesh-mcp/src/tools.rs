@@ -21,7 +21,7 @@ use workmesh_core::backlog::{
     locate_backlog_dir, resolve_backlog, resolve_backlog_dir, BacklogError,
 };
 use workmesh_core::bootstrap::{bootstrap_repo, BootstrapOptions, BootstrapResult};
-use workmesh_core::config::resolve_auto_session_default;
+use workmesh_core::config::{resolve_auto_session_default, resolve_worktrees_default};
 use workmesh_core::context::{
     clear_context, context_path, extract_task_id_from_branch, infer_project_id, load_context,
     save_context, ContextScope, ContextScopeMode, ContextState,
@@ -73,12 +73,13 @@ use workmesh_core::views::{
 use workmesh_core::workstreams::{
     build_workstream_restore_plan, derive_unique_workstream_key, list_workstreams_for_repo,
     resolve_repo_root_for_registry, update_workstream_for_repo_by_id, upsert_workstream_record,
-    WorkstreamContextSnapshot, WorkstreamRecord, WorkstreamRestoreOptions, WorkstreamStatus,
+    WorkstreamContextSnapshot, WorkstreamRecord, WorkstreamRestoreEntry, WorkstreamRestoreOptions,
+    WorkstreamStatus,
 };
 use workmesh_core::worktrees::{
-    create_git_worktree, current_branch as current_worktree_branch, doctor_worktrees,
-    find_worktree_record_by_path, list_worktree_views, set_worktree_attached_session_id,
-    upsert_worktree_record, WorktreeRecord,
+    create_git_worktree, current_branch as current_worktree_branch, default_worktrees_dir,
+    derive_unique_worktree_branch, doctor_worktrees, find_worktree_record_by_path, git_has_head,
+    list_worktree_views, set_worktree_attached_session_id, upsert_worktree_record, WorktreeRecord,
 };
 
 const ROOT_REQUIRED_ERROR: &str = "root is required for MCP calls unless the server is started within a repo containing tasks/ or backlog/tasks";
@@ -334,6 +335,9 @@ fn tool_catalog() -> Vec<serde_json::Value> {
         serde_json::json!({"name": "readme", "summary": "Return README.json (agent-friendly repo docs)."}),
         serde_json::json!({"name": "doctor", "summary": "Diagnostics report for repo layout, context, index, skills, and versions."}),
         serde_json::json!({"name": "bootstrap", "summary": "Bootstrap WorkMesh by detecting repo state and applying setup/migration."}),
+        serde_json::json!({"name": "config_show", "summary": "Show project/global config and effective defaults."}),
+        serde_json::json!({"name": "config_set", "summary": "Set a WorkMesh config key in project or global scope."}),
+        serde_json::json!({"name": "config_unset", "summary": "Unset a WorkMesh config key (remove it from the selected config file)."}),
         serde_json::json!({"name": "context_show", "summary": "Show repo-local context (project/objective/scope)."}),
         serde_json::json!({"name": "context_set", "summary": "Set repo-local context (project/objective/scope)."}),
         serde_json::json!({"name": "context_clear", "summary": "Clear repo-local context."}),
@@ -452,6 +456,57 @@ pub struct DoctorTool {
     pub format: String,
 }
 
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ConfigScope {
+    Project,
+    Global,
+}
+
+fn default_config_scope() -> ConfigScope {
+    ConfigScope::Project
+}
+
+#[mcp_tool(
+    name = "config_show",
+    description = "Show project/global config and effective defaults."
+)]
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct ConfigShowTool {
+    pub root: Option<String>,
+    #[serde(default = "default_format")]
+    pub format: String,
+}
+
+#[mcp_tool(
+    name = "config_set",
+    description = "Set a WorkMesh config key in project or global scope."
+)]
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct ConfigSetTool {
+    pub root: Option<String>,
+    #[serde(default = "default_config_scope")]
+    pub scope: ConfigScope,
+    pub key: String,
+    pub value: String,
+    #[serde(default = "default_format")]
+    pub format: String,
+}
+
+#[mcp_tool(
+    name = "config_unset",
+    description = "Unset a WorkMesh config key (remove it from the selected config file)."
+)]
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct ConfigUnsetTool {
+    pub root: Option<String>,
+    #[serde(default = "default_config_scope")]
+    pub scope: ConfigScope,
+    pub key: String,
+    #[serde(default = "default_format")]
+    pub format: String,
+}
+
 #[mcp_tool(name = "context_show", description = "Show repo-local context state.")]
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct ContextShowTool {
@@ -528,6 +583,9 @@ pub struct WorkstreamShowTool {
     /// Include accepted truth records linked to this workstream.
     #[serde(default)]
     pub truths: bool,
+    /// Include a restore view (resume_script, next_task, issues) for this workstream.
+    #[serde(default)]
+    pub restore: bool,
     #[serde(default = "default_format")]
     pub format: String,
 }
@@ -1679,6 +1737,9 @@ tool_box!(
         VersionTool,
         ReadmeTool,
         DoctorTool,
+        ConfigShowTool,
+        ConfigSetTool,
+        ConfigUnsetTool,
         ContextShowTool,
         ContextSetTool,
         ContextClearTool,
@@ -1803,6 +1864,9 @@ impl ServerHandler for WorkmeshServerHandler {
             WorkmeshTools::VersionTool(tool) => tool.call(&self.context),
             WorkmeshTools::ReadmeTool(tool) => tool.call(&self.context),
             WorkmeshTools::DoctorTool(tool) => tool.call(&self.context),
+            WorkmeshTools::ConfigShowTool(tool) => tool.call(&self.context),
+            WorkmeshTools::ConfigSetTool(tool) => tool.call(&self.context),
+            WorkmeshTools::ConfigUnsetTool(tool) => tool.call(&self.context),
             WorkmeshTools::BootstrapTool(tool) => tool.call(&self.context),
             WorkmeshTools::ContextShowTool(tool) => tool.call(&self.context),
             WorkmeshTools::ContextSetTool(tool) => tool.call(&self.context),
@@ -1960,6 +2024,239 @@ impl DoctorTool {
             );
         }
         ok_json(report)
+    }
+}
+
+impl ConfigShowTool {
+    fn call(&self, context: &McpContext) -> Result<CallToolResult, CallToolError> {
+        let repo_root = repo_root_from_backlog(&resolve_repo_root(context, self.root.as_deref()));
+
+        let project =
+            workmesh_core::config::load_config_with_path(&repo_root).map(|(config, path)| {
+                serde_json::json!({
+                    "path": path,
+                    "config": config
+                })
+            });
+        let global = workmesh_core::config::load_global_config_with_path().map(|(config, path)| {
+            serde_json::json!({
+                "path": path,
+                "config": config
+            })
+        });
+
+        let (worktrees_default, worktrees_default_source) =
+            workmesh_core::config::resolve_worktrees_default_with_source(&repo_root);
+        let (worktrees_dir, worktrees_dir_source) =
+            workmesh_core::config::resolve_worktrees_dir_with_source(&repo_root);
+        let (auto_session_default, auto_session_default_source) =
+            workmesh_core::config::resolve_auto_session_default_with_source(&repo_root);
+
+        let payload = serde_json::json!({
+            "project": project,
+            "global": global,
+            "effective": {
+                "worktrees_default": worktrees_default,
+                "worktrees_dir": worktrees_dir.as_ref().map(|p| p.to_string_lossy().to_string()),
+                "auto_session_default": auto_session_default,
+            },
+            "sources": {
+                "worktrees_default": worktrees_default_source,
+                "worktrees_dir": worktrees_dir_source,
+                "auto_session_default": auto_session_default_source,
+            },
+            "paths": {
+                "project_default": workmesh_core::config::config_path(&repo_root),
+                "global_default": workmesh_core::config::global_config_path(),
+            }
+        });
+
+        if self.format == "text" {
+            let mut lines = Vec::new();
+            lines.push("Effective:".to_string());
+            lines.push(format!(
+                "- worktrees_default: {} ({})",
+                worktrees_default, worktrees_default_source
+            ));
+            if let Some(dir) = worktrees_dir.as_ref() {
+                lines.push(format!(
+                    "- worktrees_dir: {} ({})",
+                    dir.to_string_lossy(),
+                    worktrees_dir_source
+                ));
+            } else {
+                lines.push(format!(
+                    "- worktrees_dir: (unset) ({})",
+                    worktrees_dir_source
+                ));
+            }
+            if let Some(value) = auto_session_default {
+                lines.push(format!(
+                    "- auto_session_default: {} ({})",
+                    value, auto_session_default_source
+                ));
+            } else {
+                lines.push(format!(
+                    "- auto_session_default: (unset) ({})",
+                    auto_session_default_source
+                ));
+            }
+            if let Some(project) = project.as_ref() {
+                lines.push(String::new());
+                lines.push(format!(
+                    "Project config: {}",
+                    project["path"].as_str().unwrap_or("-")
+                ));
+            }
+            if let Some(global) = global.as_ref() {
+                lines.push(format!(
+                    "Global config: {}",
+                    global["path"].as_str().unwrap_or("-")
+                ));
+            } else {
+                lines.push("Global config: (missing)".to_string());
+            }
+            return ok_text(lines.join("\n"));
+        }
+
+        ok_json(payload)
+    }
+}
+
+impl ConfigSetTool {
+    fn call(&self, context: &McpContext) -> Result<CallToolResult, CallToolError> {
+        let repo_root = repo_root_from_backlog(&resolve_repo_root(context, self.root.as_deref()));
+        let key = self.key.trim();
+        if key.is_empty() {
+            return Err(CallToolError::from_message("key is required"));
+        }
+        let value = self.value.trim();
+
+        let mut config = match self.scope {
+            ConfigScope::Project => {
+                workmesh_core::config::load_config(&repo_root).unwrap_or_default()
+            }
+            ConfigScope::Global => workmesh_core::config::load_global_config().unwrap_or_default(),
+        };
+
+        match key {
+            "worktrees_default" => {
+                let parsed = parse_boolish(value).ok_or_else(|| {
+                    CallToolError::from_message(
+                        "Invalid bool value for worktrees_default (expected true/false/1/0)"
+                            .to_string(),
+                    )
+                })?;
+                config.worktrees_default = Some(parsed);
+            }
+            "worktrees_dir" => {
+                if value.is_empty() {
+                    return Err(CallToolError::from_message(
+                        "worktrees_dir cannot be blank (use config_unset)".to_string(),
+                    ));
+                }
+                config.worktrees_dir = Some(value.to_string());
+            }
+            "auto_session_default" => {
+                let parsed = parse_boolish(value).ok_or_else(|| {
+                    CallToolError::from_message(
+                        "Invalid bool value for auto_session_default (expected true/false/1/0)"
+                            .to_string(),
+                    )
+                })?;
+                config.auto_session_default = Some(parsed);
+            }
+            "root_dir" => {
+                if value.is_empty() {
+                    return Err(CallToolError::from_message(
+                        "root_dir cannot be blank (use config_unset)".to_string(),
+                    ));
+                }
+                config.root_dir = Some(value.to_string());
+            }
+            "do_not_migrate" => {
+                let parsed = parse_boolish(value).ok_or_else(|| {
+                    CallToolError::from_message(
+                        "Invalid bool value for do_not_migrate (expected true/false/1/0)"
+                            .to_string(),
+                    )
+                })?;
+                config.do_not_migrate = Some(parsed);
+            }
+            _ => {
+                return Err(CallToolError::from_message(format!(
+                    "Unknown config key: {}",
+                    key
+                )));
+            }
+        }
+
+        let path = match self.scope {
+            ConfigScope::Project => workmesh_core::config::write_config(&repo_root, &config)
+                .map_err(|err| CallToolError::from_message(err.to_string()))?,
+            ConfigScope::Global => workmesh_core::config::write_global_config(&config)
+                .map_err(|err| CallToolError::from_message(err.to_string()))?,
+        };
+
+        if self.format == "text" {
+            return ok_text(format!("Wrote {}", path.display()));
+        }
+
+        ok_json(serde_json::json!({
+            "ok": true,
+            "scope": match self.scope { ConfigScope::Project => "project", ConfigScope::Global => "global" },
+            "path": path,
+            "config": config
+        }))
+    }
+}
+
+impl ConfigUnsetTool {
+    fn call(&self, context: &McpContext) -> Result<CallToolResult, CallToolError> {
+        let repo_root = repo_root_from_backlog(&resolve_repo_root(context, self.root.as_deref()));
+        let key = self.key.trim();
+        if key.is_empty() {
+            return Err(CallToolError::from_message("key is required"));
+        }
+
+        let mut config = match self.scope {
+            ConfigScope::Project => {
+                workmesh_core::config::load_config(&repo_root).unwrap_or_default()
+            }
+            ConfigScope::Global => workmesh_core::config::load_global_config().unwrap_or_default(),
+        };
+
+        match key {
+            "worktrees_default" => config.worktrees_default = None,
+            "worktrees_dir" => config.worktrees_dir = None,
+            "auto_session_default" => config.auto_session_default = None,
+            "root_dir" => config.root_dir = None,
+            "do_not_migrate" => config.do_not_migrate = None,
+            _ => {
+                return Err(CallToolError::from_message(format!(
+                    "Unknown config key: {}",
+                    key
+                )));
+            }
+        }
+
+        let path = match self.scope {
+            ConfigScope::Project => workmesh_core::config::write_config(&repo_root, &config)
+                .map_err(|err| CallToolError::from_message(err.to_string()))?,
+            ConfigScope::Global => workmesh_core::config::write_global_config(&config)
+                .map_err(|err| CallToolError::from_message(err.to_string()))?,
+        };
+
+        if self.format == "text" {
+            return ok_text(format!("Wrote {}", path.display()));
+        }
+
+        ok_json(serde_json::json!({
+            "ok": true,
+            "scope": match self.scope { ConfigScope::Project => "project", ConfigScope::Global => "global" },
+            "path": path,
+            "config": config
+        }))
     }
 }
 
@@ -2350,6 +2647,22 @@ impl WorkstreamShowTool {
             Vec::new()
         };
 
+        let restore_view: Option<WorkstreamRestoreEntry> = if self.restore {
+            let plan = build_workstream_restore_plan(
+                &home,
+                &repo_root,
+                WorkstreamRestoreOptions {
+                    include_inactive: true,
+                },
+            )
+            .map_err(|err| CallToolError::from_message(err.to_string()))?;
+            plan.workstreams
+                .into_iter()
+                .find(|entry| entry.id == record.id)
+        } else {
+            None
+        };
+
         if self.format == "text" {
             let mut lines = Vec::new();
             lines.push(format!("id: {}", record.id));
@@ -2388,13 +2701,24 @@ impl WorkstreamShowTool {
                     }
                 }
             }
+            if self.restore {
+                if let Some(entry) = restore_view.as_ref() {
+                    if !entry.resume_script.is_empty() {
+                        lines.push("resume:".to_string());
+                        for line in entry.resume_script.iter() {
+                            lines.push(line.to_string());
+                        }
+                    }
+                }
+            }
             return ok_text(lines.join("\n"));
         }
 
         ok_json(serde_json::json!({
             "workstream": record,
             "issues": issues,
-            "truths": truths
+            "truths": truths,
+            "restore": restore_view
         }))
     }
 }
@@ -2415,14 +2739,19 @@ impl WorkstreamCreateTool {
             return Err(CallToolError::from_message("name is required"));
         }
 
+        let mut path = self
+            .path
+            .as_deref()
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty());
+        let mut branch = self
+            .branch
+            .as_deref()
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty());
+
         if self.existing {
-            if self
-                .path
-                .as_deref()
-                .map(|value| value.trim())
-                .filter(|value| !value.is_empty())
-                .is_none()
-            {
+            if path.is_none() {
                 return Err(CallToolError::from_message(
                     "path is required when existing=true",
                 ));
@@ -2437,17 +2766,63 @@ impl WorkstreamCreateTool {
                     "from is not supported when existing=true",
                 ));
             }
-        } else if self.path.is_some() ^ self.branch.is_some() {
+        } else if path.is_some() ^ branch.is_some() {
             return Err(CallToolError::from_message(
                 "path and branch must be provided together",
             ));
         }
 
+        let resolved_key = match self
+            .key
+            .as_deref()
+            .map(|value| value.trim())
+            .filter(|value| !value.is_empty())
+        {
+            Some(candidate) => {
+                let existing = list_workstreams_for_repo(&home, &registry_repo_root)
+                    .map_err(|err| CallToolError::from_message(err.to_string()))?;
+                if existing.iter().any(|record| {
+                    record
+                        .key
+                        .as_ref()
+                        .map(|existing_key| existing_key.eq_ignore_ascii_case(candidate))
+                        .unwrap_or(false)
+                }) {
+                    return Err(CallToolError::from_message(format!(
+                        "workstream key already exists for this repo: {}",
+                        candidate
+                    )));
+                }
+                Some(candidate.to_lowercase())
+            }
+            None => Some(
+                derive_unique_workstream_key(&home, &registry_repo_root, &name)
+                    .map_err(|err| CallToolError::from_message(err.to_string()))?,
+            ),
+        };
+
+        let should_auto_provision_worktree = !self.existing
+            && path.is_none()
+            && branch.is_none()
+            && resolve_worktrees_default(&repo_root)
+            && git_has_head(&repo_root)
+            && normalize_path(&repo_root) == normalize_path(&registry_repo_root);
+        if should_auto_provision_worktree {
+            let key_value = resolved_key
+                .as_deref()
+                .map(|value| value.trim())
+                .filter(|value| !value.is_empty())
+                .unwrap_or("ws");
+            let worktrees_dir = default_worktrees_dir(&repo_root);
+            path = Some(worktrees_dir.join(key_value).to_string_lossy().to_string());
+            let branch_base = format!("ws/{}", key_value);
+            branch = Some(derive_unique_worktree_branch(&repo_root, &branch_base));
+        }
+
         // Determine initial scope from explicit flags, falling back to branch-derived epic id.
         let task_ids = parse_list_input(self.tasks.clone());
-        let branch_hint = self.branch.clone().or_else(|| {
-            self.path
-                .as_deref()
+        let branch_hint = branch.clone().or_else(|| {
+            path.as_deref()
                 .and_then(|path| current_worktree_branch(Path::new(path.trim())))
         });
         let inferred_epic = self
@@ -2490,7 +2865,7 @@ impl WorkstreamCreateTool {
 
         let current_session_id = read_current_session_id(&home);
         let (created_worktree, binding, context_seeded, warnings) = if self.existing {
-            let selected_path = Path::new(self.path.as_deref().unwrap_or_default().trim());
+            let selected_path = Path::new(path.as_deref().unwrap_or_default().trim());
             if !selected_path.exists() {
                 return Err(CallToolError::from_message(format!(
                     "path does not exist for existing=true: {}",
@@ -2498,8 +2873,7 @@ impl WorkstreamCreateTool {
                 )));
             }
 
-            let branch_value = self
-                .branch
+            let branch_value = branch
                 .clone()
                 .or_else(|| current_worktree_branch(selected_path));
             let existing_record = find_worktree_record_by_path(&home, selected_path)
@@ -2557,7 +2931,7 @@ impl WorkstreamCreateTool {
             }
 
             (None, binding, context_seeded, warnings)
-        } else if let (Some(path), Some(branch)) = (self.path.as_deref(), self.branch.as_deref()) {
+        } else if let (Some(path), Some(branch)) = (path.as_deref(), branch.as_deref()) {
             let created = create_git_worktree(
                 &repo_root,
                 Path::new(path.trim()),
@@ -2627,35 +3001,6 @@ impl WorkstreamCreateTool {
             (None, binding, false, Vec::new())
         };
 
-        let resolved_key = match self
-            .key
-            .as_deref()
-            .map(|value| value.trim())
-            .filter(|value| !value.is_empty())
-        {
-            Some(candidate) => {
-                let existing = list_workstreams_for_repo(&home, &registry_repo_root)
-                    .map_err(|err| CallToolError::from_message(err.to_string()))?;
-                if existing.iter().any(|record| {
-                    record
-                        .key
-                        .as_ref()
-                        .map(|existing_key| existing_key.eq_ignore_ascii_case(candidate))
-                        .unwrap_or(false)
-                }) {
-                    return Err(CallToolError::from_message(format!(
-                        "workstream key already exists for this repo: {}",
-                        candidate
-                    )));
-                }
-                Some(candidate.to_lowercase())
-            }
-            None => Some(
-                derive_unique_workstream_key(&home, &registry_repo_root, &name)
-                    .map_err(|err| CallToolError::from_message(err.to_string()))?,
-            ),
-        };
-
         let inserted = upsert_workstream_record(
             &home,
             WorkstreamRecord {
@@ -2691,7 +3036,7 @@ impl WorkstreamCreateTool {
 
         // If we pre-seeded context in the new worktree, update its workstream_id now that we
         // have the real id.
-        if let Some(path) = self.path.as_deref() {
+        if let Some(path) = path.as_deref() {
             let seed_root = normalize_path(Path::new(path.trim()));
             if let Ok(resolution) = resolve_backlog(&seed_root) {
                 if let Ok(existing) = load_context(&resolution.backlog_dir) {
@@ -6203,7 +6548,19 @@ fn tool_examples(name: &str) -> Vec<serde_json::Value> {
         })],
         "workstream_show" => vec![serde_json::json!({
             "tool": "workstream_show",
-            "arguments": { "id": "ws1-001", "format": "json" }
+            "arguments": { "id": "ws1-001", "restore": true, "truths": true, "format": "json" }
+        })],
+        "config_show" => vec![serde_json::json!({
+            "tool": "config_show",
+            "arguments": { "format": "json" }
+        })],
+        "config_set" => vec![serde_json::json!({
+            "tool": "config_set",
+            "arguments": { "scope": "global", "key": "auto_session_default", "value": "true", "format": "json" }
+        })],
+        "config_unset" => vec![serde_json::json!({
+            "tool": "config_unset",
+            "arguments": { "scope": "global", "key": "auto_session_default", "format": "json" }
         })],
         "workstream_switch" => vec![serde_json::json!({
             "tool": "workstream_switch",

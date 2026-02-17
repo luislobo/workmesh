@@ -52,8 +52,14 @@
     ],
     "keys": [
       "worktrees_default = true|false",
+      "worktrees_dir = \"<path>\"",
       "auto_session_default = true|false"
     ],
+    "config_helpers": {
+      "show": "workmesh --root . config show --json",
+      "set_project": "workmesh --root . config set --scope project --key worktrees_dir --value \"../myrepo.worktrees\" --json",
+      "set_global": "workmesh --root . config set --scope global --key auto_session_default --value true --json"
+    },
     "archive_default_status_filter": [
       "Done",
       "Cancelled",
@@ -101,8 +107,17 @@
   "workstreams": {
     "phase": "Phase 1 + Phase WS2",
     "summary": "Workstreams let you manage multiple parallel streams of work in the same repo (often one git worktree per stream), with durable pointers to context, sessions, and per-stream scope/objective.",
+    "start": {
+      "recommended": "workmesh --root . workstream create --name \"OCA integration\" --project <project-id> --objective \"...\" --json",
+      "behavior": [
+        "From the canonical checkout (with a real HEAD commit), workstream create auto-provisions a new git worktree by default unless you pass --existing or explicit --path/--branch.",
+        "Auto-provision uses worktrees_dir when set; otherwise it defaults to <repo_parent>/<repo_name>.worktrees/.",
+        "From a non-canonical git worktree checkout, workstream create binds to the current worktree by default (no new worktree)."
+      ]
+    },
     "auto_linking": "When a workstream is active in a worktree, session save and worktree attach/detach keep the stream's session/worktree pointers updated automatically.",
     "restore": "After reboot (or losing terminals), run `workmesh --root . workstream restore --json` to get per-stream resume commands (path, session id, objective/scope, next task).",
+    "resume_single": "To get resume commands for one stream: `workmesh --root . workstream show <id-or-key> --restore --json`.",
     "lifecycle_commands": [
       "workmesh --root . workstream pause [<id-or-key>] --json",
       "workmesh --root . workstream close [<id-or-key>] --json",

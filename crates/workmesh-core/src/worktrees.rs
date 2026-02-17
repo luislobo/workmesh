@@ -7,6 +7,7 @@ use anyhow::{anyhow, Context, Result};
 use serde::{Deserialize, Serialize};
 use ulid::Ulid;
 
+use crate::config::resolve_worktrees_dir;
 use crate::storage::{
     cas_update_json_with_key, read_versioned_or_legacy_json, ResourceKey, StorageError,
     VersionedState,
@@ -315,12 +316,60 @@ pub fn list_git_worktrees(repo_root: &Path) -> Result<Vec<GitWorktreeEntry>> {
     parse_git_worktree_list(&String::from_utf8_lossy(&output.stdout), Some(repo_root))
 }
 
+pub fn git_has_head(repo_root: &Path) -> bool {
+    Command::new("git")
+        .arg("-C")
+        .arg(repo_root)
+        .arg("rev-parse")
+        .arg("--verify")
+        .arg("HEAD")
+        .output()
+        .ok()
+        .map(|output| output.status.success())
+        .unwrap_or(false)
+}
+
+pub fn default_worktrees_dir(repo_root: &Path) -> PathBuf {
+    if let Some(value) = resolve_worktrees_dir(repo_root) {
+        if value.is_absolute() {
+            return value;
+        }
+        return repo_root.join(value);
+    }
+
+    let repo_name = repo_root
+        .file_name()
+        .and_then(|segment| segment.to_str())
+        .unwrap_or("repo");
+    match repo_root.parent() {
+        Some(parent) => parent.join(format!("{}.worktrees", repo_name)),
+        None => repo_root.join(format!("{}.worktrees", repo_name)),
+    }
+}
+
+pub fn derive_unique_worktree_branch(repo_root: &Path, base: &str) -> String {
+    let used_branches: std::collections::BTreeSet<String> = list_git_worktrees(repo_root)
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|entry| entry.branch)
+        .map(|b| b.to_ascii_lowercase())
+        .collect();
+    unique_branch_name(repo_root, base.trim(), &used_branches)
+}
+
 pub fn create_git_worktree(
     repo_root: &Path,
     path: &Path,
     branch: &str,
     from_ref: Option<&str>,
 ) -> Result<GitWorktreeEntry> {
+    if let Some(parent) = path.parent() {
+        if !parent.as_os_str().is_empty() {
+            fs::create_dir_all(parent)
+                .with_context(|| format!("create worktree parent dir {}", parent.display()))?;
+        }
+    }
+
     let mut cmd = Command::new("git");
     cmd.arg("-C")
         .arg(repo_root)
@@ -480,13 +529,37 @@ fn normalize_origin(value: &str) -> String {
     s.to_lowercase()
 }
 
-fn unique_branch_name(base: &str, used: &std::collections::BTreeSet<String>) -> String {
-    if !used.contains(&base.to_ascii_lowercase()) {
+fn local_branch_exists(repo_root: &Path, branch: &str) -> bool {
+    let target = branch.trim();
+    if target.is_empty() {
+        return false;
+    }
+    Command::new("git")
+        .arg("-C")
+        .arg(repo_root)
+        .arg("show-ref")
+        .arg("--verify")
+        .arg("--quiet")
+        .arg(format!("refs/heads/{}", target))
+        .output()
+        .ok()
+        .map(|output| output.status.success())
+        .unwrap_or(false)
+}
+
+fn unique_branch_name(
+    repo_root: &Path,
+    base: &str,
+    used: &std::collections::BTreeSet<String>,
+) -> String {
+    let base_key = base.to_ascii_lowercase();
+    if !used.contains(&base_key) && !local_branch_exists(repo_root, base) {
         return base.to_string();
     }
     for i in 2..=999u32 {
         let candidate = format!("{}-{}", base, i);
-        if !used.contains(&candidate.to_ascii_lowercase()) {
+        let candidate_key = candidate.to_ascii_lowercase();
+        if !used.contains(&candidate_key) && !local_branch_exists(repo_root, &candidate) {
             return candidate;
         }
     }
@@ -557,7 +630,7 @@ pub fn adopt_clone_to_worktree(
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty())
         .unwrap_or_else(|| format!("{}-adopt", source_branch));
-    let target_branch = unique_branch_name(&branch_base, &used_branches);
+    let target_branch = unique_branch_name(repo_root, &branch_base, &used_branches);
 
     let backup_path = if to_norm.eq_ignore_ascii_case(&from_norm) {
         let stamp = chrono::Local::now().format("%Y%m%d%H%M%S").to_string();

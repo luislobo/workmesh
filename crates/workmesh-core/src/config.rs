@@ -22,6 +22,12 @@ pub struct WorkmeshConfig {
     /// Default behavior for promoting worktree-based parallel workflows.
     /// true = promote worktrees by default, false = suppress default worktree guidance.
     pub worktrees_default: Option<bool>,
+    /// Default directory (absolute or repo-relative) used when WorkMesh needs to pick a worktree
+    /// path automatically (for example, `workstream create` from the canonical checkout).
+    ///
+    /// If unset, WorkMesh falls back to a deterministic default:
+    /// `<repo_parent>/<repo_name>.worktrees/`.
+    pub worktrees_dir: Option<String>,
     /// Default behavior for auto-updating global sessions after mutating commands.
     /// true = enable by default, false = disable by default.
     pub auto_session_default: Option<bool>,
@@ -95,6 +101,20 @@ pub fn load_config(repo_root: &Path) -> Option<WorkmeshConfig> {
     None
 }
 
+pub fn load_config_with_path(repo_root: &Path) -> Option<(WorkmeshConfig, PathBuf)> {
+    for name in config_filename_candidates() {
+        let path = repo_root.join(name);
+        if path.is_file() {
+            if let Ok(text) = fs::read_to_string(&path) {
+                if let Ok(config) = toml::from_str::<WorkmeshConfig>(&text) {
+                    return Some((config, path));
+                }
+            }
+        }
+    }
+    None
+}
+
 pub fn load_global_config() -> Option<WorkmeshConfig> {
     let path = global_config_path()?;
     if !path.is_file() {
@@ -102,6 +122,16 @@ pub fn load_global_config() -> Option<WorkmeshConfig> {
     }
     let text = fs::read_to_string(path).ok()?;
     toml::from_str::<WorkmeshConfig>(&text).ok()
+}
+
+pub fn load_global_config_with_path() -> Option<(WorkmeshConfig, PathBuf)> {
+    let path = global_config_path()?;
+    if !path.is_file() {
+        return None;
+    }
+    let text = fs::read_to_string(&path).ok()?;
+    let config = toml::from_str::<WorkmeshConfig>(&text).ok()?;
+    Some((config, path))
 }
 
 pub fn resolve_worktrees_default_with_source(repo_root: &Path) -> (bool, &'static str) {
@@ -116,6 +146,26 @@ pub fn resolve_worktrees_default_with_source(repo_root: &Path) -> (bool, &'stati
 
 pub fn resolve_worktrees_default(repo_root: &Path) -> bool {
     resolve_worktrees_default_with_source(repo_root).0
+}
+
+pub fn resolve_worktrees_dir_with_source(repo_root: &Path) -> (Option<PathBuf>, &'static str) {
+    if let Some(value) = load_config(repo_root).and_then(|config| config.worktrees_dir) {
+        let trimmed = value.trim().to_string();
+        if !trimmed.is_empty() {
+            return (Some(PathBuf::from(trimmed)), "project");
+        }
+    }
+    if let Some(value) = load_global_config().and_then(|config| config.worktrees_dir) {
+        let trimmed = value.trim().to_string();
+        if !trimmed.is_empty() {
+            return (Some(PathBuf::from(trimmed)), "global");
+        }
+    }
+    (None, "default")
+}
+
+pub fn resolve_worktrees_dir(repo_root: &Path) -> Option<PathBuf> {
+    resolve_worktrees_dir_with_source(repo_root).0
 }
 
 pub fn resolve_auto_session_default_with_source(repo_root: &Path) -> (Option<bool>, &'static str) {
@@ -139,6 +189,18 @@ pub fn write_config(repo_root: &Path, config: &WorkmeshConfig) -> Result<PathBuf
     Ok(path)
 }
 
+pub fn write_global_config(config: &WorkmeshConfig) -> Result<PathBuf, ConfigError> {
+    let Some(path) = global_config_path() else {
+        return Err(std::io::Error::new(std::io::ErrorKind::Other, "home dir not set").into());
+    };
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    let body = toml::to_string_pretty(config)?;
+    fs::write(&path, body)?;
+    Ok(path)
+}
+
 pub fn update_do_not_migrate(
     repo_root: &Path,
     value: bool,
@@ -151,6 +213,11 @@ pub fn update_do_not_migrate(
         .map(|value| !value.trim().is_empty())
         .unwrap_or(false)
         || config.worktrees_default.is_some()
+        || config
+            .worktrees_dir
+            .as_ref()
+            .map(|value| !value.trim().is_empty())
+            .unwrap_or(false)
         || config.auto_session_default.is_some()
         || config
             .initiatives
@@ -228,6 +295,7 @@ mod tests {
             root_dir: Some("workmesh".to_string()),
             do_not_migrate: Some(true),
             worktrees_default: Some(true),
+            worktrees_dir: None,
             auto_session_default: Some(true),
             initiatives: None,
             branch_initiatives: None,
@@ -247,6 +315,7 @@ mod tests {
             root_dir: None,
             do_not_migrate: Some(true),
             worktrees_default: None,
+            worktrees_dir: None,
             auto_session_default: None,
             initiatives: None,
             branch_initiatives: None,
@@ -264,6 +333,7 @@ mod tests {
             root_dir: None,
             do_not_migrate: Some(true),
             worktrees_default: Some(false),
+            worktrees_dir: None,
             auto_session_default: None,
             initiatives: None,
             branch_initiatives: None,

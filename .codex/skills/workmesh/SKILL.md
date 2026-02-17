@@ -41,6 +41,7 @@ After bootstrap, if user asks to work on a feature, maintain WorkMesh continuous
 - keep context current
 - capture durable decisions in Truth Ledger (prefer `truth propose --current` when a workstream is active)
 - if the user is restoring after reboot / lost terminals, use `workstream restore` to enumerate active streams and provide deterministic resume commands per stream
+- if the user wants to change defaults (worktrees/session behavior), use `config show|set|unset` instead of asking them to edit files by hand
 
 ## Rules
 - Keep task metadata complete: `Description`, `Acceptance Criteria`, `Definition of Done`.

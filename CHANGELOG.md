@@ -21,6 +21,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     - CLI: `worktree adopt-clone` (plan + apply)
     - MCP: `worktree_adopt_clone`
   - Truth Ledger can be linked to workstreams via `workstream_id` context field and filters.
+- Phase WS3 Workflow polish:
+  - `workstream create` auto-provisions a new git worktree by default when invoked from the canonical checkout (requires a real HEAD commit; respects `worktrees_default`).
+  - New config key: `worktrees_dir` to control the default directory used for auto-provisioned worktrees.
+  - Workstream restore view on demand:
+    - CLI: `workstream show --restore`
+    - MCP: `workstream_show` with `restore=true`
+  - Config helpers (CLI + MCP):
+    - CLI: `config show|set|unset`
+    - MCP: `config_show|config_set|config_unset`
 - Expanded test gates for workstreams:
   - CLI/MCP parity coverage for workstream restore.
   - Concurrency tests proving safe concurrent read-modify-write updates.

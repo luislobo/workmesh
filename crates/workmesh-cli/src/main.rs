@@ -13,7 +13,11 @@ use workmesh_core::audit::{append_audit_event, AuditEvent};
 use workmesh_core::backlog::{locate_backlog_dir, resolve_backlog, BacklogResolution};
 use workmesh_core::bootstrap::{bootstrap_repo, BootstrapOptions};
 use workmesh_core::config::{
-    global_config_path, resolve_auto_session_default, update_do_not_migrate,
+    global_config_path, load_config, load_config_with_path, load_global_config,
+    load_global_config_with_path, resolve_auto_session_default,
+    resolve_auto_session_default_with_source, resolve_worktrees_default,
+    resolve_worktrees_default_with_source, resolve_worktrees_dir_with_source,
+    update_do_not_migrate, write_config, write_global_config,
 };
 use workmesh_core::context::{
     clear_context, context_path, extract_task_id_from_branch, infer_project_id, load_context,
@@ -80,9 +84,9 @@ use workmesh_core::workstreams::{
     WorkstreamContextSnapshot, WorkstreamRecord, WorkstreamRestoreOptions, WorkstreamStatus,
 };
 use workmesh_core::worktrees::{
-    create_git_worktree, current_branch as current_worktree_branch, doctor_worktrees,
-    find_worktree_record_by_path, list_worktree_views, set_worktree_attached_session_id,
-    upsert_worktree_record, WorktreeRecord,
+    create_git_worktree, current_branch as current_worktree_branch, default_worktrees_dir,
+    derive_unique_worktree_branch, doctor_worktrees, find_worktree_record_by_path, git_has_head,
+    list_worktree_views, set_worktree_attached_session_id, upsert_worktree_record, WorktreeRecord,
 };
 
 #[derive(Parser)]
@@ -117,6 +121,11 @@ enum Command {
         fix_storage: bool,
         #[arg(long, action = ArgAction::SetTrue)]
         json: bool,
+    },
+    /// Manage WorkMesh configuration (project `.workmesh.toml` and global `~/.workmesh/config.toml`)
+    Config {
+        #[command(subcommand)]
+        command: ConfigCommand,
     },
     /// Install bundled WorkMesh skill packs (convenience command)
     Install {
@@ -1185,6 +1194,9 @@ enum WorkstreamCommand {
         /// Include accepted truth records linked to this workstream
         #[arg(long, action = ArgAction::SetTrue)]
         truth: bool,
+        /// Include a restore view (resume_script, next_task, issues) for this workstream
+        #[arg(long, action = ArgAction::SetTrue)]
+        restore: bool,
         #[arg(long, action = ArgAction::SetTrue)]
         json: bool,
     },
@@ -1320,6 +1332,41 @@ enum WorktreeCommand {
     },
     /// Diagnose stale/missing worktree records
     Doctor {
+        #[arg(long, action = ArgAction::SetTrue)]
+        json: bool,
+    },
+}
+
+#[derive(Copy, Clone, Debug, ValueEnum)]
+enum ConfigScopeArg {
+    Project,
+    Global,
+}
+
+#[derive(Subcommand)]
+enum ConfigCommand {
+    /// Show project/global config and effective defaults
+    Show {
+        #[arg(long, action = ArgAction::SetTrue)]
+        json: bool,
+    },
+    /// Set a config key
+    Set {
+        #[arg(long, value_enum, default_value_t = ConfigScopeArg::Project)]
+        scope: ConfigScopeArg,
+        #[arg(long)]
+        key: String,
+        #[arg(long)]
+        value: String,
+        #[arg(long, action = ArgAction::SetTrue)]
+        json: bool,
+    },
+    /// Unset a config key (remove it from the selected config file)
+    Unset {
+        #[arg(long, value_enum, default_value_t = ConfigScopeArg::Project)]
+        scope: ConfigScopeArg,
+        #[arg(long)]
+        key: String,
         #[arg(long, action = ArgAction::SetTrue)]
         json: bool,
     },
@@ -2364,6 +2411,12 @@ fn main() -> Result<()> {
                 report["versions"]["workmesh_mcp"].as_str().unwrap_or("")
             );
         }
+        return Ok(());
+    }
+
+    if let Command::Config { command } = &cli.command {
+        let repo_root = repo_root_from_backlog(&cli.root);
+        handle_config_command(&repo_root, command)?;
         return Ok(());
     }
 
@@ -4522,6 +4575,9 @@ fn main() -> Result<()> {
         Command::Uninstall { .. } => {
             unreachable!("uninstall handled before backlog resolution");
         }
+        Command::Config { .. } => {
+            unreachable!("config handled before backlog resolution");
+        }
         Command::Doctor { .. } => {
             unreachable!("doctor handled before backlog resolution");
         }
@@ -4977,7 +5033,12 @@ fn handle_workstream_command(
                 }
             }
         }
-        WorkstreamCommand::Show { id, truth, json } => {
+        WorkstreamCommand::Show {
+            id,
+            truth,
+            restore,
+            json,
+        } => {
             let active_id = load_context(backlog_dir)?
                 .and_then(|ctx| ctx.workstream_id)
                 .filter(|value| !value.trim().is_empty());
@@ -5019,13 +5080,29 @@ fn handle_workstream_command(
                 Vec::new()
             };
 
+            let restore_view = if restore {
+                let plan = build_workstream_restore_plan(
+                    home,
+                    repo_root,
+                    WorkstreamRestoreOptions {
+                        include_inactive: true,
+                    },
+                )?;
+                plan.workstreams
+                    .into_iter()
+                    .find(|entry| entry.id == record.id)
+            } else {
+                None
+            };
+
             if json {
                 println!(
                     "{}",
                     serde_json::to_string_pretty(&serde_json::json!({
                         "workstream": record,
                         "issues": issues,
-                        "truths": truths
+                        "truths": truths,
+                        "restore": restore_view
                     }))?
                 );
             } else {
@@ -5062,6 +5139,17 @@ fn handle_workstream_command(
                                 truth_record.state.as_str(),
                                 truth_record.title
                             );
+                        }
+                    }
+                }
+
+                if restore {
+                    if let Some(entry) = restore_view.as_ref() {
+                        if !entry.resume_script.is_empty() {
+                            println!("resume:");
+                            for line in &entry.resume_script {
+                                println!("{}", line);
+                            }
                         }
                     }
                 }
@@ -5424,12 +5512,61 @@ fn handle_workstream_command(
                 die("Workstream name is required");
             }
 
+            let mut path = path;
+            let mut branch = branch;
+
             if existing {
                 if path.is_none() {
                     die("--path is required when --existing is set");
                 }
             } else if path.is_some() ^ branch.is_some() {
                 die("--path and --branch must be provided together");
+            }
+
+            let resolved_key = match key
+                .as_deref()
+                .map(|value| value.trim())
+                .filter(|value| !value.is_empty())
+            {
+                Some(candidate) => {
+                    let existing = list_workstreams_for_repo(home, &registry_repo_root)?;
+                    if existing.iter().any(|record| {
+                        record
+                            .key
+                            .as_ref()
+                            .map(|existing_key| existing_key.eq_ignore_ascii_case(candidate))
+                            .unwrap_or(false)
+                    }) {
+                        die(&format!(
+                            "Workstream key already exists for this repo: {}",
+                            candidate
+                        ));
+                    }
+                    Some(candidate.to_lowercase())
+                }
+                None => Some(derive_unique_workstream_key(
+                    home,
+                    &registry_repo_root,
+                    &name,
+                )?),
+            };
+
+            let should_auto_provision_worktree = !existing
+                && path.is_none()
+                && branch.is_none()
+                && resolve_worktrees_default(repo_root)
+                && git_has_head(repo_root)
+                && normalize_path(repo_root) == normalize_path(&registry_repo_root);
+            if should_auto_provision_worktree {
+                let key_value = resolved_key
+                    .as_deref()
+                    .map(|value| value.trim())
+                    .filter(|value| !value.is_empty())
+                    .unwrap_or("ws");
+                let worktrees_dir = default_worktrees_dir(repo_root);
+                path = Some(worktrees_dir.join(key_value));
+                let branch_base = format!("ws/{}", key_value);
+                branch = Some(derive_unique_worktree_branch(repo_root, &branch_base));
             }
 
             // Determine initial scope from explicit flags, falling back to branch-derived epic id.
@@ -5602,34 +5739,6 @@ fn handle_workstream_command(
                     repo_root: Some(normalize_path_string(repo_root)),
                 });
                 (None, binding, false, Vec::new())
-            };
-
-            let resolved_key = match key
-                .as_deref()
-                .map(|value| value.trim())
-                .filter(|value| !value.is_empty())
-            {
-                Some(candidate) => {
-                    let existing = list_workstreams_for_repo(home, &registry_repo_root)?;
-                    if existing.iter().any(|record| {
-                        record
-                            .key
-                            .as_ref()
-                            .map(|existing_key| existing_key.eq_ignore_ascii_case(candidate))
-                            .unwrap_or(false)
-                    }) {
-                        die(&format!(
-                            "Workstream key already exists for this repo: {}",
-                            candidate
-                        ));
-                    }
-                    Some(candidate.to_lowercase())
-                }
-                None => Some(derive_unique_workstream_key(
-                    home,
-                    &registry_repo_root,
-                    &name,
-                )?),
             };
 
             let inserted = upsert_workstream_record(
@@ -6221,6 +6330,206 @@ fn handle_worktree_command(repo_root: &Path, home: &Path, command: WorktreeComma
             }
         }
     }
+    Ok(())
+}
+
+fn handle_config_command(repo_root: &Path, command: &ConfigCommand) -> Result<()> {
+    match command {
+        ConfigCommand::Show { json } => {
+            let project = load_config_with_path(repo_root).map(|(config, path)| {
+                serde_json::json!({
+                    "path": path,
+                    "config": config
+                })
+            });
+            let global = load_global_config_with_path().map(|(config, path)| {
+                serde_json::json!({
+                    "path": path,
+                    "config": config
+                })
+            });
+
+            let (worktrees_default, worktrees_default_source) =
+                resolve_worktrees_default_with_source(repo_root);
+            let (worktrees_dir, worktrees_dir_source) =
+                resolve_worktrees_dir_with_source(repo_root);
+            let (auto_session_default, auto_session_default_source) =
+                resolve_auto_session_default_with_source(repo_root);
+
+            let payload = serde_json::json!({
+                "project": project,
+                "global": global,
+                "effective": {
+                    "worktrees_default": worktrees_default,
+                    "worktrees_dir": worktrees_dir.as_ref().map(|p| p.to_string_lossy().to_string()),
+                    "auto_session_default": auto_session_default,
+                },
+                "sources": {
+                    "worktrees_default": worktrees_default_source,
+                    "worktrees_dir": worktrees_dir_source,
+                    "auto_session_default": auto_session_default_source,
+                },
+                "paths": {
+                    "project_default": workmesh_core::config::config_path(repo_root),
+                    "global_default": global_config_path(),
+                }
+            });
+
+            if *json {
+                println!("{}", serde_json::to_string_pretty(&payload)?);
+            } else {
+                println!("Effective:");
+                println!(
+                    "- worktrees_default: {} ({})",
+                    worktrees_default, worktrees_default_source
+                );
+                if let Some(dir) = worktrees_dir.as_ref() {
+                    println!(
+                        "- worktrees_dir: {} ({})",
+                        dir.to_string_lossy(),
+                        worktrees_dir_source
+                    );
+                } else {
+                    println!("- worktrees_dir: (unset) ({})", worktrees_dir_source);
+                }
+                if let Some(value) = auto_session_default {
+                    println!(
+                        "- auto_session_default: {} ({})",
+                        value, auto_session_default_source
+                    );
+                } else {
+                    println!(
+                        "- auto_session_default: (unset) ({})",
+                        auto_session_default_source
+                    );
+                }
+                if let Some(project) = project.as_ref() {
+                    println!();
+                    println!(
+                        "Project config: {}",
+                        project["path"].as_str().unwrap_or("-")
+                    );
+                }
+                if let Some(global) = global.as_ref() {
+                    println!("Global config: {}", global["path"].as_str().unwrap_or("-"));
+                } else {
+                    println!("Global config: (missing)");
+                }
+            }
+        }
+        ConfigCommand::Set {
+            scope,
+            key,
+            value,
+            json,
+        } => {
+            let key = key.trim();
+            if key.is_empty() {
+                die("--key is required");
+            }
+            let value = value.trim();
+
+            let mut config = match scope {
+                ConfigScopeArg::Project => load_config(repo_root).unwrap_or_default(),
+                ConfigScopeArg::Global => load_global_config().unwrap_or_default(),
+            };
+
+            match key {
+                "worktrees_default" => {
+                    let parsed = parse_boolish(value).unwrap_or_else(|| {
+                        die("Invalid bool value for worktrees_default (expected true/false/1/0)");
+                    });
+                    config.worktrees_default = Some(parsed);
+                }
+                "worktrees_dir" => {
+                    if value.is_empty() {
+                        die("worktrees_dir cannot be blank (use config unset to remove)");
+                    }
+                    config.worktrees_dir = Some(value.to_string());
+                }
+                "auto_session_default" => {
+                    let parsed = parse_boolish(value).unwrap_or_else(|| {
+                        die(
+                            "Invalid bool value for auto_session_default (expected true/false/1/0)",
+                        );
+                    });
+                    config.auto_session_default = Some(parsed);
+                }
+                "root_dir" => {
+                    if value.is_empty() {
+                        die("root_dir cannot be blank (use config unset to remove)");
+                    }
+                    config.root_dir = Some(value.to_string());
+                }
+                "do_not_migrate" => {
+                    let parsed = parse_boolish(value).unwrap_or_else(|| {
+                        die("Invalid bool value for do_not_migrate (expected true/false/1/0)");
+                    });
+                    config.do_not_migrate = Some(parsed);
+                }
+                _ => die(&format!("Unknown config key: {}", key)),
+            }
+
+            let path = match scope {
+                ConfigScopeArg::Project => write_config(repo_root, &config)?,
+                ConfigScopeArg::Global => write_global_config(&config)?,
+            };
+
+            if *json {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&serde_json::json!({
+                        "ok": true,
+                        "scope": match scope { ConfigScopeArg::Project => "project", ConfigScopeArg::Global => "global" },
+                        "path": path,
+                        "config": config
+                    }))?
+                );
+            } else {
+                println!("Wrote {}", path.display());
+            }
+        }
+        ConfigCommand::Unset { scope, key, json } => {
+            let key = key.trim();
+            if key.is_empty() {
+                die("--key is required");
+            }
+
+            let mut config = match scope {
+                ConfigScopeArg::Project => load_config(repo_root).unwrap_or_default(),
+                ConfigScopeArg::Global => load_global_config().unwrap_or_default(),
+            };
+
+            match key {
+                "worktrees_default" => config.worktrees_default = None,
+                "worktrees_dir" => config.worktrees_dir = None,
+                "auto_session_default" => config.auto_session_default = None,
+                "root_dir" => config.root_dir = None,
+                "do_not_migrate" => config.do_not_migrate = None,
+                _ => die(&format!("Unknown config key: {}", key)),
+            }
+
+            let path = match scope {
+                ConfigScopeArg::Project => write_config(repo_root, &config)?,
+                ConfigScopeArg::Global => write_global_config(&config)?,
+            };
+
+            if *json {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&serde_json::json!({
+                        "ok": true,
+                        "scope": match scope { ConfigScopeArg::Project => "project", ConfigScopeArg::Global => "global" },
+                        "path": path,
+                        "config": config
+                    }))?
+                );
+            } else {
+                println!("Wrote {}", path.display());
+            }
+        }
+    }
+
     Ok(())
 }
 

@@ -18,6 +18,7 @@ Project config:
 
 Keys:
 - `worktrees_default = true|false`
+- `worktrees_dir = "<path>"`
 - `auto_session_default = true|false`
 
 Precedence:
@@ -30,6 +31,17 @@ Precedence:
 Environment overrides:
 - `WORKMESH_AUTO_CHECKPOINT=1|0`
 - `WORKMESH_AUTO_SESSION=1|0`
+
+## Config
+CLI:
+- `config show [--json]`
+- `config set --scope project|global --key worktrees_default|worktrees_dir|auto_session_default|root_dir|do_not_migrate --value <value> [--json]`
+- `config unset --scope project|global --key worktrees_default|worktrees_dir|auto_session_default|root_dir|do_not_migrate [--json]`
+
+MCP:
+- `config_show`
+- `config_set`
+- `config_unset`
 
 ## Bootstrap and diagnostics
 CLI:
@@ -163,7 +175,7 @@ CLI:
 - `workstream list [--json]`
 - `workstream restore [--all] [--json]`
 - `workstream create --name "..." [--key <key>] [--existing] [--path <path> --branch <branch> --from <ref>] [--project <pid>] [--epic task-123] [--objective "..."] [--tasks task-001,task-002] [--json]`
-- `workstream show [<id-or-key>] [--truth] [--json]`
+- `workstream show [<id-or-key>] [--truth] [--restore] [--json]`
 - `workstream switch <id-or-key> [--json]`
 - `workstream pause [<id-or-key>] [--json]`
 - `workstream close [<id-or-key>] [--json]`
@@ -175,7 +187,7 @@ CLI:
 MCP:
 - `workstream_list`
 - `workstream_create`
-- `workstream_show` (supports `truths=true`)
+- `workstream_show` (supports `truths=true`, `restore=true`)
 - `workstream_switch`
 - `workstream_pause`
 - `workstream_close`
@@ -193,6 +205,7 @@ Notes:
 - `worktree detach` clears the active workstream `session_id` when it matches the detached session.
 - `context set` preserves `workstream_id` and persists the updated context snapshot into the workstream record (best-effort).
 - `workstream pause` and `workstream close` clear `context.json.workstream_id` when the paused/closed stream was active in this worktree.
+- `workstream create` can auto-provision a new git worktree when invoked from the canonical checkout and `worktrees_default=true` (requires a real `HEAD` commit). Override by passing `--existing` or explicit `--path/--branch`.
 
 ## Worktree runtime
 CLI:

@@ -85,6 +85,11 @@ Typical usage:
 2. Run the `resume_script` commands (they include `session resume`, `context show`, and `next`).
 3. Continue feature work in Codex from that worktree.
 
+Tip: to get resume commands for a single workstream:
+```bash
+workmesh --root . workstream show <id-or-key> --restore --json
+```
+
 ## Clone-to-Worktree Transition (When You Are Ready)
 If you currently keep multiple full clones for parallel streams, migrate progressively:
 
