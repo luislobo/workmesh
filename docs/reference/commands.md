@@ -18,7 +18,7 @@ Project config:
 
 Keys:
 - `worktrees_default = true|false`
-- `worktrees_dir = "<path>"`
+- `worktrees_dir = "<path>"` (absolute or repo-relative; used for auto-provisioned worktrees; default: `<repo_parent>/<repo_name>.worktrees/`)
 - `auto_session_default = true|false`
 
 Precedence:
