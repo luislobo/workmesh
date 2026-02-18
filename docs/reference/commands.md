@@ -1,6 +1,7 @@
 # Command Reference
 
 This file is command-surface only. For workflow guidance, use [`docs/getting-started.md`](../getting-started.md).
+For the standalone monitor service, use [`docs/reference/service.md`](service.md).
 
 ## Global CLI flags
 All subcommands support:

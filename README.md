@@ -6,6 +6,7 @@ This repository contains:
 - `workmesh` (CLI)
 - `workmesh-core` (shared logic)
 - `workmesh-mcp` (MCP server)
+- `workmesh-service` (LAN-ready monitoring web service)
 
 Agent-friendly format: [`README.json`](README.json) (kept in sync with this file).
 
@@ -57,6 +58,7 @@ workmesh --root . bootstrap --project-id <project-id> --feature "<feature-name>"
 ```bash
 workmesh --version
 workmesh-mcp --version
+workmesh-service --version
 ```
 
 Install from release artifacts (`workmesh`, `workmesh-mcp`) and verify versions.
@@ -67,6 +69,7 @@ git clone git@github.com:luislobo/workmesh.git
 cd workmesh
 cargo build -p workmesh
 cargo build -p workmesh-mcp
+cargo build -p workmesh-service
 ```
 
 ## MCP Setup
@@ -78,6 +81,25 @@ Codex example:
 command = "/usr/local/bin/workmesh-mcp"
 args = []
 ```
+
+## Service Monitor
+`workmesh-service` provides a centralized UI/API over sessions, workstreams, and worktrees.
+
+Run locally:
+```bash
+workmesh-service --host 127.0.0.1 --port 4747
+```
+
+Run on LAN (token required):
+```bash
+workmesh-service --host 0.0.0.0 --port 4747 --auth-token "<token>"
+```
+
+Routes:
+- UI: `/`, `/sessions`, `/workstreams`, `/worktrees`, `/repos`
+- API: `/api/v1/*`
+- realtime: `/ws`
+- health: `/healthz`
 
 ## Defaults
 Global config:
@@ -160,6 +182,7 @@ See [`docs/reference/commands.md`](docs/reference/commands.md) for `workstream .
 ## Documentation
 - Codex-first onboarding: [`docs/getting-started.md`](docs/getting-started.md)
 - Command catalog: [`docs/reference/commands.md`](docs/reference/commands.md)
+- Service monitor reference: [`docs/reference/service.md`](docs/reference/service.md)
 - Documentation index: [`docs/README.md`](docs/README.md)
 
 ## Legacy Note

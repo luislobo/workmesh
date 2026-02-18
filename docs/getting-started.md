@@ -4,8 +4,9 @@ This guide is Codex-first. It assumes your normal workflow is chat-driven, not c
 
 ## One-Time Setup
 1. Install `workmesh` and `workmesh-mcp`.
-2. Configure Codex MCP for `workmesh-mcp` if you want MCP mode.
-3. Install WorkMesh skills (router + CLI + MCP profiles).
+2. Optional: install `workmesh-service` for a browser dashboard across sessions/workstreams/worktrees.
+3. Configure Codex MCP for `workmesh-mcp` if you want MCP mode.
+4. Install WorkMesh skills (router + CLI + MCP profiles).
 
 After this, your day-to-day entry flow is one prompt.
 
@@ -124,4 +125,5 @@ Only use this if you explicitly want direct CLI execution.
 
 ## Related Docs
 - Command reference: [`docs/reference/commands.md`](reference/commands.md)
+- Service monitor reference: [`docs/reference/service.md`](reference/service.md)
 - Documentation index: [`docs/README.md`](README.md)

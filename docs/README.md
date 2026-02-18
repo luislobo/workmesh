@@ -6,9 +6,13 @@ Canonical workflow entrypoint:
 Command catalog:
 - [`docs/reference/commands.md`](reference/commands.md)
 
+Service monitor reference:
+- [`docs/reference/service.md`](reference/service.md)
+
 ## Documentation structure
 - [`docs/getting-started.md`](getting-started.md): Codex-first onboarding and daily workflow.
 - [`docs/reference/commands.md`](reference/commands.md): authoritative CLI/MCP command surface.
+- [`docs/reference/service.md`](reference/service.md): `workmesh-service` runtime, auth, API, and realtime docs.
 - `docs/projects/<project-id>/`: project-level PRDs, decisions, and updates.
 - [`docs/diagrams/`](diagrams/): architecture and workflow diagrams.
 
