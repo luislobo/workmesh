@@ -417,6 +417,22 @@ pub fn find_workstream_for_repo_by_id(
     Ok(streams.into_iter().find(|record| record.id == id))
 }
 
+pub fn find_workstream_for_repo_by_worktree_path(
+    home: &Path,
+    repo_root: &Path,
+    worktree_path: &Path,
+) -> Result<Option<WorkstreamRecord>> {
+    let path_norm = normalize_path_string(worktree_path)?;
+    let streams = list_workstreams_for_repo(home, repo_root)?;
+    Ok(streams.into_iter().find(|record| {
+        record
+            .worktree
+            .as_ref()
+            .map(|binding| binding.path.eq_ignore_ascii_case(&path_norm))
+            .unwrap_or(false)
+    }))
+}
+
 pub fn update_workstream_for_repo_by_id(
     home: &Path,
     repo_root: &Path,
@@ -927,6 +943,41 @@ mod tests {
         assert_eq!(listed_after.len(), 1);
         assert_eq!(listed_after[0].status, WorkstreamStatus::Paused);
         assert_eq!(listed_after[0].notes.as_deref(), Some("paused"));
+    }
+
+    #[test]
+    fn find_workstream_for_repo_by_worktree_path_matches_bound_stream() {
+        let temp = TempDir::new().expect("tempdir");
+        let home = temp.path();
+        let repo_root = home.join("repo");
+        let worktree_path = repo_root.join("feature");
+        std::fs::create_dir_all(&worktree_path).expect("worktree dir");
+
+        let record = WorkstreamRecord {
+            id: "".to_string(),
+            repo_root: repo_root.to_string_lossy().to_string(),
+            key: Some("alpha".to_string()),
+            name: "Alpha stream".to_string(),
+            status: WorkstreamStatus::Active,
+            created_at: "".to_string(),
+            updated_at: "".to_string(),
+            worktree: Some(WorktreeBinding {
+                id: None,
+                path: normalize_path_string(&worktree_path).expect("normalize"),
+                branch: Some("feature/alpha".to_string()),
+                repo_root: Some(repo_root.to_string_lossy().to_string()),
+            }),
+            session_id: None,
+            context: None,
+            truth_refs: vec![],
+            notes: None,
+        };
+
+        let inserted = upsert_workstream_record(home, record).expect("insert");
+        let found = find_workstream_for_repo_by_worktree_path(home, &repo_root, &worktree_path)
+            .expect("find")
+            .expect("record");
+        assert_eq!(found.id, inserted.id);
     }
 
     #[test]

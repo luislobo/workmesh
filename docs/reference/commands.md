@@ -206,6 +206,7 @@ Notes:
 - `context set` preserves `workstream_id` and persists the updated context snapshot into the workstream record (best-effort).
 - `workstream pause` and `workstream close` clear `context.json.workstream_id` when the paused/closed stream was active in this worktree.
 - `workstream create` can auto-provision a new git worktree when invoked from the canonical checkout and `worktrees_default=true` (requires a real `HEAD` commit). Override by passing `--existing` or explicit `--path/--branch`.
+- `workstream create` is idempotent for a given target worktree path: if that path is already bound, it returns the existing workstream (`already_exists=true`) instead of creating a duplicate.
 
 ## Worktree runtime
 CLI:

@@ -131,6 +131,7 @@ Behavior:
 - When run from the canonical checkout and the repo has a real `HEAD` commit, `workstream create` auto-provisions a new git worktree by default (unless you pass `--existing` or explicit `--path/--branch`).
 - Auto-provision uses `worktrees_dir` when set; otherwise it defaults to `<repo_parent>/<repo_name>.worktrees/`.
 - When run from a non-canonical git worktree checkout, `workstream create` binds the workstream to the current worktree by default (no new worktree).
+- If the target worktree path is already bound to a workstream, `workstream create` returns the existing workstream (`already_exists=true`) instead of creating a duplicate.
 
 When a workstream is active in a worktree, `session save` and `worktree attach/detach` keep the stream's session/worktree pointers updated automatically.
 

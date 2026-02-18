@@ -79,7 +79,8 @@ use workmesh_core::views::{
     blockers_report_with_context, board_lanes, scope_ids_from_context, BoardBy,
 };
 use workmesh_core::workstreams::{
-    build_workstream_restore_plan, derive_unique_workstream_key, list_workstreams_for_repo,
+    build_workstream_restore_plan, derive_unique_workstream_key,
+    find_workstream_for_repo_by_worktree_path, list_workstreams_for_repo,
     resolve_repo_root_for_registry, update_workstream_for_repo_by_id, upsert_workstream_record,
     WorkstreamContextSnapshot, WorkstreamRecord, WorkstreamRestoreOptions, WorkstreamStatus,
 };
@@ -5523,12 +5524,171 @@ fn handle_workstream_command(
                 die("--path and --branch must be provided together");
             }
 
-            let resolved_key = match key
+            let should_auto_provision_worktree = !existing
+                && path.is_none()
+                && branch.is_none()
+                && resolve_worktrees_default(repo_root)
+                && git_has_head(repo_root)
+                && normalize_path(repo_root) == normalize_path(&registry_repo_root);
+            let explicit_key = key
+                .as_deref()
+                .map(|value| value.trim())
+                .filter(|value| !value.is_empty())
+                .map(|value| value.to_string());
+
+            let handle_already_exists = |found: WorkstreamRecord,
+                                         target_path: &Path|
+             -> Result<()> {
+                let mut warnings: Vec<String> = Vec::new();
+
+                // Update current checkout context pointer to the existing workstream.
+                let existing_ctx = load_context(backlog_dir)?.unwrap_or_default();
+                let mut next = existing_ctx;
+                next.workstream_id = Some(found.id.clone());
+                if let Some(snapshot) = found.context.as_ref() {
+                    next.project_id = snapshot.project_id.clone();
+                    next.objective = snapshot.objective.clone();
+                    next.scope = snapshot.scope.clone();
+                }
+                save_context(backlog_dir, next)?;
+
+                // Also update the target worktree context (when it has a backlog/tasks layout).
+                let mut target_context_updated = false;
+                let seed_root = normalize_path(target_path);
+                match resolve_backlog(&seed_root) {
+                    Ok(resolution) => {
+                        let existing = load_context(&resolution.backlog_dir)?.unwrap_or_default();
+                        let mut state = existing;
+                        state.workstream_id = Some(found.id.clone());
+                        if let Some(snapshot) = found.context.as_ref() {
+                            state.project_id = snapshot.project_id.clone();
+                            state.objective = snapshot.objective.clone();
+                            state.scope = snapshot.scope.clone();
+                        }
+                        save_context(&resolution.backlog_dir, state)?;
+                        target_context_updated = true;
+                    }
+                    Err(_) => warnings.push(format!(
+                        "context update skipped (no workmesh/tasks found under {})",
+                        seed_root.display()
+                    )),
+                }
+
+                if json {
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(&serde_json::json!({
+                            "ok": true,
+                            "already_exists": true,
+                            "workstream": found,
+                            "registry_path": workmesh_core::workstreams::workstreams_registry_path(home),
+                            "worktree": serde_json::Value::Null,
+                            "context_seeded": false,
+                            "context_updated": true,
+                            "target_context_updated": target_context_updated,
+                            "warnings": warnings
+                        }))?
+                    );
+                } else {
+                    println!("Workstream already exists: {}", found.id);
+                    if let Some(worktree) = found.worktree.as_ref() {
+                        println!("worktree: {}", worktree.path);
+                    }
+                    println!("bound_path: {}", target_path.display());
+                    println!("Updated repo-local context for this worktree.");
+                    if target_context_updated
+                        && normalize_path(repo_root) != normalize_path(target_path)
+                    {
+                        println!("Updated context in {}", target_path.display());
+                    }
+                    for warning in warnings {
+                        println!("warning: {}", warning);
+                    }
+                }
+
+                Ok(())
+            };
+
+            // Smart/idempotent create: if the target worktree path is already bound to a workstream,
+            // return that workstream instead of creating a duplicate.
+            //
+            // Skip this early check when auto-provisioning since the target path isn't repo_root.
+            if !should_auto_provision_worktree {
+                let target_path = if existing {
+                    path.clone().expect("validated --path for --existing")
+                } else if let Some(value) = path.as_ref() {
+                    value.clone()
+                } else {
+                    repo_root.to_path_buf()
+                };
+
+                if existing && !target_path.exists() {
+                    die(&format!(
+                        "--path does not exist for --existing: {}",
+                        target_path.display()
+                    ));
+                }
+
+                if let Some(found) = find_workstream_for_repo_by_worktree_path(
+                    home,
+                    &registry_repo_root,
+                    &target_path,
+                )? {
+                    if let Some(explicit) = explicit_key.as_deref() {
+                        let matches = found
+                            .key
+                            .as_deref()
+                            .map(|value| value.eq_ignore_ascii_case(explicit))
+                            .unwrap_or(false);
+                        if !matches {
+                            die(&format!(
+                                "Worktree path is already bound to workstream {} (key={}); requested key does not match: {}",
+                                found.id,
+                                found.key.clone().unwrap_or_else(|| "-".to_string()),
+                                explicit
+                            ));
+                        }
+                    }
+                    handle_already_exists(found, &target_path)?;
+                    return Ok(());
+                }
+            }
+
+            let resolved_key = match explicit_key
                 .as_deref()
                 .map(|value| value.trim())
                 .filter(|value| !value.is_empty())
             {
                 Some(candidate) => {
+                    // Special-case idempotency for auto-provision: if the derived worktree path for
+                    // this key is already bound, treat create as a no-op.
+                    if should_auto_provision_worktree {
+                        let key_value = candidate.to_lowercase();
+                        let worktrees_dir = default_worktrees_dir(repo_root);
+                        let expected_path = worktrees_dir.join(&key_value);
+                        if let Some(found) = find_workstream_for_repo_by_worktree_path(
+                            home,
+                            &registry_repo_root,
+                            &expected_path,
+                        )? {
+                            let matches = found
+                                .key
+                                .as_deref()
+                                .map(|value| value.eq_ignore_ascii_case(candidate))
+                                .unwrap_or(false);
+                            if !matches {
+                                die(&format!(
+                                    "Worktree path is already bound to workstream {} (key={}); requested key does not match: {}",
+                                    found.id,
+                                    found.key.clone().unwrap_or_else(|| "-".to_string()),
+                                    candidate
+                                ));
+                            }
+                            handle_already_exists(found, &expected_path)?;
+                            return Ok(());
+                        }
+                    }
+
                     let existing = list_workstreams_for_repo(home, &registry_repo_root)?;
                     if existing.iter().any(|record| {
                         record
@@ -5551,12 +5711,6 @@ fn handle_workstream_command(
                 )?),
             };
 
-            let should_auto_provision_worktree = !existing
-                && path.is_none()
-                && branch.is_none()
-                && resolve_worktrees_default(repo_root)
-                && git_has_head(repo_root)
-                && normalize_path(repo_root) == normalize_path(&registry_repo_root);
             if should_auto_provision_worktree {
                 let key_value = resolved_key
                     .as_deref()
@@ -5567,6 +5721,32 @@ fn handle_workstream_command(
                 path = Some(worktrees_dir.join(key_value));
                 let branch_base = format!("ws/{}", key_value);
                 branch = Some(derive_unique_worktree_branch(repo_root, &branch_base));
+
+                if let Some(target_path) = path.as_ref() {
+                    if let Some(found) = find_workstream_for_repo_by_worktree_path(
+                        home,
+                        &registry_repo_root,
+                        target_path,
+                    )? {
+                        if let Some(explicit) = explicit_key.as_deref() {
+                            let matches = found
+                                .key
+                                .as_deref()
+                                .map(|value| value.eq_ignore_ascii_case(explicit))
+                                .unwrap_or(false);
+                            if !matches {
+                                die(&format!(
+                                    "Worktree path is already bound to workstream {} (key={}); requested key does not match: {}",
+                                    found.id,
+                                    found.key.clone().unwrap_or_else(|| "-".to_string()),
+                                    explicit
+                                ));
+                            }
+                        }
+                        handle_already_exists(found, target_path)?;
+                        return Ok(());
+                    }
+                }
             }
 
             // Determine initial scope from explicit flags, falling back to branch-derived epic id.
@@ -5790,6 +5970,7 @@ fn handle_workstream_command(
                     "{}",
                     serde_json::to_string_pretty(&serde_json::json!({
                         "ok": true,
+                        "already_exists": false,
                         "workstream": inserted,
                         "registry_path": workmesh_core::workstreams::workstreams_registry_path(home),
                         "worktree": created_worktree,

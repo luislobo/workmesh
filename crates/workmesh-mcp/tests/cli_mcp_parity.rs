@@ -2150,9 +2150,55 @@ async fn cli_and_mcp_workstream_parity() {
     std::env::set_var("WORKMESH_HOME", home.path());
 
     let repo = TempDir::new().expect("repo tempdir");
+    init_git_repo(repo.path());
+
+    // Worktree provisioning requires a real HEAD commit.
+    let output = Command::new("git")
+        .arg("-C")
+        .arg(repo.path())
+        .args(["config", "user.email", "workmesh@example.com"])
+        .output()
+        .expect("git config email");
+    assert_output_ok!(output);
+    let output = Command::new("git")
+        .arg("-C")
+        .arg(repo.path())
+        .args(["config", "user.name", "WorkMesh Test"])
+        .output()
+        .expect("git config name");
+    assert_output_ok!(output);
+
+    // Keep worktrees under a temp workspace so we don't leave sibling directories behind.
+    let workspace = TempDir::new().expect("workspace tempdir");
+    let worktrees_dir = workspace.path().join("worktrees");
+    std::fs::write(
+        repo.path().join(".workmesh.toml"),
+        format!(
+            "worktrees_dir = \"{}\"\n",
+            worktrees_dir.to_string_lossy().replace('\"', "\\\"")
+        ),
+    )
+    .expect("write project config");
+
     let tasks_dir = repo.path().join("workmesh").join("tasks");
     std::fs::create_dir_all(&tasks_dir).expect("tasks dir");
     write_task(&tasks_dir, "task-001", "Seed", "To Do", &[]);
+    std::fs::write(repo.path().join("README.md"), "seed\n").expect("write readme");
+
+    let output = Command::new("git")
+        .arg("-C")
+        .arg(repo.path())
+        .args(["add", "-A"])
+        .output()
+        .expect("git add");
+    assert_output_ok!(output);
+    let output = Command::new("git")
+        .arg("-C")
+        .arg(repo.path())
+        .args(["commit", "-m", "init"])
+        .output()
+        .expect("git commit");
+    assert_output_ok!(output);
 
     let client = start_client(repo.path()).await;
 
