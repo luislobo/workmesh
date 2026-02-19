@@ -4,7 +4,6 @@ members = [
   "crates/workmesh-core",
   "crates/workmesh-cli",
   "crates/workmesh-mcp",
-  "crates/workmesh-service",
 ]
 
 [workspace.package]

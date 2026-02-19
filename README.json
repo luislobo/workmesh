@@ -4,8 +4,7 @@
   "artifacts": {
     "cli": "workmesh",
     "core": "workmesh-core",
-    "mcp": "workmesh-mcp",
-    "service": "workmesh-service"
+    "mcp": "workmesh-mcp"
   },
   "codex_first_workflow": {
     "recommended": true,
@@ -30,15 +29,13 @@
   "install": {
     "verify": [
       "workmesh --version",
-      "workmesh-mcp --version",
-      "workmesh-service --version"
+      "workmesh-mcp --version"
     ],
     "from_source": [
       "git clone git@github.com:luislobo/workmesh.git",
       "cd workmesh",
       "cargo build -p workmesh",
-      "cargo build -p workmesh-mcp",
-      "cargo build -p workmesh-service"
+      "cargo build -p workmesh-mcp"
     ]
   },
   "mcp_setup": {
@@ -46,23 +43,6 @@
     "codex_example": {
       "command": "/usr/local/bin/workmesh-mcp",
       "args": []
-    }
-  },
-  "service_monitor": {
-    "summary": "workmesh-service provides a centralized UI/API over sessions, workstreams, and worktrees.",
-    "run_local": "workmesh-service --host 127.0.0.1 --port 4747",
-    "run_lan": "workmesh-service --host 0.0.0.0 --port 4747 --auth-token \"<token>\"",
-    "routes": {
-      "ui": [
-        "/",
-        "/sessions",
-        "/workstreams",
-        "/worktrees",
-        "/repos"
-      ],
-      "api": "/api/v1/*",
-      "realtime": "/ws",
-      "health": "/healthz"
     }
   },
   "defaults": {
@@ -161,7 +141,6 @@
   "docs": {
     "onboarding": "docs/getting-started.md",
     "commands": "docs/reference/commands.md",
-    "service": "docs/reference/service.md",
     "index": "docs/README.md"
   },
   "legacy_note": {
