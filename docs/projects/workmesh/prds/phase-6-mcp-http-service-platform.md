@@ -2,7 +2,7 @@
 
 Date: 2026-02-26
 Owner: Luis Lobo
-Status: In Progress
+Status: Implemented
 
 ## Problem
 WorkMesh currently provides a CLI and an MCP server process, but it lacks a long-lived HTTP service mode for:
@@ -129,6 +129,13 @@ This limits real-time operations, central observability, and future phone-first 
 - Provider packaging model (compiled-in registry first, plugin model later).
 - Default auth behavior for trusted local subnet vs strict token-only.
 - Metrics format/export target (Prometheus text vs JSON-only in first cut).
+
+## Completion notes
+- `workmesh-service` crate is implemented and shipped.
+- HTTP endpoints are available: health/readiness/status/metrics/providers/invoke/reload.
+- CLI service lifecycle includes verify/start/systemd install.
+- LAN-safe baseline is enforced (non-localhost requires bearer auth token).
+- Documentation is published for CLI, MCP stdio, and MCP HTTP agent setup.
 
 ## Companion design docs
 - `docs/projects/workmesh/decisions/0002-mcp-http-service-architecture.md`

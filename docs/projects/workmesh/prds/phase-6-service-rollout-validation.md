@@ -1,7 +1,7 @@
 # Phase 6 Service Rollout Validation Runbook
 
 Date: 2026-02-26
-Status: Draft
+Status: Implemented
 
 ## Scope
 Validate service-mode readiness for:
@@ -73,3 +73,9 @@ curl -s http://127.0.0.1:4747/v1/mcp/invoke \
 - LAN-safe auth behavior is confirmed.
 - Reload endpoint returns deterministic status and does not crash service.
 - Rollback path is clear and tested.
+
+## Validation outcome
+- Local service endpoints validated (`/v1/healthz`, `/v1/readyz`, `/v1/status`, `/v1/providers`).
+- MCP-over-HTTP invocation validated through `/v1/mcp/invoke`.
+- LAN-safe token policy validated (non-localhost bind requires token).
+- Service command surface validated (`service verify`, `service start`, `service install-systemd`).
