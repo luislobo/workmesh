@@ -1,0 +1,13 @@
+{
+  "tool": "render_progress",
+  "arguments": {
+    "data": [
+      {"label": "sync", "current": 3, "total": 5},
+      {"label": "deploy", "percent": 80}
+    ],
+    "configuration": {
+      "barWidth": 10,
+      "showPercent": true
+    }
+  }
+}

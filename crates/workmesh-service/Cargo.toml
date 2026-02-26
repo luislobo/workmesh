@@ -16,6 +16,7 @@ toml.workspace = true
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 workmesh-core = { path = "../workmesh-core" }
+workmesh-render = { path = "../workmesh-render" }
 
 [dev-dependencies]
 http-body-util = "0.1"

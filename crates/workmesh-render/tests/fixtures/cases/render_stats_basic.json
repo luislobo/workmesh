@@ -1,0 +1,12 @@
+{
+  "tool": "render_stats",
+  "arguments": {
+    "data": [
+      {"metric": "tasks_total", "value": 10},
+      {"metric": "tasks_done", "value": 8}
+    ],
+    "configuration": {
+      "compact": true
+    }
+  }
+}

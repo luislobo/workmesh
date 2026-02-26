@@ -1,0 +1,13 @@
+{
+  "tool": "render_table",
+  "arguments": {
+    "data": [
+      {"service": "api", "status": "ok"},
+      {"service": "worker", "status": "degraded"}
+    ],
+    "configuration": {
+      "mode": "minimal",
+      "showIndex": false
+    }
+  }
+}

@@ -76,6 +76,34 @@ HTTP runtime endpoints:
 - `POST /v1/mcp/invoke`
 - `POST /v1/admin/reload`
 
+HTTP provider namespaces:
+- `workmesh`
+- `system`
+- `render`
+
+`render` tools:
+- `render_table`
+- `render_kv`
+- `render_stats`
+- `render_progress`
+- `render_tree`
+- `render_diff`
+- `render_logs`
+- `render_alerts`
+- `render_list`
+- `render_chart_bar`
+- `render_sparkline`
+- `render_timeline`
+
+Example render invocation:
+```bash
+curl -s \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  http://127.0.0.1:4747/v1/mcp/invoke \
+  -d '{"namespace":"render","tool":"render_kv","arguments":{"data":{"env":"dev","version":"0.2.15"}}}'
+```
+
 Operational notes:
 - `service start` runs `workmesh-service` in foreground.
 - `service verify` checks `workmesh-service --version` and reports diagnostic output.
@@ -84,6 +112,7 @@ Operational notes:
 - `--scope system` writes to `/etc/systemd/system` and uses `systemctl` (typically requires sudo/root).
 - default bind should remain localhost.
 - for non-localhost exposure, configure bearer auth token and send `Authorization: Bearer <token>`.
+- external Node `mcp-gui` is deprecated/retired as primary renderer path; use `render` namespace in `workmesh-service`.
 
 Doctor storage fix behavior:
 - `--fix-storage` (CLI) / `fix_storage=true` (MCP) performs safe remediation only:

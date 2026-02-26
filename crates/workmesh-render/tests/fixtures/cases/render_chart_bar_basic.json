@@ -1,0 +1,13 @@
+{
+  "tool": "render_chart_bar",
+  "arguments": {
+    "data": [
+      {"label": "todo", "value": 3},
+      {"label": "done", "value": 7}
+    ],
+    "configuration": {
+      "width": 10,
+      "showValues": true
+    }
+  }
+}

@@ -430,9 +430,10 @@ pub fn apply_migration_plan(
                         }
                     }
                     if changed.is_empty() {
-                        result
-                            .warnings
-                            .push("task_section_normalization: no legacy task bodies to normalize".to_string());
+                        result.warnings.push(
+                            "task_section_normalization: no legacy task bodies to normalize"
+                                .to_string(),
+                        );
                     }
                     result.applied.push(kind.as_str().to_string());
                 }

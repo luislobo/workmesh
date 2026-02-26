@@ -21,6 +21,7 @@ Command catalog:
 - Sessions: global continuity records under `WORKMESH_HOME`.
 - Worktrees: runtime stream isolation for parallel work.
 - Service mode: `workmesh-service` HTTP runtime for local/LAN operations.
+- Render provider: native Rust `render` namespace in `workmesh-service` for terminal-friendly visualization tools.
 
 ## Policy
 - Primary guidance is prompt-driven and Codex-first.
@@ -28,6 +29,7 @@ Command catalog:
 - Legacy migration guidance remains minimal and out of the main flow.
 - Archive defaults are safety-first: only terminal statuses are archived unless an explicit status override is provided.
 - Task lifecycle quality is enforced: `Done` transitions require complete task sections and outcome-based Definition of Done criteria.
+- Legacy external Node `mcp-gui` path is retired; renderer workflows are served by `workmesh-service` `render` namespace.
 
 ## Storage Integrity Policy
 - Tracking-file writes must use WorkMesh storage primitives (no ad-hoc direct writes for critical state).

@@ -78,6 +78,11 @@ If you want a long-lived local/LAN service runtime:
    - `GET /v1/providers`
    - `POST /v1/mcp/invoke`
    - `POST /v1/admin/reload`
+   - provider namespaces include `workmesh`, `system`, and `render`
+
+Render workflow note:
+- External Node `mcp-gui` is retired as the primary renderer path.
+- Use `workmesh-service` `render` namespace for visualization/render tools.
 
 Container option:
 - use sample files in `docker/workmesh-service/` (`Dockerfile`, `docker-compose.yml`, `service.toml.example`).

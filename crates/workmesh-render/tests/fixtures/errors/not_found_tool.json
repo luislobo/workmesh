@@ -1,0 +1,8 @@
+{
+  "tool": "render_unknown",
+  "arguments": {
+    "data": []
+  },
+  "error_kind": "not_found",
+  "error_contains": "Tool not found"
+}

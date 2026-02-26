@@ -25,7 +25,8 @@ use tracing::info;
 
 use crate::{
     config::{load_config, CliOverrides, ServiceConfig},
-    mcp_http, version::FULL,
+    mcp_http,
+    version::FULL,
 };
 
 #[derive(Debug)]
@@ -334,7 +335,9 @@ async fn reload(State(state): State<Arc<ServiceState>>) -> impl IntoResponse {
         }
     };
 
-    state.pending_restart.store(pending_restart, Ordering::Relaxed);
+    state
+        .pending_restart
+        .store(pending_restart, Ordering::Relaxed);
     let config_version = state.config_version.fetch_add(1, Ordering::Relaxed) + 1;
 
     (

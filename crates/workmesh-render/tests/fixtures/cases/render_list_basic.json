@@ -1,0 +1,14 @@
+{
+  "tool": "render_list",
+  "arguments": {
+    "data": [
+      {"text": "Plan"},
+      {"text": "Implement"},
+      {"text": "Validate"}
+    ],
+    "configuration": {
+      "ordered": true,
+      "start": 1
+    }
+  }
+}

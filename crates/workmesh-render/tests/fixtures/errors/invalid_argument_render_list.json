@@ -1,0 +1,8 @@
+{
+  "tool": "render_list",
+  "arguments": {
+    "data": {"text": "not-an-array"}
+  },
+  "error_kind": "invalid_argument",
+  "error_contains": "render_list expects an array"
+}

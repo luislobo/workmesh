@@ -119,6 +119,24 @@ Key endpoints:
 - `POST /v1/mcp/invoke`
 - `POST /v1/admin/reload`
 
+Provider namespaces:
+- `workmesh`: task/context/truth/workstream/worktree/session tools
+- `system`: service diagnostics (`ping`, `version`, `status`)
+- `render`: native Rust terminal render tools (`render_table`, `render_kv`, `render_stats`, `render_progress`, `render_tree`, `render_diff`, `render_logs`, `render_alerts`, `render_list`, `render_chart_bar`, `render_sparkline`, `render_timeline`)
+
+Render invocation example:
+```bash
+curl -s \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  http://127.0.0.1:4747/v1/mcp/invoke \
+  -d '{"namespace":"render","tool":"render_list","arguments":{"data":[{"text":"Plan"},{"text":"Build"},{"text":"Validate"}],"configuration":{"ordered":true}}}'
+```
+
+Deprecation note:
+- External Node `mcp-gui` is retired as the primary renderer path.
+- Use `workmesh-service` `render` namespace for renderer workflows.
+
 LAN safety baseline:
 - default bind should remain localhost (`127.0.0.1`)
 - if binding non-localhost, configure an auth token

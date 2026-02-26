@@ -112,12 +112,30 @@ curl -s \
   -d '{"namespace":"workmesh","tool":"list_tasks","arguments":{"root":"."}}'
 ```
 
+Provider namespaces in HTTP mode:
+- `workmesh`: task/context/truth/workstream/worktree/session tools
+- `system`: service diagnostics (`ping`, `version`, `status`)
+- `render`: native Rust render tools (`render_table`, `render_kv`, `render_stats`, `render_progress`, `render_tree`, `render_diff`, `render_logs`, `render_alerts`, `render_list`, `render_chart_bar`, `render_sparkline`, `render_timeline`)
+
+Invoke a render tool over HTTP:
+```bash
+curl -s \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  http://127.0.0.1:4747/v1/mcp/invoke \
+  -d '{"namespace":"render","tool":"render_table","arguments":{"data":[{"name":"api","status":"ok"},{"name":"worker","status":"degraded"}]}}'
+```
+
 ### Agent configuration: HTTP-capable clients
 
 For agents/GUI tools that can call HTTP tools directly, configure:
 - base URL: `http://<host>:4747`
 - invoke endpoint: `/v1/mcp/invoke`
 - auth header: `Authorization: Bearer <token>` for protected setups
+
+Renderer note:
+- `render` namespace is provided by `workmesh-service` (MCP HTTP mode).
+- External Node `mcp-gui` is retired as the primary renderer workflow.
 
 If your agent only supports stdio MCP (not HTTP tool endpoints), use MCP stdio mode.
 

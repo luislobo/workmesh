@@ -1,0 +1,10 @@
+{
+  "tool": "render_kv",
+  "arguments": {
+    "data": {"env": "prod", "region": "us-east-1"},
+    "configuration": {
+      "keyOrder": ["env", "region"],
+      "separator": " : "
+    }
+  }
+}

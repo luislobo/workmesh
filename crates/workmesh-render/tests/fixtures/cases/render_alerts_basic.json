@@ -1,0 +1,21 @@
+{
+  "tool": "render_alerts",
+  "arguments": {
+    "data": [
+      {
+        "level": "warning",
+        "message": "Disk usage high",
+        "timestamp": "2026-02-26T10:00:00Z"
+      },
+      {
+        "level": "info",
+        "message": "Backup complete",
+        "timestamp": "2026-02-26T10:05:00Z"
+      }
+    ],
+    "configuration": {
+      "includeLevel": true,
+      "includeTimestamp": true
+    }
+  }
+}

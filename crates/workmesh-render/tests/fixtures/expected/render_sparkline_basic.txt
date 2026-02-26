@@ -1,0 +1,1 @@
+latency_ms: ▂█▁▇ [min=10, max=20]

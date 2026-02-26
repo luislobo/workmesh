@@ -10,6 +10,7 @@ use serde_json::{json, Value};
 use workmesh_core::backlog::{locate_backlog_dir, resolve_backlog_dir, BacklogError};
 use workmesh_core::task::load_tasks;
 use workmesh_core::task_ops::{filter_tasks, sort_tasks, status_counts, task_to_json_value};
+use workmesh_render::RenderError;
 
 use crate::toolhost::{ProviderEntry, ProviderInfo, ProviderTool, ToolError, ToolHost};
 
@@ -43,7 +44,11 @@ pub async fn list_providers() -> impl IntoResponse {
                 .into_response();
         }
     };
-    (StatusCode::OK, Json(json!({ "ok": true, "providers": providers }))).into_response()
+    (
+        StatusCode::OK,
+        Json(json!({ "ok": true, "providers": providers })),
+    )
+        .into_response()
 }
 
 pub async fn invoke(Json(payload): Json<InvokeRequest>) -> impl IntoResponse {
@@ -113,8 +118,18 @@ pub fn reload_tool_host() -> Result<usize, String> {
 
 fn build_tool_host() -> ToolHost {
     let mut host = ToolHost::new();
-    host.register(ProviderEntry::new(workmesh_provider_info(), dispatch_workmesh_tool));
-    host.register(ProviderEntry::new(system_provider_info(), dispatch_system_tool));
+    host.register(ProviderEntry::new(
+        workmesh_provider_info(),
+        dispatch_workmesh_tool,
+    ));
+    host.register(ProviderEntry::new(
+        system_provider_info(),
+        dispatch_system_tool,
+    ));
+    host.register(ProviderEntry::new(
+        render_provider_info(),
+        dispatch_render_tool,
+    ));
     host
 }
 
@@ -156,6 +171,63 @@ fn system_provider_info() -> ProviderInfo {
     }
 }
 
+fn render_provider_info() -> ProviderInfo {
+    ProviderInfo {
+        namespace: "render",
+        version: crate::version::FULL,
+        tools: vec![
+            ProviderTool {
+                name: "render_table",
+                description: "Render tabular data for terminal output.",
+            },
+            ProviderTool {
+                name: "render_kv",
+                description: "Render aligned key-value output.",
+            },
+            ProviderTool {
+                name: "render_stats",
+                description: "Render compact or table-based metrics.",
+            },
+            ProviderTool {
+                name: "render_progress",
+                description: "Render progress bars from percent or current/total values.",
+            },
+            ProviderTool {
+                name: "render_tree",
+                description: "Render nested objects/arrays as an ASCII tree.",
+            },
+            ProviderTool {
+                name: "render_diff",
+                description: "Render a unified text diff from before/after input.",
+            },
+            ProviderTool {
+                name: "render_logs",
+                description: "Render normalized logs as table output.",
+            },
+            ProviderTool {
+                name: "render_alerts",
+                description: "Render alert/notification lines.",
+            },
+            ProviderTool {
+                name: "render_list",
+                description: "Render ordered/unordered/checklist output.",
+            },
+            ProviderTool {
+                name: "render_chart_bar",
+                description: "Render ASCII bar charts from numeric values.",
+            },
+            ProviderTool {
+                name: "render_sparkline",
+                description: "Render compact sparkline output.",
+            },
+            ProviderTool {
+                name: "render_timeline",
+                description: "Render chronological events with status markers.",
+            },
+        ],
+    }
+}
+
 fn dispatch_system_tool(tool: &str, _arguments: &Value) -> Result<Value, ToolError> {
     match tool {
         "ping" => Ok(json!({
@@ -177,6 +249,14 @@ fn dispatch_workmesh_tool(tool: &str, arguments: &Value) -> Result<Value, ToolEr
         "stats" => stats(arguments),
         _ => Err(ToolError::not_found(format!("Tool not found: {}", tool))),
     }
+}
+
+fn dispatch_render_tool(tool: &str, arguments: &Value) -> Result<Value, ToolError> {
+    workmesh_render::dispatch_tool(tool, arguments).map_err(|err| match err {
+        RenderError::InvalidArgument(message) => ToolError::invalid_argument(message),
+        RenderError::NotFound(message) => ToolError::not_found(message),
+        RenderError::Internal(message) => ToolError::internal(message),
+    })
 }
 
 fn list_tasks(arguments: &Value) -> Result<Value, ToolError> {
@@ -281,9 +361,9 @@ fn parse_list_argument(value: Option<&Value>) -> Result<Option<Vec<String>>, Too
     if let Some(list) = value.as_array() {
         let mut parsed = Vec::with_capacity(list.len());
         for item in list {
-            let value = item
-                .as_str()
-                .ok_or_else(|| ToolError::invalid_argument("status list entries must be strings"))?;
+            let value = item.as_str().ok_or_else(|| {
+                ToolError::invalid_argument("status list entries must be strings")
+            })?;
             let trimmed = value.trim();
             if !trimmed.is_empty() {
                 parsed.push(trimmed.to_string());
@@ -359,5 +439,20 @@ mod tests {
             .collect::<Vec<_>>();
         assert!(namespaces.contains(&"workmesh"));
         assert!(namespaces.contains(&"system"));
+        assert!(namespaces.contains(&"render"));
+    }
+
+    #[test]
+    fn render_provider_invokes_tool() {
+        let result = dispatch_render_tool(
+            "render_list",
+            &json!({
+                "data": [{ "text": "one" }, { "text": "two" }],
+                "configuration": { "ordered": true }
+            }),
+        )
+        .expect("render list");
+        let text = result["text"].as_str().expect("text");
+        assert!(text.contains("1."));
     }
 }

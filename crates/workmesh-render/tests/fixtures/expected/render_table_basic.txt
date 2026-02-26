@@ -1,0 +1,4 @@
+service | status  
+--------|---------
+api     | ok      
+worker  | degraded

@@ -1,0 +1,23 @@
+{
+  "tool": "render_timeline",
+  "arguments": {
+    "data": [
+      {
+        "time": "2026-02-25 10:00",
+        "title": "Kickoff",
+        "detail": "Feature planning",
+        "status": "active"
+      },
+      {
+        "time": "2026-02-26 12:00",
+        "title": "Delivery",
+        "detail": "Released to staging",
+        "status": "done"
+      }
+    ],
+    "configuration": {
+      "sort": true,
+      "showStatus": true
+    }
+  }
+}

@@ -1,0 +1,4 @@
+ level  | message  | source | timestamp           
+--------|----------|--------|---------------------
+ INFO   | started  | worker | 2026-02-26T10:00:00Z
+WARNING | retrying | worker | 2026-02-26T10:01:00Z

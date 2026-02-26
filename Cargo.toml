@@ -4,6 +4,7 @@ members = [
   "crates/workmesh-core",
   "crates/workmesh-cli",
   "crates/workmesh-mcp",
+  "crates/workmesh-render",
   "crates/workmesh-service",
 ]
 

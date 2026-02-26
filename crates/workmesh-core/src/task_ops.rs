@@ -1314,8 +1314,7 @@ fn normalize_quality_text(text: &str) -> String {
 
 fn is_placeholder_text(text: &str) -> bool {
     let normalized = normalize_quality_text(text);
-    normalized.is_empty()
-        || matches!(normalized.as_str(), "todo" | "tbd" | "na" | "n a")
+    normalized.is_empty() || matches!(normalized.as_str(), "todo" | "tbd" | "na" | "n a")
 }
 
 fn definition_of_done_is_hygiene_only(content: &str) -> bool {

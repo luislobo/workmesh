@@ -1,0 +1,9 @@
+{
+  "tool": "render_diff",
+  "arguments": {
+    "data": {
+      "before": "line-a\nline-b\nline-c",
+      "after": "line-a\nline-x\nline-c"
+    }
+  }
+}

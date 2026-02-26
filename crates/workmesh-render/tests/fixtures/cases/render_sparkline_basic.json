@@ -1,0 +1,9 @@
+{
+  "tool": "render_sparkline",
+  "arguments": {
+    "data": [12, 20, 10, 18],
+    "configuration": {
+      "label": "latency_ms"
+    }
+  }
+}

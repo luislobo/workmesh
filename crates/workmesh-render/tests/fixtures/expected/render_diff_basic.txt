@@ -1,0 +1,6 @@
+--- before
++++ after
+ line-a
+-line-b
++line-x
+ line-c
