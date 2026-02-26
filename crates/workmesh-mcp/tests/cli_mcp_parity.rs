@@ -237,7 +237,7 @@ fn write_task(dir: &Path, id: &str, title: &str, status: &str, dependencies: &[&
         format!("[{}]", dependencies.join(", "))
     };
     let content = format!(
-        "---\nid: {id}\ntitle: {title}\nstatus: {status}\npriority: P2\nphase: Phase3\ndependencies: {deps}\nlabels: []\nassignee: []\n---\n\n## Notes\n- initial\n",
+        "---\nid: {id}\ntitle: {title}\nstatus: {status}\npriority: P2\nphase: Phase3\ndependencies: {deps}\nlabels: []\nassignee: []\n---\n\nDescription:\n--------------------------------------------------\n- Deliver {title}.\n\nAcceptance Criteria:\n--------------------------------------------------\n- Expected behavior is validated.\n\nDefinition of Done:\n--------------------------------------------------\n- Description goals met and acceptance criteria satisfied.\n- Code/config committed.\n- Docs updated if needed.\n\n## Notes\n- initial\n",
         id = id,
         title = title,
         status = status,
@@ -257,7 +257,7 @@ fn write_task_with_updated(
     let filename = format!("{} - {}.md", id, title.to_lowercase());
     let path = dir.join(filename);
     let content = format!(
-        "---\nid: {id}\ntitle: {title}\nstatus: {status}\npriority: P2\nphase: Phase3\nupdated_date: {updated}\ndependencies: []\nlabels: []\nassignee: []\n---\n\n## Notes\n- initial\n",
+        "---\nid: {id}\ntitle: {title}\nstatus: {status}\npriority: P2\nphase: Phase3\nupdated_date: {updated}\ndependencies: []\nlabels: []\nassignee: []\n---\n\nDescription:\n--------------------------------------------------\n- Deliver {title}.\n\nAcceptance Criteria:\n--------------------------------------------------\n- Expected behavior is validated.\n\nDefinition of Done:\n--------------------------------------------------\n- Description goals met and acceptance criteria satisfied.\n- Code/config committed.\n- Docs updated if needed.\n\n## Notes\n- initial\n",
         id = id,
         title = title,
         status = status,
@@ -1232,7 +1232,7 @@ async fn cli_and_mcp_write_and_session_parity() {
         serde_json::json!({
             "root": temp.path().display().to_string(),
             "task_id": "task-002",
-            "body": "Body via MCP"
+            "body": "Description:\n--------------------------------------------------\n- Body via MCP.\n\nAcceptance Criteria:\n--------------------------------------------------\n- Body mutation remains valid.\n\nDefinition of Done:\n--------------------------------------------------\n- Description goals met and acceptance criteria satisfied.\n- Code/config committed.\n- Docs updated if needed.\n"
         }),
     )
     .await;
@@ -1510,6 +1510,91 @@ async fn cli_and_mcp_write_and_session_parity() {
 
     let task4 = parse_task_file(&task_path4).expect("parse task4");
     assert!(task4.labels.contains(&"seed2".to_string()));
+}
+
+#[tokio::test]
+#[serial]
+async fn cli_and_mcp_done_quality_gate_parity() {
+    let temp = TempDir::new().expect("tempdir");
+    let backlog_dir = temp.path().join("backlog");
+    let tasks_dir = backlog_dir.join("tasks");
+    std::fs::create_dir_all(&tasks_dir).expect("tasks dir");
+
+    let minimal = "---\n\
+id: task-001\n\
+title: Legacy\n\
+status: In Progress\n\
+priority: P2\n\
+phase: Phase1\n\
+dependencies: []\n\
+labels: []\n\
+assignee: []\n\
+---\n\n\
+## Notes\n\
+- legacy\n";
+    std::fs::write(tasks_dir.join("task-001 - legacy.md"), minimal).expect("write legacy");
+
+    let cli_set_status = cli()
+        .arg("--root")
+        .arg(temp.path())
+        .arg("set-status")
+        .arg("task-001")
+        .arg("Done")
+        .output()
+        .expect("cli set-status");
+    assert!(!cli_set_status.status.success());
+    let cli_status_err = String::from_utf8_lossy(&cli_set_status.stderr).to_string();
+    assert!(cli_status_err.contains("task quality requirements"));
+
+    let cli_set_field = cli()
+        .arg("--root")
+        .arg(temp.path())
+        .arg("set-field")
+        .arg("task-001")
+        .arg("status")
+        .arg("Done")
+        .output()
+        .expect("cli set-field");
+    assert!(!cli_set_field.status.success());
+    let cli_field_err = String::from_utf8_lossy(&cli_set_field.stderr).to_string();
+    assert!(cli_field_err.contains("task quality requirements"));
+
+    let client = start_client(temp.path()).await;
+    let mcp_set_status = call_tool_text(
+        &client,
+        "set_status",
+        serde_json::json!({
+            "root": temp.path().display().to_string(),
+            "task_id": "task-001",
+            "status": "Done"
+        }),
+    )
+    .await;
+    let mcp_set_status_json: serde_json::Value =
+        serde_json::from_str(&mcp_set_status).expect("mcp set_status json");
+    assert!(mcp_set_status_json["error"]
+        .as_str()
+        .unwrap_or_default()
+        .contains("task quality requirements"));
+
+    let mcp_set_field = call_tool_text(
+        &client,
+        "set_field",
+        serde_json::json!({
+            "root": temp.path().display().to_string(),
+            "task_id": "task-001",
+            "field": "status",
+            "value": "Done"
+        }),
+    )
+    .await;
+    let mcp_set_field_json: serde_json::Value =
+        serde_json::from_str(&mcp_set_field).expect("mcp set_field json");
+    assert!(mcp_set_field_json["error"]
+        .as_str()
+        .unwrap_or_default()
+        .contains("task quality requirements"));
+    client.shut_down().await.expect("shutdown");
 }
 
 #[tokio::test]

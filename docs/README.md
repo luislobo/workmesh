@@ -24,6 +24,7 @@ Command catalog:
 - [`README.md`](../README.md) and [`README.json`](../README.json) stay synchronized for humans and agents.
 - Legacy migration guidance remains minimal and out of the main flow.
 - Archive defaults are safety-first: only terminal statuses are archived unless an explicit status override is provided.
+- Task lifecycle quality is enforced: `Done` transitions require complete task sections and outcome-based Definition of Done criteria.
 
 ## Storage Integrity Policy
 - Tracking-file writes must use WorkMesh storage primitives (no ad-hoc direct writes for critical state).

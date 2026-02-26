@@ -45,7 +45,9 @@ After bootstrap, if user asks to work on a feature, maintain WorkMesh continuous
 
 ## Rules
 - Keep task metadata complete: `Description`, `Acceptance Criteria`, `Definition of Done`.
+- Ensure `Definition of Done` includes outcome-based completion criteria, not only hygiene checks.
 - Move task to `Done` only when description goals and acceptance criteria are fully satisfied.
+- Treat all status mutation paths as equivalent for `Done` gating (including `set-field status Done` and bulk variants).
 - Treat `Code/config committed` and `Docs updated if needed` as hygiene checks.
 - Do not commit derived artifacts like `workmesh/.index/`.
 - Do not bypass WorkMesh storage primitives for tracking files.

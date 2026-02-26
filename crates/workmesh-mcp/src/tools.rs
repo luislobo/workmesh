@@ -315,6 +315,9 @@ fn refresh_index_best_effort(backlog_dir: &Path) {
 
 fn best_practice_hints() -> Vec<&'static str> {
     vec![
+        "Fill Description, Acceptance Criteria, and Definition of Done for every task.",
+        "Definition of Done must include outcome-based criteria, not only hygiene checks.",
+        "Done transitions are gated by task quality requirements.",
         "Always record dependencies for tasks that are blocked by other work.",
         "Use dependencies to power next-task selection and blocked/ready views.",
         "If unsure, start with an empty list and add dependencies as soon as blockers appear.",
@@ -1729,6 +1732,10 @@ fn default_touch() -> bool {
 
 fn is_done_status(status: &str) -> bool {
     status.eq_ignore_ascii_case("done")
+}
+
+fn is_status_field(field: &str) -> bool {
+    field.trim().eq_ignore_ascii_case("status")
 }
 
 // Generates enum WorkmeshTools with variants for each tool
@@ -4916,6 +4923,11 @@ impl SetFieldTool {
                 serde_json::json!({"error": format!("Task not found: {}", self.task_id)}),
             );
         };
+        if is_status_field(&self.field) && is_done_status(&self.value) {
+            if let Err(err) = ensure_can_mark_done(&tasks, task) {
+                return ok_json(serde_json::json!({"error": err}));
+            }
+        }
         let path = task
             .file_path
             .as_ref()
@@ -5053,6 +5065,11 @@ impl BulkSetFieldTool {
         let (selected, missing) = select_tasks_with_missing(&tasks, &ids);
         let mut updated = Vec::new();
         for task in selected {
+            if is_status_field(&self.field) && is_done_status(&self.value) {
+                if let Err(err) = ensure_can_mark_done(&tasks, task) {
+                    return ok_json(serde_json::json!({"error": err}));
+                }
+            }
             let path = task
                 .file_path
                 .as_ref()
@@ -7301,7 +7318,20 @@ dependencies: []\n\
 labels: []\n\
 assignee: []\n\
 ---\n\n\
-Body\n",
+Description:\n\
+--------------------------------------------------\n\
+- Deliver {title}.\n\
+\n\
+Acceptance Criteria:\n\
+--------------------------------------------------\n\
+- Expected behavior is validated.\n\
+\n\
+Definition of Done:\n\
+--------------------------------------------------\n\
+- Description goals met and acceptance criteria satisfied.\n\
+- Code/config committed.\n\
+- Docs updated if needed.\n\
+",
             id = id,
             title = title,
             status = status

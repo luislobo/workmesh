@@ -99,5 +99,7 @@ workmesh --root . config set --scope project --key worktrees_dir --value "../myr
 - Prefer `--json` when parsing output.
 - Keep dependencies and blockers current.
 - Keep task metadata complete: `Description`, `Acceptance Criteria`, `Definition of Done`.
+- Ensure `Definition of Done` includes outcome-based completion criteria, not only hygiene checks.
 - Move to `Done` only when goals and criteria are fully met.
+- Treat all status mutation paths as equivalent for `Done` gating (including `set-field status Done` and bulk variants).
 - Do not bypass WorkMesh storage primitives for tracking files.

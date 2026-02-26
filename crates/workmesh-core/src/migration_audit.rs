@@ -14,6 +14,8 @@ use crate::global_sessions::{
     set_current_session, AgentSession, HandoffSummary,
 };
 use crate::migration::{migrate_backlog, MigrationError};
+use crate::task::load_tasks;
+use crate::task_ops::{evaluate_task_quality, normalize_task_required_sections};
 use crate::truth::{apply_truth_migration, truth_migration_audit, truth_migration_plan};
 
 #[derive(Debug, Error)]
@@ -28,6 +30,8 @@ pub enum MigrationAuditError {
     Config(#[from] ConfigError),
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
+    #[error("Task update failed: {0}")]
+    Task(#[from] crate::task::TaskParseError),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -35,6 +39,7 @@ pub enum MigrationAuditError {
 pub enum MigrationActionKind {
     LayoutBacklogToWorkmesh,
     FocusToContext,
+    TaskSectionNormalization,
     TruthBackfill,
     SessionHandoffEnrichment,
     ConfigCleanup,
@@ -45,6 +50,7 @@ impl MigrationActionKind {
         match self {
             Self::LayoutBacklogToWorkmesh => "layout_backlog_to_workmesh",
             Self::FocusToContext => "focus_to_context",
+            Self::TaskSectionNormalization => "task_section_normalization",
             Self::TruthBackfill => "truth_backfill",
             Self::SessionHandoffEnrichment => "session_handoff_enrichment",
             Self::ConfigCleanup => "config_cleanup",
@@ -55,6 +61,7 @@ impl MigrationActionKind {
         match value.trim().to_lowercase().as_str() {
             "layout_backlog_to_workmesh" => Some(Self::LayoutBacklogToWorkmesh),
             "focus_to_context" => Some(Self::FocusToContext),
+            "task_section_normalization" => Some(Self::TaskSectionNormalization),
             "truth_backfill" => Some(Self::TruthBackfill),
             "session_handoff_enrichment" => Some(Self::SessionHandoffEnrichment),
             "config_cleanup" => Some(Self::ConfigCleanup),
@@ -216,6 +223,35 @@ pub fn audit_deprecations(root: &Path) -> Result<MigrationAuditReport, Migration
         }
     }
 
+    let tasks = load_tasks(&resolution.backlog_dir);
+    let mut section_candidates = Vec::new();
+    for task in tasks {
+        let quality = evaluate_task_quality(&task);
+        if quality.missing_sections.is_empty() {
+            continue;
+        }
+        section_candidates.push(serde_json::json!({
+            "id": task.id,
+            "missing_sections": quality.missing_sections,
+        }));
+    }
+    if !section_candidates.is_empty() {
+        findings.push(MigrationFinding {
+            id: "legacy_task_sections".to_string(),
+            title: "Legacy task files missing required sections".to_string(),
+            severity: "recommended".to_string(),
+            details: serde_json::json!({
+                "candidate_count": section_candidates.len(),
+                "candidates": section_candidates,
+            }),
+            suggested_action: Some(
+                MigrationActionKind::TaskSectionNormalization
+                    .as_str()
+                    .into(),
+            ),
+        });
+    }
+
     if let Ok(home) = resolve_workmesh_home() {
         if let Ok(sessions) = load_sessions_latest(&home) {
             let missing = sessions.iter().filter(|s| s.handoff.is_none()).count();
@@ -277,6 +313,7 @@ pub fn plan_migrations(
     let order = [
         MigrationActionKind::LayoutBacklogToWorkmesh,
         MigrationActionKind::FocusToContext,
+        MigrationActionKind::TaskSectionNormalization,
         MigrationActionKind::TruthBackfill,
         MigrationActionKind::SessionHandoffEnrichment,
         MigrationActionKind::ConfigCleanup,
@@ -318,6 +355,9 @@ fn reason_for_action(action: MigrationActionKind) -> &'static str {
         MigrationActionKind::LayoutBacklogToWorkmesh => "normalize legacy backlog layout",
         MigrationActionKind::FocusToContext => {
             "replace deprecated focus orchestration with context.json"
+        }
+        MigrationActionKind::TaskSectionNormalization => {
+            "normalize legacy task bodies to include required sections"
         }
         MigrationActionKind::TruthBackfill => {
             "backfill legacy decision notes into structured truth records"
@@ -367,6 +407,33 @@ pub fn apply_migration_plan(
                 } else {
                     let res = resolve_backlog(root)?;
                     apply_focus_to_context(&res, opts, &mut result)?;
+                    result.applied.push(kind.as_str().to_string());
+                }
+            }
+            MigrationActionKind::TaskSectionNormalization => {
+                if opts.dry_run {
+                    result.applied.push(format!("{} (dry-run)", kind.as_str()));
+                } else {
+                    let res = resolve_backlog(root)?;
+                    let tasks = load_tasks(&res.backlog_dir);
+                    let mut changed = Vec::new();
+                    for task in tasks {
+                        let quality = evaluate_task_quality(&task);
+                        if quality.missing_sections.is_empty() {
+                            continue;
+                        }
+                        if let Some(path) = task.file_path.as_ref() {
+                            let added = normalize_task_required_sections(path)?;
+                            if !added.is_empty() {
+                                changed.push(task.id.clone());
+                            }
+                        }
+                    }
+                    if changed.is_empty() {
+                        result
+                            .warnings
+                            .push("task_section_normalization: no legacy task bodies to normalize".to_string());
+                    }
                     result.applied.push(kind.as_str().to_string());
                 }
             }
@@ -555,5 +622,44 @@ mod tests {
             .any(|step| step.contains("focus_to_context")));
         assert!(backlog.join("context.json").is_file());
         assert!(!backlog.join("focus.json").exists());
+    }
+
+    #[test]
+    fn apply_task_section_normalization_adds_missing_sections() {
+        let temp = TempDir::new().expect("tempdir");
+        let tasks = temp.path().join("workmesh").join("tasks");
+        write_task(&tasks);
+        let report = audit_deprecations(temp.path()).expect("audit");
+        assert!(report
+            .findings
+            .iter()
+            .any(|f| f.id == "legacy_task_sections"));
+
+        let plan = plan_migrations(
+            &report,
+            &MigrationPlanOptions {
+                include: vec!["task_section_normalization".to_string()],
+                exclude: vec![],
+            },
+        );
+        let result = apply_migration_plan(
+            temp.path(),
+            &plan,
+            &MigrationApplyOptions {
+                dry_run: false,
+                backup: false,
+            },
+        )
+        .expect("apply");
+        assert!(result
+            .applied
+            .iter()
+            .any(|step| step == "task_section_normalization"));
+
+        let content =
+            std::fs::read_to_string(tasks.join("task-001 - seed.md")).expect("read normalized");
+        assert!(content.contains("Description:"));
+        assert!(content.contains("Acceptance Criteria:"));
+        assert!(content.contains("Definition of Done:"));
     }
 }

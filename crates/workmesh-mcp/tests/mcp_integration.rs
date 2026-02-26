@@ -65,7 +65,7 @@ fn write_task(dir: &std::path::Path, id: &str, title: &str, status: &str) {
     let filename = format!("{} - {}.md", id, title.to_lowercase());
     let path = dir.join(filename);
     let content = format!(
-        "---\nid: {id}\ntitle: {title}\nstatus: {status}\npriority: P2\nphase: Phase3\ndependencies: []\nlabels: []\nassignee: []\n---\n\nBody\n",
+        "---\nid: {id}\ntitle: {title}\nstatus: {status}\npriority: P2\nphase: Phase3\ndependencies: []\nlabels: []\nassignee: []\n---\n\nDescription:\n--------------------------------------------------\n- Deliver {title}.\n\nAcceptance Criteria:\n--------------------------------------------------\n- Expected behavior is validated.\n\nDefinition of Done:\n--------------------------------------------------\n- Description goals met and acceptance criteria satisfied.\n- Code/config committed.\n- Docs updated if needed.\n",
         id = id,
         title = title,
         status = status

@@ -119,6 +119,18 @@ MCP:
 - `set_body`, `set_section`
 - `claim_task`, `release_task`
 
+Task quality guardrails:
+- Required task-body sections: `Description`, `Acceptance Criteria`, `Definition of Done`.
+- `Definition of Done` must include outcome-based criteria (not only hygiene bullets).
+- `Done` transitions are gated across all status mutation paths:
+  - `set-status ... Done`
+  - `set-field ... status Done`
+  - `bulk set-status --status Done`
+  - `bulk set-field --field status --value Done`
+- `validate` behavior:
+  - non-`Done` tasks with missing/incomplete sections produce warnings
+  - `Done` tasks with missing/incomplete sections (or hygiene-only DoD) produce errors
+
 ## Bulk operations
 CLI:
 - `bulk set-status --tasks task-001,task-002 --status "In Progress" [--json]`
@@ -250,6 +262,15 @@ MCP:
 - `session_list`
 - `session_show`
 - `session_resume`
+
+## Migration actions
+`migrate audit|plan|apply` may produce the following action ids:
+- `layout_backlog_to_workmesh`
+- `focus_to_context`
+- `task_section_normalization`
+- `truth_backfill`
+- `session_handoff_enrichment`
+- `config_cleanup`
 
 ## Index and exports
 CLI:

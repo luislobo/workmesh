@@ -18,7 +18,22 @@ priority: P2\n\
 phase: Phase1\n\
 dependencies: []\n\
 labels: []\n\
----\n",
+---\n\
+\n\
+Description:\n\
+--------------------------------------------------\n\
+- Deliver {title}.\n\
+\n\
+Acceptance Criteria:\n\
+--------------------------------------------------\n\
+- Expected behavior is validated.\n\
+\n\
+Definition of Done:\n\
+--------------------------------------------------\n\
+- Description goals met and acceptance criteria satisfied.\n\
+- Code/config committed.\n\
+- Docs updated if needed.\n\
+",
         id = id,
         title = title
     );

@@ -53,6 +53,11 @@ After bootstrap, use one explicit feature prompt:
 
 `Use WorkMesh for this feature end to end. Create/update PRD, create and maintain tasks with acceptance criteria and definition of done, keep context current, and track stable decisions in Truth Ledger.`
 
+Quality expectations:
+- Every task should have meaningful `Description`, `Acceptance Criteria`, and `Definition of Done`.
+- `Definition of Done` should include outcome-based completion criteria, not only hygiene checks.
+- WorkMesh gates `Done` transitions when quality requirements are not met.
+
 From here, stay in normal chat. You should not need to switch into command memorization mode.
 
 ## Reboot / Resume Flow

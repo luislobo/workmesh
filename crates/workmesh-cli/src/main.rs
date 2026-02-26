@@ -1758,6 +1758,10 @@ fn is_done_status(status: &str) -> bool {
     status.eq_ignore_ascii_case("done")
 }
 
+fn is_status_field(field: &str) -> bool {
+    field.trim().eq_ignore_ascii_case("status")
+}
+
 fn effective_touch(touch: bool, no_touch: bool) -> bool {
     if no_touch {
         return false;
@@ -4175,6 +4179,11 @@ fn main() -> Result<()> {
             let task = find_task(&tasks, &task_id).unwrap_or_else(|| {
                 die(&format!("Task not found: {}", task_id));
             });
+            if is_status_field(&field) && is_done_status(&value) {
+                if let Err(err) = ensure_can_mark_done(&tasks, task) {
+                    die(&err);
+                }
+            }
             let path = task.file_path.as_ref().unwrap_or_else(|| {
                 die(&format!("Task not found: {}", task_id));
             });
@@ -7102,6 +7111,11 @@ fn handle_bulk_set_field(
     let (selected, missing) = select_tasks_with_missing(tasks, &ids);
     let mut updated = Vec::new();
     for task in selected {
+        if is_status_field(&field) && is_done_status(&value) {
+            if let Err(err) = ensure_can_mark_done(tasks, task) {
+                die(&err);
+            }
+        }
         let path = task.file_path.as_ref().unwrap_or_else(|| {
             die(&format!("Task not found: {}", task.id));
         });
@@ -7328,7 +7342,7 @@ fn handle_bulk_note(
 }
 
 fn best_practices_text() -> &'static str {
-    "workmesh best practices\n\nDependencies:\n- Add dependencies whenever a task is blocked by other work.\n- Prefer explicit task ids (task-042) over vague references.\n- Update dependencies as status changes to avoid stale blockers.\n- Use validate to catch missing or broken dependency chains.\n\nDerived files:\n- Ignore derived artifacts like `workmesh/.index/` and `workmesh/.audit.log` in git.\n- If they show up as changes, rebuild/refresh and do not commit them.\n\nLabels:\n- Use labels to group work (docs, infra, ops).\n- Keep labels short and consistent.\n\nNotes:\n- Capture blockers or decisions in notes for future context.\n"
+    "workmesh best practices\n\nTask quality:\n- Fill `Description`, `Acceptance Criteria`, and `Definition of Done` for every task.\n- `Definition of Done` must include outcome-based completion criteria, not only hygiene checks.\n- `Done` transitions are gated: tasks must satisfy quality requirements before completion.\n\nDependencies:\n- Add dependencies whenever a task is blocked by other work.\n- Prefer explicit task ids (task-042) over vague references.\n- Update dependencies as status changes to avoid stale blockers.\n- Use validate to catch missing or broken dependency chains.\n\nDerived files:\n- Ignore derived artifacts like `workmesh/.index/` and `workmesh/.audit.log` in git.\n- If they show up as changes, rebuild/refresh and do not commit them.\n\nLabels:\n- Use labels to group work (docs, infra, ops).\n- Keep labels short and consistent.\n\nNotes:\n- Capture blockers or decisions in notes for future context.\n"
 }
 
 fn update_list_field(

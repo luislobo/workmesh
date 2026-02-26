@@ -40,6 +40,12 @@ After bootstrap, you can stay in normal conversation and be explicit once:
 
 `Use WorkMesh for this feature. Create/update PRD, break down tasks with acceptance criteria and definition of done, keep context current, and track decisions in Truth Ledger.`
 
+Task quality policy:
+- Required sections in every task body: `Description`, `Acceptance Criteria`, `Definition of Done`.
+- `Definition of Done` must include outcome-based completion criteria, not only hygiene checks.
+- Setting status to `Done` is quality-gated (CLI and MCP).
+- Legacy tasks can be normalized with migration tooling (`task_section_normalization` action).
+
 Codex should then operate with WorkMesh continuously while you discuss implementation.
 
 ## CLI Fallback (Single Command)
@@ -121,6 +127,19 @@ Phase 0 storage guarantees are now active for tracking files.
   - MCP: `doctor` with `fix_storage=true`
 - CLI and MCP share the same recovery behavior contract.
 
+## Task Quality Guardrails
+- `set-status <task> Done` is gated by task quality checks.
+- Equivalent status mutations are also gated:
+  - `set-field <task> status Done`
+  - `bulk set-status --status Done`
+  - `bulk set-field --field status --value Done`
+- Validation behavior:
+  - non-`Done` tasks with missing/incomplete required sections emit warnings
+  - `Done` tasks with missing/incomplete sections (or hygiene-only DoD) emit errors
+- Migration helper:
+  - `workmesh --root . migrate audit|plan|apply --apply`
+  - includes `task_section_normalization` for legacy task bodies missing required sections
+
 ## Workstreams
 Workstreams let you manage multiple parallel streams of work in the same repo (often one git worktree per stream), with durable pointers to context, sessions, and per-stream scope/objective.
 
@@ -171,3 +190,11 @@ workmesh --root . migrate audit
 workmesh --root . migrate plan
 workmesh --root . migrate apply --apply
 ```
+
+Common migration actions surfaced by `migrate plan`:
+- `layout_backlog_to_workmesh`
+- `focus_to_context`
+- `task_section_normalization`
+- `truth_backfill`
+- `session_handoff_enrichment`
+- `config_cleanup`

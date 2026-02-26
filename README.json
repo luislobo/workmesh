@@ -22,6 +22,25 @@
     "long_lived_clone_workflow": "keep work moving now and recommend migration to canonical repo + worktrees"
   },
   "feature_prompt": "Use WorkMesh for this feature. Create/update PRD, break down tasks with acceptance criteria and definition of done, keep context current, and track decisions in Truth Ledger.",
+  "task_quality_policy": {
+    "required_sections": [
+      "Description",
+      "Acceptance Criteria",
+      "Definition of Done"
+    ],
+    "definition_of_done_rule": "Definition of Done must include outcome-based completion criteria, not only hygiene checks.",
+    "done_gate": [
+      "set-status <task> Done",
+      "set-field <task> status Done",
+      "bulk set-status --status Done",
+      "bulk set-field --field status --value Done"
+    ],
+    "validation_behavior": {
+      "non_done_tasks": "missing/incomplete required sections produce warnings",
+      "done_tasks": "missing/incomplete sections or hygiene-only DoD produce errors"
+    },
+    "migration_action": "task_section_normalization"
+  },
   "cli_fallback": {
     "bootstrap_command": "workmesh --root . bootstrap --project-id <project-id> --feature \"<feature-name>\" --json",
     "behavior": "detect repo state (new/modern/legacy), initialize or migrate as needed, seed missing context, and suggest next tasks"
@@ -149,6 +168,14 @@
       "workmesh --root . migrate audit",
       "workmesh --root . migrate plan",
       "workmesh --root . migrate apply --apply"
+    ],
+    "common_actions": [
+      "layout_backlog_to_workmesh",
+      "focus_to_context",
+      "task_section_normalization",
+      "truth_backfill",
+      "session_handoff_enrichment",
+      "config_cleanup"
     ]
   }
 }
