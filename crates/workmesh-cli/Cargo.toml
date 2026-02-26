@@ -11,6 +11,7 @@ serde_json.workspace = true
 chrono.workspace = true
 workmesh-core = { path = "../workmesh-core" }
 shell-words = "1.1"
+which = "6.0"
 
 [dev-dependencies]
 tempfile = "3.12"

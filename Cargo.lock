@@ -2993,6 +2993,7 @@ dependencies = [
  "serde_json",
  "shell-words",
  "tempfile",
+ "which",
  "workmesh-core",
 ]
 

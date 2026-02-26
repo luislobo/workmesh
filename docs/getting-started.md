@@ -6,6 +6,8 @@ This guide is Codex-first. It assumes your normal workflow is chat-driven, not c
 1. Install `workmesh`, `workmesh-mcp`, and `workmesh-service`.
 2. Configure Codex MCP for `workmesh-mcp` if you want MCP mode.
 3. Install WorkMesh skills (router + CLI + MCP profiles).
+4. For complete run-mode and agent setup (CLI, MCP stdio, MCP HTTP), see:
+   - [`docs/setup/run-modes-and-agent-mcp.md`](setup/run-modes-and-agent-mcp.md)
 
 After this, your day-to-day entry flow is one prompt.
 
@@ -67,11 +69,18 @@ If you want a long-lived local/LAN service runtime:
    - `workmesh --root . service verify`
 2. Start service in foreground:
    - `workmesh --root . service start --config ./service.toml`
-3. Use HTTP endpoints:
+3. Install as a persistent systemd service:
+   - user scope: `workmesh --root . service install-systemd --scope user --enable --start`
+   - system scope: `sudo workmesh --root . service install-systemd --scope system --enable --start`
+   - preview unit only: `workmesh --root . service install-systemd --dry-run --print-unit`
+4. Use HTTP endpoints:
    - `GET /v1/healthz`, `GET /v1/readyz`, `GET /v1/status`, `GET /v1/metrics`
    - `GET /v1/providers`
    - `POST /v1/mcp/invoke`
    - `POST /v1/admin/reload`
+
+Container option:
+- use sample files in `docker/workmesh-service/` (`Dockerfile`, `docker-compose.yml`, `service.toml.example`).
 
 For LAN exposure, use bearer auth token and keep localhost as the default bind unless explicitly required.
 

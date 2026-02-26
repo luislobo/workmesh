@@ -11,10 +11,12 @@ skinparam NoteBackgroundColor #FFF9DB
 skinparam NoteBorderColor #D09B2C
 
 actor Developer
-actor "Coding Agent\n(Codex / Claude Code / Cursor / etc)" as Agent
+actor "CLI Agent\n(Codex / Claude Code / Cursor CLI)" as AgentCli
+actor "GUI Agent\n(Desktop/Web UI)" as AgentGui
 
 component "workmesh\n(CLI)" as CLI
 component "workmesh-mcp\n(stdio server)" as MCP
+component "workmesh-service\n(HTTP runtime)" as Service
 component "workmesh-core\n(library)" as Core
 database "Repo files\n(docs/ + workmesh/)" as Repo
 database "Global sessions\n(~/.workmesh)" as Global
@@ -24,13 +26,24 @@ CLI --> Core
 Core --> Repo : read/write tasks,\nindex, audit, docs
 Core --> Global : (optional)\nwrite session events
 
-Agent --> MCP : tool calls\n(JSON args)
+AgentCli --> MCP : MCP tool calls\n(stdio)
 MCP --> Core
+AgentGui --> MCP : command-based MCP\n(stdio)
+AgentCli --> Service : HTTP invoke\n(optional)
+AgentGui --> Service : HTTP invoke\n(optional)
+Service --> Core
 
 note right of MCP
   MCP runs as a local process
   using stdio (no network).
 end note
 
-@enduml
+note right of Service
+  HTTP endpoints:
+  /v1/healthz
+  /v1/readyz
+  /v1/mcp/invoke
+  Use Bearer token on LAN.
+end note
 
+@enduml

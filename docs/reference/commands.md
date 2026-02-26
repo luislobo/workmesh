@@ -2,6 +2,9 @@
 
 This file is command-surface only. For workflow guidance, use [`docs/getting-started.md`](../getting-started.md).
 
+Run/install/agent setup guidance:
+- [`docs/setup/run-modes-and-agent-mcp.md`](../setup/run-modes-and-agent-mcp.md)
+
 ## Global CLI flags
 All subcommands support:
 - `--root <path>` (required)
@@ -62,6 +65,7 @@ MCP:
 CLI:
 - `service verify [--json]`
 - `service start [--config <file>] [--host <ip>] [--port <port>] [--log-filter <level>] [--auth-token <token>] [--max-body-bytes <bytes>] [--request-timeout-ms <ms>]`
+- `service install-systemd [--scope user|system] [--unit-name <name>] [--config <file>] [--host <ip>] [--port <port>] [--log-filter <level>] [--auth-token <token>] [--max-body-bytes <bytes>] [--request-timeout-ms <ms>] [--enable] [--start] [--dry-run] [--print-unit] [--json]`
 
 HTTP runtime endpoints:
 - `GET /v1/healthz`
@@ -75,6 +79,9 @@ HTTP runtime endpoints:
 Operational notes:
 - `service start` runs `workmesh-service` in foreground.
 - `service verify` checks `workmesh-service --version` and reports diagnostic output.
+- `service install-systemd` writes/updates a systemd unit and runs `systemctl ... daemon-reload`.
+- `--scope user` writes to `~/.config/systemd/user` and uses `systemctl --user`.
+- `--scope system` writes to `/etc/systemd/system` and uses `systemctl` (typically requires sudo/root).
 - default bind should remain localhost.
 - for non-localhost exposure, configure bearer auth token and send `Authorization: Bearer <token>`.
 

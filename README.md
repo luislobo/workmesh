@@ -88,17 +88,27 @@ command = "/usr/local/bin/workmesh-mcp"
 args = []
 ```
 
+Full run/install/agent setup:
+- [`docs/setup/run-modes-and-agent-mcp.md`](docs/setup/run-modes-and-agent-mcp.md)
+
 ## HTTP Service Mode
 WorkMesh can also run as a local/LAN HTTP service runtime.
 
 CLI management:
 - Verify binary: `workmesh --root . service verify`
 - Start service: `workmesh --root . service start --config ./service.toml`
+- Install user systemd unit: `workmesh --root . service install-systemd --scope user --enable --start`
+- Install system unit: `sudo workmesh --root . service install-systemd --scope system --enable --start`
 
 Direct binary run:
 ```bash
 workmesh-service --config ./service.toml
 ```
+
+Systemd notes:
+- `service install-systemd` writes or updates a unit file and runs `systemctl ... daemon-reload`.
+- default unit name: `workmesh-service.service` (override with `--unit-name`).
+- use `--dry-run --print-unit` to preview without writing files.
 
 Key endpoints:
 - `GET /v1/healthz`
@@ -113,6 +123,11 @@ LAN safety baseline:
 - default bind should remain localhost (`127.0.0.1`)
 - if binding non-localhost, configure an auth token
 - authenticated routes require `Authorization: Bearer <token>`
+
+Docker sample:
+- Files: [`docker/workmesh-service/`](docker/workmesh-service/)
+- Build: `docker build -f docker/workmesh-service/Dockerfile -t workmesh-service:local .`
+- Compose: `cd docker/workmesh-service && WORKMESH_REPO_ROOT=/abs/path WORKMESH_AUTH_TOKEN=<token> docker compose up --build -d`
 
 ## Defaults
 Global config:
@@ -207,6 +222,7 @@ See [`docs/reference/commands.md`](docs/reference/commands.md) for `workstream .
 
 ## Documentation
 - Codex-first onboarding: [`docs/getting-started.md`](docs/getting-started.md)
+- Run modes and agent MCP setup: [`docs/setup/run-modes-and-agent-mcp.md`](docs/setup/run-modes-and-agent-mcp.md)
 - Command catalog: [`docs/reference/commands.md`](docs/reference/commands.md)
 - Documentation index: [`docs/README.md`](docs/README.md)
 
