@@ -58,6 +58,26 @@ MCP:
 - `doctor`
 - `validate`
 
+## Service mode
+CLI:
+- `service verify [--json]`
+- `service start [--config <file>] [--host <ip>] [--port <port>] [--log-filter <level>] [--auth-token <token>] [--max-body-bytes <bytes>] [--request-timeout-ms <ms>]`
+
+HTTP runtime endpoints:
+- `GET /v1/healthz`
+- `GET /v1/readyz`
+- `GET /v1/status`
+- `GET /v1/metrics`
+- `GET /v1/providers`
+- `POST /v1/mcp/invoke`
+- `POST /v1/admin/reload`
+
+Operational notes:
+- `service start` runs `workmesh-service` in foreground.
+- `service verify` checks `workmesh-service --version` and reports diagnostic output.
+- default bind should remain localhost.
+- for non-localhost exposure, configure bearer auth token and send `Authorization: Bearer <token>`.
+
 Doctor storage fix behavior:
 - `--fix-storage` (CLI) / `fix_storage=true` (MCP) performs safe remediation only:
   - trim trailing malformed JSONL lines for sessions/truth event streams

@@ -3,7 +3,7 @@ id: task-main-067
 uid: 01KJDADV40HP9TQ393NMBX5VXW
 title: Add safe runtime reload for config and provider registry
 kind: task
-status: To Do
+status: Done
 priority: P1
 phase: Phase6
 dependencies: [task-main-065, task-main-066]
@@ -14,7 +14,7 @@ relationships:
   parent: []
   child: []
   discovered_from: []
-updated_date: 2026-02-26 09:53
+updated_date: 2026-02-26 10:11
 ---
 Description:
 --------------------------------------------------

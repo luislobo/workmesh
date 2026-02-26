@@ -6,6 +6,7 @@ This repository contains:
 - `workmesh` (CLI)
 - `workmesh-core` (shared logic)
 - `workmesh-mcp` (MCP server)
+- `workmesh-service` (HTTP service runtime)
 
 Agent-friendly format: [`README.json`](README.json) (kept in sync with this file).
 
@@ -63,9 +64,10 @@ workmesh --root . bootstrap --project-id <project-id> --feature "<feature-name>"
 ```bash
 workmesh --version
 workmesh-mcp --version
+workmesh-service --version
 ```
 
-Install from release artifacts (`workmesh`, `workmesh-mcp`) and verify versions.
+Install from release artifacts (`workmesh`, `workmesh-mcp`, `workmesh-service`) and verify versions.
 
 ### Build from source
 ```bash
@@ -73,6 +75,7 @@ git clone git@github.com:luislobo/workmesh.git
 cd workmesh
 cargo build -p workmesh
 cargo build -p workmesh-mcp
+cargo build -p workmesh-service
 ```
 
 ## MCP Setup
@@ -84,6 +87,32 @@ Codex example:
 command = "/usr/local/bin/workmesh-mcp"
 args = []
 ```
+
+## HTTP Service Mode
+WorkMesh can also run as a local/LAN HTTP service runtime.
+
+CLI management:
+- Verify binary: `workmesh --root . service verify`
+- Start service: `workmesh --root . service start --config ./service.toml`
+
+Direct binary run:
+```bash
+workmesh-service --config ./service.toml
+```
+
+Key endpoints:
+- `GET /v1/healthz`
+- `GET /v1/readyz`
+- `GET /v1/status`
+- `GET /v1/metrics`
+- `GET /v1/providers`
+- `POST /v1/mcp/invoke`
+- `POST /v1/admin/reload`
+
+LAN safety baseline:
+- default bind should remain localhost (`127.0.0.1`)
+- if binding non-localhost, configure an auth token
+- authenticated routes require `Authorization: Bearer <token>`
 
 ## Defaults
 Global config:

@@ -2,7 +2,7 @@
 
 Date: 2026-02-26
 Owner: Luis Lobo
-Status: Planned
+Status: In Progress
 
 ## Problem
 WorkMesh currently provides a CLI and an MCP server process, but it lacks a long-lived HTTP service mode for:
@@ -129,3 +129,6 @@ This limits real-time operations, central observability, and future phone-first 
 - Provider packaging model (compiled-in registry first, plugin model later).
 - Default auth behavior for trusted local subnet vs strict token-only.
 - Metrics format/export target (Prometheus text vs JSON-only in first cut).
+
+## Companion design docs
+- `docs/projects/workmesh/decisions/0002-mcp-http-service-architecture.md`

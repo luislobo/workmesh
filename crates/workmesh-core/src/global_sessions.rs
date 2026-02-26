@@ -256,6 +256,9 @@ pub fn rebuild_sessions_index(home: &Path) -> Result<SessionsIndexSummary> {
     };
     let key = global_lock_key(home, "sessions.index");
     with_resource_lock(&key, DEFAULT_LOCK_TIMEOUT, || {
+        if let Some(parent) = index_path.parent() {
+            fs::create_dir_all(parent)?;
+        }
         atomic_write_text(&index_path, &payload)?;
         Ok(())
     })

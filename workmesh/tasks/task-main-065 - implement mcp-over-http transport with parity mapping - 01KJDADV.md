@@ -3,7 +3,7 @@ id: task-main-065
 uid: 01KJDADV30JRZ3HA7DT5JGP7QG
 title: Implement MCP-over-HTTP transport with parity mapping
 kind: task
-status: To Do
+status: Done
 priority: P1
 phase: Phase6
 dependencies: [task-main-064]
@@ -14,7 +14,7 @@ relationships:
   parent: []
   child: []
   discovered_from: []
-updated_date: 2026-02-26 09:53
+updated_date: 2026-02-26 10:04
 ---
 Description:
 --------------------------------------------------

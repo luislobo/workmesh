@@ -3,7 +3,7 @@ id: task-main-068
 uid: 01KJDADV4GD8S95WMPAZA7MCW5
 title: Add LAN-safe auth, limits, and service observability baseline
 kind: task
-status: To Do
+status: Done
 priority: P1
 phase: Phase6
 dependencies: [task-main-065]
@@ -14,7 +14,7 @@ relationships:
   parent: []
   child: []
   discovered_from: []
-updated_date: 2026-02-26 09:53
+updated_date: 2026-02-26 10:08
 ---
 Description:
 --------------------------------------------------

@@ -3,7 +3,7 @@ id: task-main-063
 uid: 01KJDADV1ZZNKX98VMZZSJFTBA
 title: Define service architecture and MCP-over-HTTP contracts
 kind: task
-status: To Do
+status: Done
 priority: P1
 phase: Phase6
 dependencies: []
@@ -14,7 +14,7 @@ relationships:
   parent: []
   child: []
   discovered_from: []
-updated_date: 2026-02-26 09:54
+updated_date: 2026-02-26 09:56
 ---
 Description:
 --------------------------------------------------

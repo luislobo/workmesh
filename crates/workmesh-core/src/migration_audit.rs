@@ -606,7 +606,13 @@ mod tests {
             r#"{"project_id":"demo","epic_id":"task-001","objective":"Ship","working_set":["task-001"]}"#,
         );
         let report = audit_deprecations(temp.path()).expect("audit");
-        let plan = plan_migrations(&report, &MigrationPlanOptions::default());
+        let plan = plan_migrations(
+            &report,
+            &MigrationPlanOptions {
+                include: vec!["focus_to_context".to_string()],
+                exclude: vec![],
+            },
+        );
         let result = apply_migration_plan(
             temp.path(),
             &plan,

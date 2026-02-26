@@ -2,7 +2,7 @@ use std::collections::HashSet;
 use std::io::{self, IsTerminal, Read};
 use std::path::{Path, PathBuf};
 
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use chrono::{Duration, Local, NaiveDate};
 use clap::{ArgAction, Parser, Subcommand, ValueEnum};
 
@@ -122,6 +122,11 @@ enum Command {
         fix_storage: bool,
         #[arg(long, action = ArgAction::SetTrue)]
         json: bool,
+    },
+    /// Run and validate workmesh-service lifecycle commands
+    Service {
+        #[command(subcommand)]
+        command: ServiceCommand,
     },
     /// Manage WorkMesh configuration (project `.workmesh.toml` and global `~/.workmesh/config.toml`)
     Config {
@@ -760,6 +765,32 @@ enum Command {
         plantuml_cmd: Option<String>,
         #[arg(long)]
         plantuml_jar: Option<PathBuf>,
+    },
+}
+
+#[derive(Subcommand)]
+enum ServiceCommand {
+    /// Start the HTTP service process (foreground)
+    Start {
+        #[arg(long)]
+        config: Option<PathBuf>,
+        #[arg(long)]
+        host: Option<String>,
+        #[arg(long)]
+        port: Option<u16>,
+        #[arg(long)]
+        log_filter: Option<String>,
+        #[arg(long)]
+        auth_token: Option<String>,
+        #[arg(long)]
+        max_body_bytes: Option<usize>,
+        #[arg(long)]
+        request_timeout_ms: Option<u64>,
+    },
+    /// Verify that `workmesh-service` is installed and runnable
+    Verify {
+        #[arg(long, action = ArgAction::SetTrue)]
+        json: bool,
     },
 }
 
@@ -2131,6 +2162,101 @@ fn auto_update_current_session(backlog_dir: &Path) -> Result<()> {
     Ok(())
 }
 
+fn handle_service_command(command: &ServiceCommand) -> Result<()> {
+    match command {
+        ServiceCommand::Start {
+            config,
+            host,
+            port,
+            log_filter,
+            auth_token,
+            max_body_bytes,
+            request_timeout_ms,
+        } => {
+            let mut cmd = std::process::Command::new("workmesh-service");
+            if let Some(config) = config {
+                cmd.arg("--config").arg(config);
+            }
+            if let Some(host) = host {
+                cmd.arg("--host").arg(host);
+            }
+            if let Some(port) = port {
+                cmd.arg("--port").arg(port.to_string());
+            }
+            if let Some(log_filter) = log_filter {
+                cmd.arg("--log-filter").arg(log_filter);
+            }
+            if let Some(auth_token) = auth_token {
+                cmd.arg("--auth-token").arg(auth_token);
+            }
+            if let Some(max_body_bytes) = max_body_bytes {
+                cmd.arg("--max-body-bytes").arg(max_body_bytes.to_string());
+            }
+            if let Some(request_timeout_ms) = request_timeout_ms {
+                cmd.arg("--request-timeout-ms")
+                    .arg(request_timeout_ms.to_string());
+            }
+
+            println!("Starting workmesh-service in foreground...");
+            let status = cmd
+                .status()
+                .map_err(|err| anyhow!("failed to execute workmesh-service: {}", err))?;
+            if !status.success() {
+                return Err(anyhow!(
+                    "workmesh-service exited with status {}",
+                    status
+                        .code()
+                        .map(|code| code.to_string())
+                        .unwrap_or_else(|| "terminated by signal".to_string())
+                ));
+            }
+            Ok(())
+        }
+        ServiceCommand::Verify { json } => {
+            let output = std::process::Command::new("workmesh-service")
+                .arg("--version")
+                .output()
+                .map_err(|err| anyhow!("workmesh-service not found in PATH: {}", err))?;
+            let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+            if output.status.success() {
+                if *json {
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(&serde_json::json!({
+                            "ok": true,
+                            "binary": "workmesh-service",
+                            "version": stdout,
+                        }))?
+                    );
+                } else {
+                    println!("workmesh-service: {}", stdout);
+                }
+                Ok(())
+            } else {
+                if *json {
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(&serde_json::json!({
+                            "ok": false,
+                            "binary": "workmesh-service",
+                            "error": if stderr.is_empty() { "version probe failed" } else { &stderr },
+                        }))?
+                    );
+                }
+                Err(anyhow!(
+                    "workmesh-service version check failed{}",
+                    if stderr.is_empty() {
+                        String::new()
+                    } else {
+                        format!(": {}", stderr)
+                    }
+                ))
+            }
+        }
+    }
+}
+
 fn main() -> Result<()> {
     let cli = Cli::parse();
     if let Command::Bootstrap {
@@ -2425,6 +2551,11 @@ fn main() -> Result<()> {
         return Ok(());
     }
 
+    if let Command::Service { command } = &cli.command {
+        handle_service_command(command)?;
+        return Ok(());
+    }
+
     if let Command::Migrate { command, to, yes } = &cli.command {
         if let Some(migrate_cmd) = command {
             handle_migrate_workflow(&cli.root, migrate_cmd)?;
@@ -2443,6 +2574,9 @@ fn main() -> Result<()> {
     let auto_session = auto_session_enabled(&cli, &resolution.repo_root);
 
     match cli.command {
+        Command::Service { .. } => {
+            unreachable!("service commands are handled before backlog resolution");
+        }
         Command::Board {
             all,
             by,

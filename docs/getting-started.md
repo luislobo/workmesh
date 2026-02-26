@@ -3,7 +3,7 @@
 This guide is Codex-first. It assumes your normal workflow is chat-driven, not command-driven.
 
 ## One-Time Setup
-1. Install `workmesh` and `workmesh-mcp`.
+1. Install `workmesh`, `workmesh-mcp`, and `workmesh-service`.
 2. Configure Codex MCP for `workmesh-mcp` if you want MCP mode.
 3. Install WorkMesh skills (router + CLI + MCP profiles).
 
@@ -59,6 +59,21 @@ Quality expectations:
 - WorkMesh gates `Done` transitions when quality requirements are not met.
 
 From here, stay in normal chat. You should not need to switch into command memorization mode.
+
+## Optional HTTP Service Mode
+If you want a long-lived local/LAN service runtime:
+
+1. Verify binary:
+   - `workmesh --root . service verify`
+2. Start service in foreground:
+   - `workmesh --root . service start --config ./service.toml`
+3. Use HTTP endpoints:
+   - `GET /v1/healthz`, `GET /v1/readyz`, `GET /v1/status`, `GET /v1/metrics`
+   - `GET /v1/providers`
+   - `POST /v1/mcp/invoke`
+   - `POST /v1/admin/reload`
+
+For LAN exposure, use bearer auth token and keep localhost as the default bind unless explicitly required.
 
 ## Reboot / Resume Flow
 When you come back later:

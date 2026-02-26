@@ -4,7 +4,8 @@
   "artifacts": {
     "cli": "workmesh",
     "core": "workmesh-core",
-    "mcp": "workmesh-mcp"
+    "mcp": "workmesh-mcp",
+    "service": "workmesh-service"
   },
   "codex_first_workflow": {
     "recommended": true,
@@ -48,13 +49,15 @@
   "install": {
     "verify": [
       "workmesh --version",
-      "workmesh-mcp --version"
+      "workmesh-mcp --version",
+      "workmesh-service --version"
     ],
     "from_source": [
       "git clone git@github.com:luislobo/workmesh.git",
       "cd workmesh",
       "cargo build -p workmesh",
-      "cargo build -p workmesh-mcp"
+      "cargo build -p workmesh-mcp",
+      "cargo build -p workmesh-service"
     ]
   },
   "mcp_setup": {
@@ -63,6 +66,27 @@
       "command": "/usr/local/bin/workmesh-mcp",
       "args": []
     }
+  },
+  "service_mode": {
+    "cli_management": {
+      "verify": "workmesh --root . service verify",
+      "start": "workmesh --root . service start --config ./service.toml"
+    },
+    "direct_binary": "workmesh-service --config ./service.toml",
+    "endpoints": [
+      "GET /v1/healthz",
+      "GET /v1/readyz",
+      "GET /v1/status",
+      "GET /v1/metrics",
+      "GET /v1/providers",
+      "POST /v1/mcp/invoke",
+      "POST /v1/admin/reload"
+    ],
+    "lan_safety": [
+      "default bind should remain localhost (127.0.0.1)",
+      "if binding non-localhost, configure an auth token",
+      "authenticated routes require Authorization: Bearer <token>"
+    ]
   },
   "defaults": {
     "global_config": "~/.workmesh/config.toml (or $WORKMESH_HOME/config.toml)",

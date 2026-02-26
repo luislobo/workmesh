@@ -18,6 +18,7 @@ Command catalog:
 - Truth: `workmesh/truth/` durable decision records.
 - Sessions: global continuity records under `WORKMESH_HOME`.
 - Worktrees: runtime stream isolation for parallel work.
+- Service mode: `workmesh-service` HTTP runtime for local/LAN operations.
 
 ## Policy
 - Primary guidance is prompt-driven and Codex-first.

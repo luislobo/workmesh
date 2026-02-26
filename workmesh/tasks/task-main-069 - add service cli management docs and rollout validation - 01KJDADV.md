@@ -3,7 +3,7 @@ id: task-main-069
 uid: 01KJDADV50MXKA1YP0C6YCE8DQ
 title: Add service CLI management, docs, and rollout validation
 kind: task
-status: To Do
+status: Done
 priority: P2
 phase: Phase6
 dependencies: [task-main-067, task-main-068]
@@ -14,7 +14,7 @@ relationships:
   parent: []
   child: []
   discovered_from: []
-updated_date: 2026-02-26 09:53
+updated_date: 2026-02-26 10:16
 ---
 Description:
 --------------------------------------------------
