@@ -1,0 +1,4 @@
+.audit.log
+.index/
+.locks/
+tasks/.locks/
