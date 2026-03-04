@@ -6,7 +6,6 @@ This repository contains:
 - `workmesh` (CLI)
 - `workmesh-core` (shared logic)
 - `workmesh-mcp` (MCP server)
-- `workmesh-service` (HTTP service runtime)
 
 Agent-friendly format: [`README.json`](README.json) (kept in sync with this file).
 
@@ -64,10 +63,9 @@ workmesh --root . bootstrap --project-id <project-id> --feature "<feature-name>"
 ```bash
 workmesh --version
 workmesh-mcp --version
-workmesh-service --version
 ```
 
-Install from release artifacts (`workmesh`, `workmesh-mcp`, `workmesh-service`) and verify versions.
+Install from release artifacts (`workmesh`, `workmesh-mcp`) and verify versions.
 
 ### Build from source
 ```bash
@@ -75,77 +73,27 @@ git clone git@github.com:luislobo/workmesh.git
 cd workmesh
 cargo build -p workmesh
 cargo build -p workmesh-mcp
-cargo build -p workmesh-service
 ```
 
 ## MCP Setup
-Configure your MCP client to run `workmesh-mcp` over stdio.
+WorkMesh supports MCP over stdio.
 
-Codex example:
+MCP stdio (run `workmesh-mcp`):
 ```toml
 [mcp_servers.workmesh]
 command = "/usr/local/bin/workmesh-mcp"
 args = []
 ```
 
+Render tools (MCP stdio):
+- `render_table`, `render_kv`, `render_stats`, `render_list`, `render_progress`
+- `render_tree`, `render_diff`, `render_logs`, `render_alerts`
+- `render_chart_bar`, `render_sparkline`, `render_timeline`
+
+All render tools accept `data` plus optional `format` and `configuration`, and return rendered text.
+
 Full run/install/agent setup:
 - [`docs/setup/run-modes-and-agent-mcp.md`](docs/setup/run-modes-and-agent-mcp.md)
-
-## HTTP Service Mode
-WorkMesh can also run as a local/LAN HTTP service runtime.
-
-CLI management:
-- Verify binary: `workmesh --root . service verify`
-- Start service: `workmesh --root . service start --config ./service.toml`
-- Install user systemd unit: `workmesh --root . service install-systemd --scope user --enable --start`
-- Install system unit: `sudo workmesh --root . service install-systemd --scope system --enable --start`
-
-Direct binary run:
-```bash
-workmesh-service --config ./service.toml
-```
-
-Systemd notes:
-- `service install-systemd` writes or updates a unit file and runs `systemctl ... daemon-reload`.
-- default unit name: `workmesh-service.service` (override with `--unit-name`).
-- use `--dry-run --print-unit` to preview without writing files.
-
-Key endpoints:
-- `GET /v1/healthz`
-- `GET /v1/readyz`
-- `GET /v1/status`
-- `GET /v1/metrics`
-- `GET /v1/providers`
-- `POST /v1/mcp/invoke`
-- `POST /v1/admin/reload`
-
-Provider namespaces:
-- `workmesh`: task/context/truth/workstream/worktree/session tools
-- `system`: service diagnostics (`ping`, `version`, `status`)
-- `render`: native Rust terminal render tools (`render_table`, `render_kv`, `render_stats`, `render_progress`, `render_tree`, `render_diff`, `render_logs`, `render_alerts`, `render_list`, `render_chart_bar`, `render_sparkline`, `render_timeline`)
-
-Render invocation example:
-```bash
-curl -s \
-  -H "Authorization: Bearer <token>" \
-  -H "Content-Type: application/json" \
-  http://127.0.0.1:4747/v1/mcp/invoke \
-  -d '{"namespace":"render","tool":"render_list","arguments":{"data":[{"text":"Plan"},{"text":"Build"},{"text":"Validate"}],"configuration":{"ordered":true}}}'
-```
-
-Deprecation note:
-- External Node `mcp-gui` is retired as the primary renderer path.
-- Use `workmesh-service` `render` namespace for renderer workflows.
-
-LAN safety baseline:
-- default bind should remain localhost (`127.0.0.1`)
-- if binding non-localhost, configure an auth token
-- authenticated routes require `Authorization: Bearer <token>`
-
-Docker sample:
-- Files: [`docker/workmesh-service/`](docker/workmesh-service/)
-- Build: `docker build -f docker/workmesh-service/Dockerfile -t workmesh-service:local .`
-- Compose: `cd docker/workmesh-service && WORKMESH_REPO_ROOT=/abs/path WORKMESH_AUTH_TOKEN=<token> docker compose up --build -d`
 
 ## Defaults
 Global config:

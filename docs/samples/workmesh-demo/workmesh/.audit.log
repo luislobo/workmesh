@@ -1,0 +1,13 @@
+{"timestamp":"2026-02-27 00:17","actor":"luis","action":"add_task","task_id":"task-isnv-002","details":{"title":"Define inventory sync contract"}}
+{"timestamp":"2026-02-27 00:17","actor":"luis","action":"add_task","task_id":"task-isnv-003","details":{"title":"Implement sync adapter"}}
+{"timestamp":"2026-02-27 00:17","actor":"luis","action":"add_task","task_id":"task-isnv-004","details":{"title":"Add reconciliation report"}}
+{"timestamp":"2026-02-27 00:17","actor":"luis","action":"add_task","task_id":"task-isnv-005","details":{"title":"Publish runbook and sign-off"}}
+{"timestamp":"2026-02-27 00:18","actor":"luis","action":"dependency_add","task_id":"task-isnv-003","details":{"add":true,"field":"dependencies","value":"task-isnv-002"}}
+{"timestamp":"2026-02-27 00:18","actor":"luis","action":"dependency_add","task_id":"task-isnv-004","details":{"add":true,"field":"dependencies","value":"task-isnv-003"}}
+{"timestamp":"2026-02-27 00:18","actor":"luis","action":"context_set","task_id":null,"details":{"objective":"Inventory sync demo: showcase WorkMesh task flow and decision capture.","project_id":"wm-demo","scope":{"epic_id":null,"mode":"tasks","task_ids":["task-isnv-002","task-isnv-003","task-isnv-004"]}}}
+{"timestamp":"2026-02-27 00:19","actor":"luis","action":"truth_propose","task_id":null,"details":{"truth_id":"truth-01kjew0a2e5w7rsv1q3zq658xj"}}
+{"timestamp":"2026-02-27 00:21","actor":"luis","action":"truth_accept","task_id":null,"details":{"truth_id":"truth-01kjew0a2e5w7rsv1q3zq658xj"}}
+{"timestamp":"2026-02-27 00:24","actor":"luis","action":"set_status","task_id":"task-isnv-001","details":{"status":"Done"}}
+{"timestamp":"2026-02-27 00:24","actor":"luis","action":"set_status","task_id":"task-isnv-002","details":{"status":"Done"}}
+{"timestamp":"2026-02-27 00:24","actor":"luis","action":"set_status","task_id":"task-isnv-003","details":{"status":"Done"}}
+{"timestamp":"2026-02-27 00:24","actor":"luis","action":"set_status","task_id":"task-isnv-004","details":{"status":"Done"}}

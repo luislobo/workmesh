@@ -6,7 +6,7 @@ kind: task
 status: Done
 priority: P1
 phase: Phase7
-dependencies: [task-main-073]
+dependencies: []
 labels: [phase7, render, parity]
 assignee: [luis]
 relationships:

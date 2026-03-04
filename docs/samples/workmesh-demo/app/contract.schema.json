@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "InventorySyncPayload",
+  "type": "object",
+  "required": ["source_id", "version", "event_type", "items"],
+  "properties": {
+    "source_id": {"type": "string", "minLength": 1},
+    "version": {"type": "integer", "minimum": 1},
+    "event_type": {"type": "string", "enum": ["create", "update", "delete"]},
+    "items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["sku"],
+        "properties": {
+          "sku": {"type": "string", "minLength": 1},
+          "qty": {"type": "integer", "minimum": 0}
+        }
+      }
+    }
+  }
+}

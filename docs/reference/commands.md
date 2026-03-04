@@ -61,59 +61,6 @@ MCP:
 - `doctor`
 - `validate`
 
-## Service mode
-CLI:
-- `service verify [--json]`
-- `service start [--config <file>] [--host <ip>] [--port <port>] [--log-filter <level>] [--auth-token <token>] [--max-body-bytes <bytes>] [--request-timeout-ms <ms>]`
-- `service install-systemd [--scope user|system] [--unit-name <name>] [--config <file>] [--host <ip>] [--port <port>] [--log-filter <level>] [--auth-token <token>] [--max-body-bytes <bytes>] [--request-timeout-ms <ms>] [--enable] [--start] [--dry-run] [--print-unit] [--json]`
-
-HTTP runtime endpoints:
-- `GET /v1/healthz`
-- `GET /v1/readyz`
-- `GET /v1/status`
-- `GET /v1/metrics`
-- `GET /v1/providers`
-- `POST /v1/mcp/invoke`
-- `POST /v1/admin/reload`
-
-HTTP provider namespaces:
-- `workmesh`
-- `system`
-- `render`
-
-`render` tools:
-- `render_table`
-- `render_kv`
-- `render_stats`
-- `render_progress`
-- `render_tree`
-- `render_diff`
-- `render_logs`
-- `render_alerts`
-- `render_list`
-- `render_chart_bar`
-- `render_sparkline`
-- `render_timeline`
-
-Example render invocation:
-```bash
-curl -s \
-  -H "Authorization: Bearer <token>" \
-  -H "Content-Type: application/json" \
-  http://127.0.0.1:4747/v1/mcp/invoke \
-  -d '{"namespace":"render","tool":"render_kv","arguments":{"data":{"env":"dev","version":"0.2.15"}}}'
-```
-
-Operational notes:
-- `service start` runs `workmesh-service` in foreground.
-- `service verify` checks `workmesh-service --version` and reports diagnostic output.
-- `service install-systemd` writes/updates a systemd unit and runs `systemctl ... daemon-reload`.
-- `--scope user` writes to `~/.config/systemd/user` and uses `systemctl --user`.
-- `--scope system` writes to `/etc/systemd/system` and uses `systemctl` (typically requires sudo/root).
-- default bind should remain localhost.
-- for non-localhost exposure, configure bearer auth token and send `Authorization: Bearer <token>`.
-- external Node `mcp-gui` is deprecated/retired as primary renderer path; use `render` namespace in `workmesh-service`.
-
 Doctor storage fix behavior:
 - `--fix-storage` (CLI) / `fix_storage=true` (MCP) performs safe remediation only:
   - trim trailing malformed JSONL lines for sessions/truth event streams
@@ -346,6 +293,19 @@ MCP:
 - `issues_export`
 - `graph_export`
 - `gantt_text`, `gantt_file`, `gantt_svg`
+
+## Renderer tools (MCP)
+Available over MCP stdio:
+- `render_table`, `render_kv`, `render_stats`, `render_list`, `render_progress`
+- `render_tree`, `render_diff`, `render_logs`, `render_alerts`
+- `render_chart_bar`, `render_sparkline`, `render_timeline`
+
+All render tools accept:
+- `data` (required)
+- `format` (optional)
+- `configuration` (optional)
+
+They return rendered text content.
 
 ## Archive and maintenance
 CLI:

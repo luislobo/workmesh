@@ -3,10 +3,10 @@
 This guide is Codex-first. It assumes your normal workflow is chat-driven, not command-driven.
 
 ## One-Time Setup
-1. Install `workmesh`, `workmesh-mcp`, and `workmesh-service`.
+1. Install `workmesh` and `workmesh-mcp`.
 2. Configure Codex MCP for `workmesh-mcp` if you want MCP mode.
 3. Install WorkMesh skills (router + CLI + MCP profiles).
-4. For complete run-mode and agent setup (CLI, MCP stdio, MCP HTTP), see:
+4. For complete run-mode and agent setup (CLI, MCP stdio), see:
    - [`docs/setup/run-modes-and-agent-mcp.md`](setup/run-modes-and-agent-mcp.md)
 
 After this, your day-to-day entry flow is one prompt.
@@ -61,33 +61,6 @@ Quality expectations:
 - WorkMesh gates `Done` transitions when quality requirements are not met.
 
 From here, stay in normal chat. You should not need to switch into command memorization mode.
-
-## Optional HTTP Service Mode
-If you want a long-lived local/LAN service runtime:
-
-1. Verify binary:
-   - `workmesh --root . service verify`
-2. Start service in foreground:
-   - `workmesh --root . service start --config ./service.toml`
-3. Install as a persistent systemd service:
-   - user scope: `workmesh --root . service install-systemd --scope user --enable --start`
-   - system scope: `sudo workmesh --root . service install-systemd --scope system --enable --start`
-   - preview unit only: `workmesh --root . service install-systemd --dry-run --print-unit`
-4. Use HTTP endpoints:
-   - `GET /v1/healthz`, `GET /v1/readyz`, `GET /v1/status`, `GET /v1/metrics`
-   - `GET /v1/providers`
-   - `POST /v1/mcp/invoke`
-   - `POST /v1/admin/reload`
-   - provider namespaces include `workmesh`, `system`, and `render`
-
-Render workflow note:
-- External Node `mcp-gui` is retired as the primary renderer path.
-- Use `workmesh-service` `render` namespace for visualization/render tools.
-
-Container option:
-- use sample files in `docker/workmesh-service/` (`Dockerfile`, `docker-compose.yml`, `service.toml.example`).
-
-For LAN exposure, use bearer auth token and keep localhost as the default bind unless explicitly required.
 
 ## Reboot / Resume Flow
 When you come back later:

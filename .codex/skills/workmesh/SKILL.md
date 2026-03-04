@@ -11,6 +11,7 @@ Use this skill to provide a Codex-first WorkMesh experience.
 - If WorkMesh MCP tools are available, use `workmesh-mcp`.
 - Otherwise use `workmesh-cli`.
 - If the user explicitly requests one mode, honor it.
+- When using the CLI, always pass `--root <repo>` unless you are already in a workflow that sets it.
 
 ## Primary user intent
 When the user says `bootstrap workmesh` (or equivalent), this skill must route into bootstrap behavior, not explain commands.
@@ -42,6 +43,26 @@ After bootstrap, if user asks to work on a feature, maintain WorkMesh continuous
 - capture durable decisions in Truth Ledger (prefer `truth propose --current` when a workstream is active)
 - if the user is restoring after reboot / lost terminals, use `workstream restore` to enumerate active streams and provide deterministic resume commands per stream
 - if the user wants to change defaults (worktrees/session behavior), use `config show|set|unset` instead of asking them to edit files by hand
+
+## Recommended workflows
+
+### Initialization (first time in a repo)
+- Run bootstrap detection and setup.
+- Ensure context is set (project/objective/epic/task scope) for the current work.
+- If the repo is clone-based, propose consolidation via worktrees (adopt clone + workstream create --existing).
+
+### Feature setup (new feature)
+- Create or select a workstream for the feature.
+- Seed context (objective, tasks) and create/refresh PRD docs.
+- Create tasks before coding. Use SOLID methodology when decomposing tasks.
+- Define `Description`, `Acceptance Criteria`, and outcome-focused `Definition of Done` for every task.
+
+### Normal work procedure
+- Always keep tasks in sync with the work (create/update tasks as scope changes).
+- Use SOLID methodology when making design decisions or decomposing work.
+- Make atomic commits per task.
+- Mark tasks `Done` only when goals and acceptance criteria are satisfied.
+- Archive completed tasks after they are `Done`.
 
 ## Rules
 - Keep task metadata complete: `Description`, `Acceptance Criteria`, `Definition of Done`.

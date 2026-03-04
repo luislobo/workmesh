@@ -4,8 +4,7 @@
   "artifacts": {
     "cli": "workmesh",
     "core": "workmesh-core",
-    "mcp": "workmesh-mcp",
-    "service": "workmesh-service"
+    "mcp": "workmesh-mcp"
   },
   "codex_first_workflow": {
     "recommended": true,
@@ -49,24 +48,47 @@
   "install": {
     "verify": [
       "workmesh --version",
-      "workmesh-mcp --version",
-      "workmesh-service --version"
+      "workmesh-mcp --version"
     ],
     "from_source": [
       "git clone git@github.com:luislobo/workmesh.git",
       "cd workmesh",
       "cargo build -p workmesh",
-      "cargo build -p workmesh-mcp",
-      "cargo build -p workmesh-service"
+      "cargo build -p workmesh-mcp"
     ]
   },
   "mcp_setup": {
-    "transport": "stdio",
-    "codex_example": {
+    "stdio": {
       "command": "/usr/local/bin/workmesh-mcp",
       "args": []
     },
-    "full_setup_doc": "docs/setup/run-modes-and-agent-mcp.md"
+    "full_setup_doc": "docs/setup/run-modes-and-agent-mcp.md",
+    "render_tools": {
+      "tools": [
+        "render_table",
+        "render_kv",
+        "render_stats",
+        "render_list",
+        "render_progress",
+        "render_tree",
+        "render_diff",
+        "render_logs",
+        "render_alerts",
+        "render_chart_bar",
+        "render_sparkline",
+        "render_timeline"
+      ],
+      "input": {
+        "required": [
+          "data"
+        ],
+        "optional": [
+          "format",
+          "configuration"
+        ]
+      },
+      "output": "text"
+    }
   },
   "run_modes_and_agent_setup": {
     "doc": "docs/setup/run-modes-and-agent-mcp.md",
@@ -80,81 +102,11 @@
         "mode": "mcp_stdio",
         "binary": "workmesh-mcp",
         "transport": "stdio"
-      },
-      {
-        "mode": "mcp_http",
-        "binary": "workmesh-service",
-        "transport": "HTTP /v1/mcp/invoke"
       }
     ],
     "agent_targets": [
       "CLI agents (Codex and similar MCP clients)",
-      "GUI agents that support command-based MCP",
-      "HTTP-capable clients/GUI tools"
-    ]
-  },
-  "service_mode": {
-    "cli_management": {
-      "verify": "workmesh --root . service verify",
-      "start": "workmesh --root . service start --config ./service.toml",
-      "install_systemd_user": "workmesh --root . service install-systemd --scope user --enable --start",
-      "install_systemd_system": "sudo workmesh --root . service install-systemd --scope system --enable --start"
-    },
-    "direct_binary": "workmesh-service --config ./service.toml",
-    "systemd_notes": [
-      "service install-systemd writes or updates a unit file and runs systemctl daemon-reload",
-      "default unit name is workmesh-service.service and can be overridden with --unit-name",
-      "use --dry-run --print-unit to preview unit content without writing files"
-    ],
-    "endpoints": [
-      "GET /v1/healthz",
-      "GET /v1/readyz",
-      "GET /v1/status",
-      "GET /v1/metrics",
-      "GET /v1/providers",
-      "POST /v1/mcp/invoke",
-      "POST /v1/admin/reload"
-    ],
-    "provider_namespaces": {
-      "workmesh": "task/context/truth/workstream/worktree/session tools",
-      "system": "service diagnostics (ping, version, status)",
-      "render": [
-        "render_table",
-        "render_kv",
-        "render_stats",
-        "render_progress",
-        "render_tree",
-        "render_diff",
-        "render_logs",
-        "render_alerts",
-        "render_list",
-        "render_chart_bar",
-        "render_sparkline",
-        "render_timeline"
-      ]
-    },
-    "render_invoke_example": "curl -s -H \"Authorization: Bearer <token>\" -H \"Content-Type: application/json\" http://127.0.0.1:4747/v1/mcp/invoke -d '{\"namespace\":\"render\",\"tool\":\"render_list\",\"arguments\":{\"data\":[{\"text\":\"Plan\"},{\"text\":\"Build\"},{\"text\":\"Validate\"}],\"configuration\":{\"ordered\":true}}}'",
-    "deprecation_note": [
-      "External Node mcp-gui is retired as the primary renderer path.",
-      "Use workmesh-service render namespace for renderer workflows."
-    ],
-    "lan_safety": [
-      "default bind should remain localhost (127.0.0.1)",
-      "if binding non-localhost, configure an auth token",
-      "authenticated routes require Authorization: Bearer <token>"
-    ],
-    "docker_sample": {
-      "path": "docker/workmesh-service/",
-      "build": "docker build -f docker/workmesh-service/Dockerfile -t workmesh-service:local .",
-      "compose": "cd docker/workmesh-service && WORKMESH_REPO_ROOT=/abs/path WORKMESH_AUTH_TOKEN=<token> docker compose up --build -d"
-    }
-  },
-  "service_container_docs": {
-    "readme": "docker/workmesh-service/README.md",
-    "files": [
-      "docker/workmesh-service/Dockerfile",
-      "docker/workmesh-service/docker-compose.yml",
-      "docker/workmesh-service/service.toml.example"
+      "GUI agents that support command-based MCP"
     ]
   },
   "defaults": {

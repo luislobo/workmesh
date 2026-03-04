@@ -1,9 +1,0 @@
-host = "0.0.0.0"
-port = 4747
-log_filter = "info"
-
-# Set for LAN/non-localhost exposure.
-auth_token = "change-me"
-
-max_body_bytes = 1048576
-request_timeout_ms = 15000

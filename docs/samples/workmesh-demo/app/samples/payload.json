@@ -1,0 +1,9 @@
+{
+  "source_id": "vendor-1",
+  "version": 1,
+  "event_type": "update",
+  "items": [
+    {"sku": "ABC", "qty": 12},
+    {"sku": "XYZ", "qty": 4}
+  ]
+}
