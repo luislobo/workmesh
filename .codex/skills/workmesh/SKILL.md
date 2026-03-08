@@ -43,6 +43,7 @@ After bootstrap, if user asks to work on a feature, maintain WorkMesh continuous
 - capture durable decisions in Truth Ledger (prefer `truth propose --current` when a workstream is active)
 - if the user is restoring after reboot / lost terminals, use `workstream restore` to enumerate active streams and provide deterministic resume commands per stream
 - if the user wants to change defaults (worktrees/session behavior), use `config show|set|unset` instead of asking them to edit files by hand
+- when MCP is available and the user wants structured terminal-friendly output, use the `render_*` tools instead of hand-formatting large tables or trees
 
 ## Recommended workflows
 
@@ -63,6 +64,44 @@ After bootstrap, if user asks to work on a feature, maintain WorkMesh continuous
 - Make atomic commits per task.
 - Mark tasks `Done` only when goals and acceptance criteria are satisfied.
 - Archive completed tasks after they are `Done`.
+
+### Structured output
+- Prefer native `render_*` MCP tools for pretty tables, stats, trees, diffs, lists, progress bars, and timelines when MCP is available.
+- Fall back to plain text only when MCP render tools are unavailable or the user explicitly wants raw output.
+
+### Renderer catalog
+- `render_table`: tabular rows/columns.
+- `render_kv`: compact key/value blocks.
+- `render_stats`: summary metrics and counters.
+- `render_list`: simple ordered/unordered item views.
+- `render_progress`: progress bars and completion summaries.
+- `render_tree`: hierarchical/tree structures.
+- `render_diff`: before/after or unified diff-style views.
+- `render_logs`: structured log/event streams.
+- `render_alerts`: warnings/errors/attention states.
+- `render_chart_bar`: bar chart summaries.
+- `render_sparkline`: tiny trend visualizations.
+- `render_timeline`: chronological milestone/event views.
+
+### Output contract guidance
+- Treat JSON as the canonical machine-readable output for WorkMesh data tools.
+- Use render tools to present JSON-derived data for humans instead of overloading every data tool with custom table formatting.
+- Use Markdown output only when the user wants content intended to be pasted into docs, PRs, comments, or long-form notes.
+- Prefer render tools over ad hoc hand-built ASCII layouts when MCP is available.
+
+### Renderer selection guidance
+- Use `render_table` for multi-row task lists, session lists, worktree lists, and board-like summaries.
+- Use `render_kv` for one task, one truth record, one session, one config object, or any single record with many fields.
+- Use `render_stats` for counts by status, validation summaries, doctor summaries, and other aggregate metrics.
+- Use `render_tree` for dependencies, workstream/worktree topology, or any hierarchical structure.
+- Use `render_timeline` for checkpoints, session history, truth history, or ordered milestone/event views.
+- Use `render_diff` for before/after comparisons such as task body changes, plan changes, or config drift.
+- Use `render_progress` for completion state, rollout state, archive progress, or phase progress.
+- Use `render_alerts` for blockers, warnings, integrity issues, and notable exceptions that need attention.
+- Use `render_logs` for event streams, audit trails, or session/journal entries.
+- Use `render_chart_bar` and `render_sparkline` only for compact visual summaries of trends or distributions, not as the primary detailed task view.
+- Prefer raw JSON when another tool or agent will consume the result next.
+- Prefer Markdown when generating reusable narrative content for docs, PRs, comments, or decision records.
 
 ## Rules
 - Keep task metadata complete: `Description`, `Acceptance Criteria`, `Definition of Done`.

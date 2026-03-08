@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-03-07
+
+### Changed
+- WorkMesh skills now document the full renderer catalog and explicit output-format guidance.
+- Router skill now tells agents when to use `render_table`, `render_kv`, `render_stats`, `render_tree`, `render_timeline`, `render_diff`, `render_progress`, `render_alerts`, `render_logs`, `render_chart_bar`, and `render_sparkline`.
+- CLI skill now makes the JSON-vs-rendering split explicit and directs agents to switch to MCP mode for rich rendered output.
+
 ## [0.3.0] - 2026-03-07
 
 ### Added
@@ -215,7 +222,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Gantt support and best-practices command.
   - Docs-first project model and initial PRDs.
 
-[Unreleased]: https://github.com/luislobo/workmesh/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/luislobo/workmesh/compare/v0.3.1...HEAD
+[0.3.1]: https://github.com/luislobo/workmesh/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/luislobo/workmesh/compare/v0.2.15...v0.3.0
 [0.2.15]: https://github.com/luislobo/workmesh/compare/v0.2.14...v0.2.15
 [0.2.14]: https://github.com/luislobo/workmesh/compare/v0.2.13...v0.2.14
