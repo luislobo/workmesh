@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-03-07
+
 ### Added
 - Phase 1 Workstreams (parallel streams of work per repo):
   - global workstream registry (`$WORKMESH_HOME/workstreams/registry.json`) with versioned/CAS updates.
@@ -33,11 +35,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Expanded test gates for workstreams:
   - CLI/MCP parity coverage for workstream restore.
   - Concurrency tests proving safe concurrent read-modify-write updates.
+- Native render tooling over MCP stdio:
+  - `render_table`, `render_kv`, `render_stats`, `render_list`, `render_progress`
+  - `render_tree`, `render_diff`, `render_logs`, `render_alerts`
+  - `render_chart_bar`, `render_sparkline`, `render_timeline`
+- Sample project demonstrating WorkMesh capabilities with tasks, context, truth records, PRD docs, and a minimal Inventory Sync MVP implementation.
 
 ### Changed
 - Workstream registry repo-root resolution is stable across git worktrees (uses git common dir when available).
 - When a workstream is active in a worktree, `session save` and `worktree attach/detach` keep the stream's session/worktree pointers updated automatically.
 - `context set` now persists the updated context snapshot into the active workstream record (best-effort).
+- MCP server structure is split into a shared `workmesh-mcp-server` crate reused by the stdio binary.
+- Docs and agent guidance now treat CLI + MCP stdio as the supported runtime path.
+
+### Removed
+- HTTP runtime and related container/service packaging from the main product surface.
+- Stale service-specific docs, tasks, and architectural references that no longer match the supported workflow.
 
 ### Fixed
 - Workstream read-modify-write updates now preserve concurrent field changes (no silent lost updates under contention).
@@ -202,7 +215,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Gantt support and best-practices command.
   - Docs-first project model and initial PRDs.
 
-[Unreleased]: https://github.com/luislobo/workmesh/compare/v0.2.15...HEAD
+[Unreleased]: https://github.com/luislobo/workmesh/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/luislobo/workmesh/compare/v0.2.15...v0.3.0
 [0.2.15]: https://github.com/luislobo/workmesh/compare/v0.2.14...v0.2.15
 [0.2.14]: https://github.com/luislobo/workmesh/compare/v0.2.13...v0.2.14
 [0.2.13]: https://github.com/luislobo/workmesh/compare/v0.2.12...v0.2.13
