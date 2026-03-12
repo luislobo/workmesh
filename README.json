@@ -43,7 +43,8 @@
   },
   "cli_fallback": {
     "bootstrap_command": "workmesh --root . bootstrap --project-id <project-id> --feature \"<feature-name>\" --json",
-    "behavior": "detect repo state (new/modern/legacy), initialize or migrate as needed, seed missing context, and suggest next tasks"
+    "behavior": "detect repo state (new/modern/legacy), initialize or migrate as needed, seed missing context, and suggest next tasks",
+    "render_command": "workmesh --root . render table --data '[{\"task\":\"task-001\",\"status\":\"Done\"}]'"
   },
   "install": {
     "verify": [
@@ -87,7 +88,19 @@
           "configuration"
         ]
       },
-      "output": "text"
+      "output": "text",
+      "cli_fallback": {
+        "command": "workmesh --root . render table|kv|stats|list|progress|tree|diff|logs|alerts|chart-bar|sparkline|timeline",
+        "input": [
+          "--data <value>",
+          "--data-file <path>",
+          "--stdin"
+        ],
+        "configuration": [
+          "--configuration <json>",
+          "--config-file <path>"
+        ]
+      }
     }
   },
   "run_modes_and_agent_setup": {
@@ -223,5 +236,28 @@
       "session_handoff_enrichment",
       "config_cleanup"
     ]
+  },
+  "cli_parity": {
+    "metadata_commands": [
+      "workmesh --root . readme --json",
+      "workmesh --root . tool-info render_table --json",
+      "workmesh --root . skill-content --json",
+      "workmesh --root . project-management-skill --json",
+      "workmesh --root . next-tasks --json"
+    ],
+    "alias_examples": [
+      "list_tasks",
+      "show_task",
+      "next_task",
+      "next_tasks",
+      "config_show",
+      "truth_list",
+      "workstream_list",
+      "worktree_list",
+      "render_table",
+      "render_tree",
+      "render_timeline"
+    ],
+    "behavior": "The CLI accepts MCP-style command aliases in underscore or hyphen form and maps them onto the equivalent local CLI workflow."
   }
 }

@@ -57,6 +57,25 @@ workmesh --root . bootstrap --project-id <project-id> --feature "<feature-name>"
 
 `bootstrap` detects repo state (new/modern/legacy), initializes or migrates as needed, seeds missing context, and returns next-task recommendations.
 
+CLI renderer fallback:
+```bash
+workmesh --root . render table --data '[{"task":"task-001","status":"Done"}]'
+```
+
+The CLI renderer mirrors the native WorkMesh renderers for cases where MCP tool wrappers are unavailable in the client session.
+
+CLI parity helpers:
+- metadata/read-only parity commands:
+  - `workmesh --root . readme --json`
+  - `workmesh --root . tool-info render_table --json`
+  - `workmesh --root . skill-content --json`
+  - `workmesh --root . project-management-skill --json`
+  - `workmesh --root . next-tasks --json`
+- MCP-style command aliases are accepted directly by the CLI:
+  - `list_tasks`, `show_task`, `next_task`, `next_tasks`
+  - `config_show`, `truth_list`, `workstream_list`, `worktree_list`
+  - `render_table`, `render_tree`, `render_timeline`, and the rest of the render tool family
+
 ## Install
 
 ### Prebuilt binaries (recommended)
@@ -91,6 +110,11 @@ Render tools (MCP stdio):
 - `render_chart_bar`, `render_sparkline`, `render_timeline`
 
 All render tools accept `data` plus optional `format` and `configuration`, and return rendered text.
+
+CLI render fallback:
+- `workmesh --root . render table|kv|stats|list|progress|tree|diff|logs|alerts|chart-bar|sparkline|timeline`
+- input via `--data`, `--data-file`, or `--stdin`
+- optional renderer settings via `--configuration` or `--config-file`
 
 Full run/install/agent setup:
 - [`docs/setup/run-modes-and-agent-mcp.md`](docs/setup/run-modes-and-agent-mcp.md)

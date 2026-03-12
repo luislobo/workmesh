@@ -32,7 +32,13 @@ Run commands directly:
 workmesh --root . list --json
 workmesh --root . next --json
 workmesh --root . bootstrap --project-id <project-id> --feature "<feature>" --json
+workmesh --root . render table --data '[{"task":"task-001","status":"Done"}]'
 ```
+
+CLI render fallback:
+- `workmesh --root . render table|kv|stats|list|progress|tree|diff|logs|alerts|chart-bar|sparkline|timeline`
+- input via `--data`, `--data-file`, or `--stdin`
+- optional renderer settings via `--configuration` or `--config-file`
 
 ## MCP stdio mode
 

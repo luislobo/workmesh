@@ -1741,7 +1741,10 @@ pub struct ProjectManagementSkillTool {
     pub format: String,
 }
 
-#[mcp_tool(name = "render_table", description = "Render a table from array/object data.")]
+#[mcp_tool(
+    name = "render_table",
+    description = "Render a table from array/object data."
+)]
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct RenderTableTool {
     #[serde(flatten)]
@@ -1769,28 +1772,40 @@ pub struct RenderListTool {
     pub input: RenderToolInput,
 }
 
-#[mcp_tool(name = "render_progress", description = "Render a progress bar or progress summary.")]
+#[mcp_tool(
+    name = "render_progress",
+    description = "Render a progress bar or progress summary."
+)]
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct RenderProgressTool {
     #[serde(flatten)]
     pub input: RenderToolInput,
 }
 
-#[mcp_tool(name = "render_tree", description = "Render a tree view from nested nodes.")]
+#[mcp_tool(
+    name = "render_tree",
+    description = "Render a tree view from nested nodes."
+)]
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct RenderTreeTool {
     #[serde(flatten)]
     pub input: RenderToolInput,
 }
 
-#[mcp_tool(name = "render_diff", description = "Render a unified diff from before/after values.")]
+#[mcp_tool(
+    name = "render_diff",
+    description = "Render a unified diff from before/after values."
+)]
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct RenderDiffTool {
     #[serde(flatten)]
     pub input: RenderToolInput,
 }
 
-#[mcp_tool(name = "render_logs", description = "Render log entries as a structured table.")]
+#[mcp_tool(
+    name = "render_logs",
+    description = "Render log entries as a structured table."
+)]
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct RenderLogsTool {
     #[serde(flatten)]
@@ -7039,7 +7054,7 @@ fn tool_examples(name: &str) -> Vec<serde_json::Value> {
     }
 }
 
-fn tool_info_payload(name: &str) -> Option<serde_json::Value> {
+pub fn tool_info_payload(name: &str) -> Option<serde_json::Value> {
     let name = name.trim();
     let tool_def = sdk_tool_definition(name)?;
     let summary = tool_catalog()

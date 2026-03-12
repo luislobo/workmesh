@@ -12,6 +12,18 @@ All subcommands support:
 - `--auto-session-save`
 - `--no-auto-session-save`
 
+CLI parity notes:
+- The CLI accepts MCP-style aliases in either underscore or hyphen form.
+- Examples:
+  - `help` -> `--help`
+  - `list_tasks` -> `list`
+  - `show_task` -> `show`
+  - `config_show` -> `config show`
+  - `truth_list` -> `truth list`
+  - `workstream_list` -> `workstream list`
+  - `worktree_list` -> `worktree list`
+  - `render_table` -> `render table`
+
 ## Defaults and config
 Global config:
 - `~/.workmesh/config.toml` (or `$WORKMESH_HOME/config.toml`)
@@ -48,6 +60,10 @@ MCP:
 
 ## Bootstrap and diagnostics
 CLI:
+- `readme [--json]`
+- `tool-info <tool-name> [--json]`
+- `skill-content [--name <skill>] [--json]`
+- `project-management-skill [--name <skill>] [--json]`
 - `bootstrap [--project-id <id>] [--feature "..."] [--objective "..."] [--json]`
 - `quickstart <project-id> [--name "..."] [--feature "..."] [--agents-snippet]`
 - `project-init <project-id> [--name "..."]`
@@ -55,6 +71,10 @@ CLI:
 - `validate [--json]`
 
 MCP:
+- `readme`
+- `tool_info`
+- `skill_content`
+- `project_management_skill`
 - `bootstrap`
 - `quickstart`
 - `project_init`
@@ -78,11 +98,19 @@ Conflict semantics:
 - Stale writes surface explicit conflict errors; they are not silently overwritten.
 - Legacy unversioned snapshots are treated as version `0` and migrated on first safe write.
 
+## Renderer tools
+CLI:
+- `render table|kv|stats|list|progress|tree|diff|logs|alerts|chart-bar|sparkline|timeline`
+- input: one of `--data <value>`, `--data-file <path>`, or `--stdin`
+- optional: `--format <value>`
+- optional: one of `--configuration <json>` or `--config-file <path>`
+
 ## Task selection and read views
 CLI:
 - `list [--status "To Do"] [--kind bug] [--search "..."] [--sort id] [--all] [--json]`
 - `show <task-id> [--full] [--json]`
 - `next [--json]`
+- `next-tasks [--limit N] [--json]`
 - `ready [--limit N] [--json]`
 - `board [--by status|phase|priority] [--focus] [--all] [--json]`
 - `blockers [--epic-id task-123] [--all] [--json]`

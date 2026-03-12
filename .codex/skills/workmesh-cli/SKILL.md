@@ -50,7 +50,7 @@ When user says to use WorkMesh for feature development:
 - keep context current
 - maintain acceptance criteria and definition of done quality
 - capture stable decisions as truths (use `truth propose --current` for stream-aware defaults)
-- use plain CLI output in this mode; `render_*` tools are MCP-only and not part of the CLI surface
+- use the CLI `render` subcommand for pretty tables/trees/stats/timelines when structured human-friendly output is needed
 
 ## Multi-stream restore (after reboot)
 If the user runs multiple workstreams in parallel (often one git worktree per stream), use:
@@ -98,7 +98,7 @@ workmesh --root . config set --scope project --key worktrees_dir --value "../myr
 
 ## Rules
 - Prefer `--json` when parsing output.
-- If the user wants pretty rendered tables/trees/charts, switch to MCP mode when available instead of manually simulating rich output in the CLI skill.
+- If the user wants pretty rendered tables/trees/charts, prefer MCP render tools when available; otherwise use `workmesh --root . render ...` instead of manually simulating rich output.
 - In CLI mode, treat JSON as the canonical data contract and plain text as a convenience view.
 - Use Markdown output only for content that is meant to be reused in docs, PRs, or notes.
 - Keep dependencies and blockers current.

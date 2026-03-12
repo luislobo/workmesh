@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.2] - 2026-03-12
+
+### Added
+- CLI render fallback via `workmesh render ...` for all native renderer tools, using inline data, files, or stdin.
+- CLI parity commands for MCP-only metadata/read views:
+  - `readme`
+  - `tool-info`
+  - `skill-content`
+  - `project-management-skill`
+  - `next-tasks`
+- MCP-style CLI aliases for command parity, including:
+  - `list_tasks`, `show_task`, `next_task`, `next_tasks`
+  - `config_show`, `truth_list`, `workstream_list`, `worktree_list`
+  - `render_table` and the full `render_*` tool family
+- CLI `help` alias support so `workmesh help` matches MCP `help` intent.
+
+### Changed
+- Skills and docs now direct agents to prefer MCP render tools first, then use the CLI render fallback before hand-formatting output.
+- Human and agent docs now document the CLI parity layer and alias behavior.
+
+### Fixed
+- Repo-root resolution for CLI metadata commands now reads from the actual repository root when `--root` points at the repo instead of a backlog directory.
+
 ## [0.3.1] - 2026-03-07
 
 ### Changed
@@ -222,7 +245,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Gantt support and best-practices command.
   - Docs-first project model and initial PRDs.
 
-[Unreleased]: https://github.com/luislobo/workmesh/compare/v0.3.1...HEAD
+[Unreleased]: https://github.com/luislobo/workmesh/compare/v0.3.2...HEAD
+[0.3.2]: https://github.com/luislobo/workmesh/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/luislobo/workmesh/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/luislobo/workmesh/compare/v0.2.15...v0.3.0
 [0.2.15]: https://github.com/luislobo/workmesh/compare/v0.2.14...v0.2.15

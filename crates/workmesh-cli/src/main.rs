@@ -1,10 +1,11 @@
 use std::collections::HashSet;
+use std::ffi::OsString;
 use std::io::{self, IsTerminal, Read};
 use std::path::{Path, PathBuf};
 
 use anyhow::Result;
 use chrono::{Duration, Local, NaiveDate};
-use clap::{ArgAction, Parser, Subcommand, ValueEnum};
+use clap::{ArgAction, Args, Parser, Subcommand, ValueEnum};
 
 mod version;
 
@@ -89,6 +90,8 @@ use workmesh_core::worktrees::{
     derive_unique_worktree_branch, doctor_worktrees, find_worktree_record_by_path, git_has_head,
     list_worktree_views, set_worktree_attached_session_id, upsert_worktree_record, WorktreeRecord,
 };
+use workmesh_mcp_server::tool_info_payload;
+use workmesh_render::dispatch_tool as render_dispatch_tool;
 
 #[derive(Parser)]
 #[command(name = "workmesh", version = version::FULL, about = "WorkMesh CLI (WIP)")]
@@ -116,6 +119,31 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
+    /// Return README.json (agent-friendly repo docs)
+    Readme {
+        #[arg(long, action = ArgAction::SetTrue)]
+        json: bool,
+    },
+    /// Show MCP tool metadata for a WorkMesh command/tool
+    ToolInfo {
+        name: String,
+        #[arg(long, action = ArgAction::SetTrue)]
+        json: bool,
+    },
+    /// Return skill content (defaults to workmesh)
+    SkillContent {
+        #[arg(long)]
+        name: Option<String>,
+        #[arg(long, action = ArgAction::SetTrue)]
+        json: bool,
+    },
+    /// Return the project-management skill content (defaults to workmesh)
+    ProjectManagementSkill {
+        #[arg(long)]
+        name: Option<String>,
+        #[arg(long, action = ArgAction::SetTrue)]
+        json: bool,
+    },
     /// Diagnostics for repo layout, context, index, and skill installation
     Doctor {
         #[arg(long, action = ArgAction::SetTrue)]
@@ -224,6 +252,13 @@ enum Command {
     Next {
         #[arg(long, action = ArgAction::SetTrue)]
         json: bool,
+    },
+    /// Show the next recommended task candidates
+    NextTasks {
+        #[arg(long, action = ArgAction::SetTrue)]
+        json: bool,
+        #[arg(long)]
+        limit: Option<usize>,
     },
     /// List ready tasks
     Ready {
@@ -730,6 +765,11 @@ enum Command {
         #[arg(long, action = ArgAction::SetTrue)]
         json: bool,
     },
+    /// Render structured data using the native WorkMesh renderers
+    Render {
+        #[command(subcommand)]
+        command: RenderCommand,
+    },
     /// Show backlog best practices
     BestPractices,
     /// Render PlantUML gantt text
@@ -825,6 +865,56 @@ enum SkillCommand {
         #[arg(long, action = ArgAction::SetTrue)]
         json: bool,
     },
+}
+
+#[derive(Subcommand)]
+enum RenderCommand {
+    /// Render a table from array/object data
+    Table(RenderInputArgs),
+    /// Render a key/value view
+    Kv(RenderInputArgs),
+    /// Render compact stats
+    Stats(RenderInputArgs),
+    /// Render a list
+    List(RenderInputArgs),
+    /// Render progress output
+    Progress(RenderInputArgs),
+    /// Render a tree
+    Tree(RenderInputArgs),
+    /// Render a diff
+    Diff(RenderInputArgs),
+    /// Render logs
+    Logs(RenderInputArgs),
+    /// Render alerts
+    Alerts(RenderInputArgs),
+    /// Render a bar chart
+    ChartBar(RenderInputArgs),
+    /// Render a sparkline
+    Sparkline(RenderInputArgs),
+    /// Render a timeline
+    Timeline(RenderInputArgs),
+}
+
+#[derive(Args, Clone, Debug)]
+struct RenderInputArgs {
+    /// Inline data payload. If valid JSON, it is parsed as JSON; otherwise it is treated as a string.
+    #[arg(long, conflicts_with_all = ["data_file", "stdin"])]
+    data: Option<String>,
+    /// Read data payload from a file.
+    #[arg(long, value_name = "path", conflicts_with_all = ["data", "stdin"])]
+    data_file: Option<PathBuf>,
+    /// Read data payload from stdin.
+    #[arg(long, action = ArgAction::SetTrue, conflicts_with_all = ["data", "data_file"])]
+    stdin: bool,
+    /// Optional renderer format hint.
+    #[arg(long)]
+    format: Option<String>,
+    /// Inline configuration JSON for the renderer.
+    #[arg(long, conflicts_with = "config_file")]
+    configuration: Option<String>,
+    /// Read configuration JSON from a file.
+    #[arg(long, value_name = "path", conflicts_with = "configuration")]
+    config_file: Option<PathBuf>,
 }
 
 #[derive(Subcommand)]
@@ -1050,6 +1140,200 @@ fn print_fix_report(report: &FixRunReport, apply: bool) {
     for warning in &report.warnings {
         println!("  warning: {}", warning);
     }
+}
+
+fn rewrite_cli_args(args: Vec<OsString>) -> Vec<OsString> {
+    if args.len() <= 1 {
+        return args;
+    }
+
+    let mut rewritten = Vec::with_capacity(args.len() + 2);
+    rewritten.push(args[0].clone());
+
+    let mut command_seen = false;
+    let mut skip_next_value = false;
+
+    for arg in args.into_iter().skip(1) {
+        if command_seen {
+            rewritten.push(arg);
+            continue;
+        }
+
+        let value = arg.to_string_lossy().to_string();
+        if skip_next_value {
+            rewritten.push(arg);
+            skip_next_value = false;
+            continue;
+        }
+
+        if value == "--root" {
+            rewritten.push(arg);
+            skip_next_value = true;
+            continue;
+        }
+
+        if value.starts_with('-') {
+            rewritten.push(arg);
+            continue;
+        }
+
+        command_seen = true;
+        let normalized = value.replace('_', "-");
+        let alias = command_alias(&normalized).unwrap_or_else(|| vec![normalized]);
+        rewritten.extend(alias.into_iter().map(OsString::from));
+    }
+
+    rewritten
+}
+
+fn command_alias(command: &str) -> Option<Vec<String>> {
+    let alias = match command {
+        "help" => vec!["--help"],
+        "version" => vec!["--version"],
+        "readme" => vec!["readme"],
+        "tool-info" => vec!["tool-info"],
+        "skill-content" => vec!["skill-content"],
+        "project-management-skill" => vec!["project-management-skill"],
+        "config-show" => vec!["config", "show"],
+        "config-set" => vec!["config", "set"],
+        "config-unset" => vec!["config", "unset"],
+        "context-show" => vec!["context", "show"],
+        "context-set" => vec!["context", "set"],
+        "context-clear" => vec!["context", "clear"],
+        "workstream-list" => vec!["workstream", "list"],
+        "workstream-create" => vec!["workstream", "create"],
+        "workstream-show" => vec!["workstream", "show"],
+        "workstream-switch" => vec!["workstream", "switch"],
+        "workstream-pause" => vec!["workstream", "pause"],
+        "workstream-close" => vec!["workstream", "close"],
+        "workstream-reopen" => vec!["workstream", "reopen"],
+        "workstream-rename" => vec!["workstream", "rename"],
+        "workstream-set" => vec!["workstream", "set"],
+        "workstream-doctor" => vec!["workstream", "doctor"],
+        "workstream-restore" => vec!["workstream", "restore"],
+        "worktree-list" => vec!["worktree", "list"],
+        "worktree-create" => vec!["worktree", "create"],
+        "worktree-adopt-clone" => vec!["worktree", "adopt-clone"],
+        "worktree-attach" => vec!["worktree", "attach"],
+        "worktree-detach" => vec!["worktree", "detach"],
+        "worktree-doctor" => vec!["worktree", "doctor"],
+        "truth-propose" => vec!["truth", "propose"],
+        "truth-accept" => vec!["truth", "accept"],
+        "truth-reject" => vec!["truth", "reject"],
+        "truth-supersede" => vec!["truth", "supersede"],
+        "truth-show" => vec!["truth", "show"],
+        "truth-list" => vec!["truth", "list"],
+        "truth-validate" => vec!["truth", "validate"],
+        "truth-migrate-audit" => vec!["truth", "migrate", "audit"],
+        "truth-migrate-plan" => vec!["truth", "migrate", "plan"],
+        "truth-migrate-apply" => vec!["truth", "migrate", "apply"],
+        "session-save" => vec!["session", "save"],
+        "session-list" => vec!["session", "list"],
+        "session-show" => vec!["session", "show"],
+        "session-resume" => vec!["session", "resume"],
+        "session-index-rebuild" => vec!["session", "index-rebuild"],
+        "session-index-refresh" => vec!["session", "index-refresh"],
+        "session-index-verify" => vec!["session", "index-verify"],
+        "list-tasks" => vec!["list"],
+        "show-task" => vec!["show"],
+        "next-task" => vec!["next"],
+        "next-tasks" => vec!["next-tasks"],
+        "ready-tasks" => vec!["ready"],
+        "export-tasks" => vec!["export"],
+        "archive-tasks" => vec!["archive"],
+        "claim-task" => vec!["claim"],
+        "release-task" => vec!["release"],
+        "add-label" => vec!["label-add"],
+        "remove-label" => vec!["label-remove"],
+        "add-dependency" => vec!["dep-add"],
+        "remove-dependency" => vec!["dep-remove"],
+        "add-note" => vec!["note"],
+        "add-task" => vec!["add"],
+        "set-status" => vec!["set-status"],
+        "set-field" => vec!["set-field"],
+        "set-body" => vec!["set-body"],
+        "set-section" => vec!["set-section"],
+        "add-discovered" => vec!["add-discovered"],
+        "working-set" => vec!["working-set"],
+        "session-journal" => vec!["session-journal"],
+        "checkpoint-diff" => vec!["checkpoint-diff"],
+        "graph-export" => vec!["graph-export"],
+        "issues-export" => vec!["issues-export"],
+        "index-rebuild" => vec!["index-rebuild"],
+        "index-refresh" => vec!["index-refresh"],
+        "index-verify" => vec!["index-verify"],
+        "project-init" => vec!["project-init"],
+        "migrate-audit" => vec!["migrate", "audit"],
+        "migrate-plan" => vec!["migrate", "plan"],
+        "migrate-apply" => vec!["migrate", "apply"],
+        "migrate-backlog" => vec!["migrate"],
+        "best-practices" => vec!["best-practices"],
+        "gantt-text" => vec!["gantt"],
+        "gantt-file" => vec!["gantt-file"],
+        "gantt-svg" => vec!["gantt-svg"],
+        "skill-show" => vec!["skill", "show"],
+        "skill-install" => vec!["skill", "install"],
+        "skill-uninstall" => vec!["skill", "uninstall"],
+        "skill-install-global" => vec!["skill", "install-global"],
+        "skill-uninstall-global" => vec!["skill", "uninstall-global"],
+        "bulk-set-status" => vec!["bulk-set-status"],
+        "bulk-set-field" => vec!["bulk-set-field"],
+        "bulk-add-label" => vec!["bulk-label-add"],
+        "bulk-remove-label" => vec!["bulk-label-remove"],
+        "bulk-add-dependency" => vec!["bulk-dep-add"],
+        "bulk-remove-dependency" => vec!["bulk-dep-remove"],
+        "bulk-add-note" => vec!["bulk-note"],
+        "fix-ids" => vec!["fix", "ids"],
+        "render-table" => vec!["render", "table"],
+        "render-kv" => vec!["render", "kv"],
+        "render-stats" => vec!["render", "stats"],
+        "render-list" => vec!["render", "list"],
+        "render-progress" => vec!["render", "progress"],
+        "render-tree" => vec!["render", "tree"],
+        "render-diff" => vec!["render", "diff"],
+        "render-logs" => vec!["render", "logs"],
+        "render-alerts" => vec!["render", "alerts"],
+        "render-chart-bar" => vec!["render", "chart-bar"],
+        "render-sparkline" => vec!["render", "sparkline"],
+        "render-timeline" => vec!["render", "timeline"],
+        _ => return None,
+    };
+    Some(alias.into_iter().map(|value| value.to_string()).collect())
+}
+
+fn render_tool_info_text(name: &str, info: &serde_json::Value) -> String {
+    let examples = info
+        .get("examples")
+        .and_then(|value| value.as_array())
+        .map(|arr| {
+            arr.iter()
+                .map(|ex| serde_json::to_string_pretty(ex).unwrap_or_default())
+                .collect::<Vec<_>>()
+                .join("\n\n")
+        })
+        .unwrap_or_default();
+    let notes = info
+        .get("notes")
+        .and_then(|value| value.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str())
+                .map(|line| format!("- {}", line))
+                .collect::<Vec<_>>()
+                .join("\n")
+        })
+        .unwrap_or_default();
+
+    let summary = info.get("summary").and_then(|v| v.as_str()).unwrap_or("");
+    let tool_def = info.get("tool").cloned().unwrap_or_default();
+    format!(
+        "Tool: {name}\n\nSummary:\n  {summary}\n\nTool definition:\n{tool_def}\n\nExamples:\n{examples}\n\nNotes:\n{notes}\n",
+        name = name,
+        summary = summary,
+        tool_def = serde_json::to_string_pretty(&tool_def).unwrap_or_default(),
+        examples = examples,
+        notes = notes
+    )
 }
 
 fn run_fix_target(backlog_dir: &Path, target: FixTargetArg, apply: bool) -> Result<FixRunReport> {
@@ -2132,7 +2416,90 @@ fn auto_update_current_session(backlog_dir: &Path) -> Result<()> {
 }
 
 fn main() -> Result<()> {
-    let cli = Cli::parse();
+    let cli = Cli::parse_from(rewrite_cli_args(std::env::args_os().collect()));
+    if let Command::Readme { json } = &cli.command {
+        let repo_root = resolve_cli_repo_root(&cli.root);
+        let path = repo_root.join("README.json");
+        let raw = std::fs::read_to_string(&path)?;
+        let parsed: serde_json::Value = serde_json::from_str(&raw)?;
+        if *json {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&serde_json::json!({
+                    "ok": true,
+                    "path": path,
+                    "readme": parsed,
+                }))?
+            );
+        } else {
+            println!("{}", raw);
+        }
+        return Ok(());
+    }
+
+    if let Command::ToolInfo { name, json } = &cli.command {
+        let Some(info) = tool_info_payload(name) else {
+            die(&format!("Unknown tool: {}", name));
+        };
+        if *json {
+            println!("{}", serde_json::to_string_pretty(&info)?);
+        } else {
+            println!("{}", render_tool_info_text(name, &info));
+        }
+        return Ok(());
+    }
+
+    if let Command::SkillContent { name, json } = &cli.command {
+        let repo_root = resolve_cli_repo_root(&cli.root);
+        let skill_name = name
+            .as_deref()
+            .map(|value| value.trim())
+            .filter(|value| !value.is_empty())
+            .unwrap_or("workmesh");
+        let skill = load_skill_content(Some(&repo_root), skill_name)
+            .or_else(|| load_skill_content(None, skill_name))
+            .unwrap_or_else(|| die(&format!("Skill not found: {}", skill_name)));
+        if *json {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&serde_json::json!({
+                    "name": skill_name,
+                    "source": skill.source,
+                    "content": skill.content,
+                }))?
+            );
+        } else {
+            println!("{}", skill.content);
+        }
+        return Ok(());
+    }
+
+    if let Command::ProjectManagementSkill { name, json } = &cli.command {
+        let repo_root = resolve_cli_repo_root(&cli.root);
+        let skill_name = name
+            .as_deref()
+            .map(|value| value.trim())
+            .filter(|value| !value.is_empty())
+            .unwrap_or("workmesh");
+        let skill = load_skill_content(Some(&repo_root), skill_name)
+            .or_else(|| load_skill_content(None, skill_name))
+            .unwrap_or_else(|| die(&format!("Skill not found: {}", skill_name)));
+        if *json {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&serde_json::json!({
+                    "summary": "workmesh project management skill",
+                    "name": skill_name,
+                    "source": skill.source,
+                    "content": skill.content,
+                }))?
+            );
+        } else {
+            println!("{}", skill.content);
+        }
+        return Ok(());
+    }
+
     if let Command::Bootstrap {
         project_id,
         feature,
@@ -2140,7 +2507,7 @@ fn main() -> Result<()> {
         json,
     } = &cli.command
     {
-        let repo_root = repo_root_from_backlog(&cli.root);
+        let repo_root = resolve_cli_repo_root(&cli.root);
         let result = bootstrap_repo(
             &repo_root,
             &BootstrapOptions {
@@ -2193,7 +2560,7 @@ fn main() -> Result<()> {
         json,
     } = &cli.command
     {
-        let repo_root = repo_root_from_backlog(&cli.root);
+        let repo_root = resolve_cli_repo_root(&cli.root);
         let result = quickstart(
             &repo_root,
             project_id,
@@ -2257,7 +2624,7 @@ fn main() -> Result<()> {
         if !skills {
             die("install currently supports only --skills");
         }
-        let repo_root = repo_root_from_backlog(&cli.root);
+        let repo_root = resolve_cli_repo_root(&cli.root);
         let mut report = SkillInstallReport::default();
         let names = skill_names_for_profile(*profile);
         for name in names.iter() {
@@ -2307,7 +2674,7 @@ fn main() -> Result<()> {
         if !skills {
             die("uninstall currently supports only --skills");
         }
-        let repo_root = repo_root_from_backlog(&cli.root);
+        let repo_root = resolve_cli_repo_root(&cli.root);
         let mut report = SkillUninstallReport::default();
         let names = skill_names_for_profile(*profile);
         for name in names.iter() {
@@ -2420,7 +2787,7 @@ fn main() -> Result<()> {
     }
 
     if let Command::Config { command } = &cli.command {
-        let repo_root = repo_root_from_backlog(&cli.root);
+        let repo_root = resolve_cli_repo_root(&cli.root);
         handle_config_command(&repo_root, command)?;
         return Ok(());
     }
@@ -2436,6 +2803,11 @@ fn main() -> Result<()> {
         return Ok(());
     }
 
+    if let Command::Render { command } = &cli.command {
+        handle_render_command(command)?;
+        return Ok(());
+    }
+
     let resolution = resolve_backlog(&cli.root)?;
     let backlog_dir = maybe_prompt_migration(&resolution)?;
     let tasks = load_tasks(&backlog_dir);
@@ -2443,6 +2815,12 @@ fn main() -> Result<()> {
     let auto_session = auto_session_enabled(&cli, &resolution.repo_root);
 
     match cli.command {
+        Command::Readme { .. }
+        | Command::ToolInfo { .. }
+        | Command::SkillContent { .. }
+        | Command::ProjectManagementSkill { .. } => {
+            unreachable!("handled before backlog resolution")
+        }
         Command::Board {
             all,
             by,
@@ -2601,6 +2979,24 @@ fn main() -> Result<()> {
                 }
             } else if let Some(task) = task {
                 println!("{}", render_task_line(&task));
+            }
+        }
+        Command::NextTasks { json, limit } => {
+            let context = load_context_state(&backlog_dir);
+            let mut recommended = recommend_next_tasks_with_context(&tasks, context.as_ref());
+            if let Some(limit) = limit {
+                recommended.truncate(limit);
+            }
+            if json {
+                let payload: Vec<_> = recommended
+                    .iter()
+                    .map(|task| task_to_json_value(task, false))
+                    .collect();
+                println!("{}", serde_json::to_string_pretty(&payload)?);
+                return Ok(());
+            }
+            for task in recommended {
+                println!("{}", render_task_line(task));
             }
         }
         Command::Ready { json, limit } => {
@@ -4521,6 +4917,9 @@ fn main() -> Result<()> {
         Command::BestPractices => {
             println!("{}", best_practices_text());
         }
+        Command::Render { .. } => {
+            unreachable!("render handled before backlog resolution");
+        }
         Command::Gantt { start, zoom } => {
             let text = plantuml_gantt(&tasks, start.as_deref(), None, zoom, None, true);
             print!("{}", text);
@@ -4799,6 +5198,15 @@ fn maybe_prompt_migration(resolution: &BacklogResolution) -> Result<PathBuf> {
     }
     let _ = update_do_not_migrate(&resolution.repo_root, true);
     Ok(resolution.backlog_dir.clone())
+}
+
+fn resolve_cli_repo_root(root: &Path) -> PathBuf {
+    if root.join("README.json").exists() || root.join(".git").exists() {
+        return root.to_path_buf();
+    }
+    resolve_backlog(root)
+        .map(|resolution| resolution.repo_root)
+        .unwrap_or_else(|_| repo_root_from_backlog(root))
 }
 
 fn confirm_migration(path: &Path) -> Result<bool> {
@@ -7406,6 +7814,107 @@ fn read_content(text: Option<&str>, file_path: Option<&Path>) -> Result<String> 
     let mut buffer = String::new();
     std::io::stdin().read_to_string(&mut buffer)?;
     Ok(buffer)
+}
+
+fn parse_json_or_string(raw: String) -> serde_json::Value {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        serde_json::Value::String(raw)
+    } else {
+        serde_json::from_str(trimmed).unwrap_or(serde_json::Value::String(raw))
+    }
+}
+
+fn read_render_data(args: &RenderInputArgs) -> Result<serde_json::Value> {
+    let raw = match (&args.data, &args.data_file, args.stdin) {
+        (Some(data), None, false) => data.clone(),
+        (None, Some(path), false) => std::fs::read_to_string(path)?,
+        (None, None, true) => {
+            let mut buffer = String::new();
+            std::io::stdin().read_to_string(&mut buffer)?;
+            buffer
+        }
+        (None, None, false) => {
+            anyhow::bail!("render input requires one of --data, --data-file, or --stdin")
+        }
+        _ => anyhow::bail!("render input flags are mutually exclusive"),
+    };
+    Ok(parse_json_or_string(raw))
+}
+
+fn read_render_configuration(args: &RenderInputArgs) -> Result<Option<serde_json::Value>> {
+    let raw = match (&args.configuration, &args.config_file) {
+        (Some(value), None) => value.clone(),
+        (None, Some(path)) => std::fs::read_to_string(path)?,
+        (None, None) => return Ok(None),
+        _ => anyhow::bail!("render configuration flags are mutually exclusive"),
+    };
+    let value = serde_json::from_str(raw.trim())
+        .map_err(|err| anyhow::anyhow!("invalid render configuration JSON: {}", err))?;
+    Ok(Some(value))
+}
+
+fn render_tool_name(command: &RenderCommand) -> &'static str {
+    match command {
+        RenderCommand::Table(_) => "render_table",
+        RenderCommand::Kv(_) => "render_kv",
+        RenderCommand::Stats(_) => "render_stats",
+        RenderCommand::List(_) => "render_list",
+        RenderCommand::Progress(_) => "render_progress",
+        RenderCommand::Tree(_) => "render_tree",
+        RenderCommand::Diff(_) => "render_diff",
+        RenderCommand::Logs(_) => "render_logs",
+        RenderCommand::Alerts(_) => "render_alerts",
+        RenderCommand::ChartBar(_) => "render_chart_bar",
+        RenderCommand::Sparkline(_) => "render_sparkline",
+        RenderCommand::Timeline(_) => "render_timeline",
+    }
+}
+
+fn render_args(command: &RenderCommand) -> &RenderInputArgs {
+    match command {
+        RenderCommand::Table(args)
+        | RenderCommand::Kv(args)
+        | RenderCommand::Stats(args)
+        | RenderCommand::List(args)
+        | RenderCommand::Progress(args)
+        | RenderCommand::Tree(args)
+        | RenderCommand::Diff(args)
+        | RenderCommand::Logs(args)
+        | RenderCommand::Alerts(args)
+        | RenderCommand::ChartBar(args)
+        | RenderCommand::Sparkline(args)
+        | RenderCommand::Timeline(args) => args,
+    }
+}
+
+fn handle_render_command(command: &RenderCommand) -> Result<()> {
+    let args = render_args(command);
+    let mut payload = serde_json::Map::new();
+    payload.insert("data".to_string(), read_render_data(args)?);
+    if let Some(format) = args.format.as_ref() {
+        payload.insert(
+            "format".to_string(),
+            serde_json::Value::String(format.clone()),
+        );
+    }
+    if let Some(configuration) = read_render_configuration(args)? {
+        payload.insert("configuration".to_string(), configuration);
+    }
+    let result = render_dispatch_tool(
+        render_tool_name(command),
+        &serde_json::Value::Object(payload),
+    )
+    .map_err(|err| anyhow::anyhow!(err.to_string()))?;
+    if let Some(text) = result.get("text").and_then(|value| value.as_str()) {
+        print!("{}", text);
+        if !text.ends_with('\n') {
+            println!();
+        }
+    } else {
+        println!("{}", serde_json::to_string_pretty(&result)?);
+    }
+    Ok(())
 }
 
 fn audit_event(

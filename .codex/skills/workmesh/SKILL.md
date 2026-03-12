@@ -67,7 +67,8 @@ After bootstrap, if user asks to work on a feature, maintain WorkMesh continuous
 
 ### Structured output
 - Prefer native `render_*` MCP tools for pretty tables, stats, trees, diffs, lists, progress bars, and timelines when MCP is available.
-- Fall back to plain text only when MCP render tools are unavailable or the user explicitly wants raw output.
+- If MCP render tools are unavailable but the local CLI is available, use `workmesh --root <repo> render ...` as the fallback before hand-formatting output.
+- Fall back to plain text only when neither MCP render tools nor the CLI render command is available, or the user explicitly wants raw output.
 
 ### Renderer catalog
 - `render_table`: tabular rows/columns.
