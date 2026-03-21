@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- Added a new `workmesh-tools` crate to own shared tool metadata, response-policy helpers, and adapter-neutral tooling helpers.
+- Removed the direct CLI dependency on `workmesh-mcp-server`; the CLI now reads shared tool metadata through `workmesh-tools`.
+- `workmesh-mcp-server` now consumes shared metadata/root-resolution/response helpers from `workmesh-tools` instead of owning them all locally.
+
 ### Documentation
 - Reworked the top-level README into a clearer developer-first entrypoint with:
   - a shorter Codex-first path
@@ -14,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - a simpler core concepts section
   - an explicit maintainer section for changelog and docs sync discipline
 - Simplified `README.json` to mirror the new human-facing structure without duplicating low-signal detail.
+- Documented the current crate architecture and clarified that MCP remains the canonical source for full input schemas while shared tool metadata/examples live in `workmesh-tools`.
 
 ## [0.3.3] - 2026-03-20
 

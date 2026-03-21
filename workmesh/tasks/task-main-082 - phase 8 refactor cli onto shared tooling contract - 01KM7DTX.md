@@ -3,7 +3,7 @@ id: task-main-082
 uid: 01KM7DTXBBEPSDJ34TATSZCQ8S
 title: Phase 8: refactor CLI onto shared tooling contract
 kind: task
-status: To Do
+status: Done
 priority: P1
 phase: Phase8
 dependencies: [task-main-080, task-main-081]
@@ -14,7 +14,7 @@ relationships:
   parent: []
   child: []
   discovered_from: []
-updated_date: 2026-03-21 00:29
+updated_date: 2026-03-21 01:15
 ---
 Description:
 --------------------------------------------------

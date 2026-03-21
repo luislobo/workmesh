@@ -52,6 +52,13 @@ When user says to use WorkMesh for feature development:
 - capture stable decisions as truths (use `truth propose --current` for stream-aware defaults)
 - use the CLI `render` subcommand for pretty tables/trees/stats/timelines when structured human-friendly output is needed
 
+## Contributor architecture
+- Shared tool metadata, response-policy helpers, and adapter-neutral tooling helpers belong in `workmesh-tools`.
+- CLI-only parsing/presentation belongs in `workmesh`.
+- MCP transport glue belongs in `workmesh-mcp-server`.
+- Do not reintroduce a CLI dependency on `workmesh-mcp-server`.
+- If exact MCP input-schema detail is required, prefer MCP `tool_info`; CLI `tool-info` mirrors shared metadata/examples.
+
 ## Mutation response contract
 - Treat WorkMesh writes as acknowledgement-first operations.
 - Do not assume a write should echo the full updated object.

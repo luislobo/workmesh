@@ -17,9 +17,7 @@ use serde::{Deserialize, Serialize};
 
 use workmesh_core::archive::{archive_tasks, ArchiveOptions};
 use workmesh_core::audit::{append_audit_event, AuditEvent};
-use workmesh_core::backlog::{
-    locate_backlog_dir, resolve_backlog, resolve_backlog_dir, BacklogError,
-};
+use workmesh_core::backlog::{locate_backlog_dir, resolve_backlog};
 use workmesh_core::bootstrap::{bootstrap_repo, BootstrapOptions, BootstrapResult};
 use workmesh_core::config::{resolve_auto_session_default, resolve_worktrees_default};
 use workmesh_core::context::{
@@ -83,8 +81,11 @@ use workmesh_core::worktrees::{
     list_worktree_views, set_worktree_attached_session_id, upsert_worktree_record, WorktreeRecord,
 };
 use workmesh_render::dispatch_tool as render_dispatch_tool;
-
-const ROOT_REQUIRED_ERROR: &str = "root is required for MCP calls unless the server is started within a repo containing tasks/ or backlog/tasks";
+use workmesh_tools::{
+    best_practice_hints, build_tool_info_payload, bulk_summary, default_verbose,
+    maybe_verbose_value, recommended_kinds, resolve_mcp_backlog_root, resolve_repo_root_input,
+    ROOT_REQUIRED_ERROR,
+};
 
 #[derive(Clone)]
 pub struct McpContext {
@@ -241,56 +242,11 @@ fn truth_refs_for_scope(
 }
 
 fn resolve_root(context: &McpContext, root: Option<&str>) -> Result<PathBuf, serde_json::Value> {
-    let root_value = root.and_then(|value| {
-        let trimmed = value.trim();
-        if trimmed.is_empty() {
-            None
-        } else {
-            Some(trimmed.to_string())
-        }
-    });
-    let used_root = if let Some(root_value) = root_value {
-        Some(PathBuf::from(root_value))
-    } else {
-        context.default_root.clone()
-    };
-
-    let resolved = if let Some(root_path) = &used_root {
-        resolve_backlog_dir(root_path)
-    } else {
-        locate_backlog_dir(&std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")))
-    };
-
-    match resolved {
-        Ok(path) => Ok(path),
-        Err(BacklogError::NotFound(_)) => {
-            if let Some(root_path) = used_root {
-                Err(
-                    serde_json::json!({"error": format!("No tasks found under {}", root_path.display())}),
-                )
-            } else {
-                Err(serde_json::json!({"error": ROOT_REQUIRED_ERROR}))
-            }
-        }
-    }
+    resolve_mcp_backlog_root(context.default_root.as_deref(), root)
 }
 
 fn resolve_repo_root(context: &McpContext, root: Option<&str>) -> PathBuf {
-    let root_value = root.and_then(|value| {
-        let trimmed = value.trim();
-        if trimmed.is_empty() {
-            None
-        } else {
-            Some(trimmed.to_string())
-        }
-    });
-    if let Some(root_value) = root_value {
-        return PathBuf::from(root_value);
-    }
-    if let Some(default_root) = &context.default_root {
-        return default_root.clone();
-    }
-    std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
+    resolve_repo_root_input(context.default_root.as_deref(), root)
 }
 
 fn load_context_state(backlog_dir: &Path) -> Option<ContextState> {
@@ -358,26 +314,6 @@ fn audit_event(
 
 fn refresh_index_best_effort(backlog_dir: &Path) {
     let _ = refresh_index(backlog_dir);
-}
-
-fn best_practice_hints() -> Vec<&'static str> {
-    vec![
-        "Fill Description, Acceptance Criteria, and Definition of Done for every task.",
-        "Definition of Done must include outcome-based criteria, not only hygiene checks.",
-        "Done transitions are gated by task quality requirements.",
-        "Always record dependencies for tasks that are blocked by other work.",
-        "Use dependencies to power next-task selection and blocked/ready views.",
-        "If unsure, start with an empty list and add dependencies as soon as blockers appear.",
-        "Prefer specific task ids (e.g., task-042) over vague references.",
-        "Update dependencies when status changes to avoid stale blocked tasks.",
-        "Do not commit derived artifacts like `workmesh/.index/` or `workmesh/.audit.log` (they are rebuildable).",
-    ]
-}
-
-fn recommended_kinds() -> Vec<&'static str> {
-    vec![
-        "epic", "story", "task", "bug", "subtask", "incident", "spike",
-    ]
 }
 
 fn tool_catalog() -> Vec<serde_json::Value> {
@@ -1976,20 +1912,12 @@ fn default_touch() -> bool {
     true
 }
 
-fn default_verbose() -> bool {
-    false
-}
-
 fn maybe_verbose_payload(
     verbose: bool,
     minimal: serde_json::Value,
     detailed: serde_json::Value,
 ) -> Result<CallToolResult, CallToolError> {
-    if verbose {
-        ok_json(detailed)
-    } else {
-        ok_json(minimal)
-    }
+    ok_json(maybe_verbose_value(verbose, minimal, detailed))
 }
 
 fn refreshed_task_value(backlog_dir: &Path, task_id: &str) -> Option<serde_json::Value> {
@@ -6194,13 +6122,13 @@ impl AddTaskTool {
         )?;
         refresh_index_best_effort(&backlog_dir);
         maybe_auto_checkpoint(&backlog_dir);
-        let mut hints = best_practice_hints();
+        let mut hints = best_practice_hints().to_vec();
         if dependencies.is_empty() {
             let mut enriched = vec![
                 "No dependencies were provided.",
                 "If this task is blocked by other work, add dependencies now.",
             ];
-            enriched.extend(hints);
+            enriched.extend(hints.iter().copied());
             hints = enriched;
         }
         maybe_verbose_payload(
@@ -7293,393 +7221,9 @@ fn sdk_tool_definition(name: &str) -> Option<serde_json::Value> {
     })
 }
 
-fn tool_examples(name: &str) -> Vec<serde_json::Value> {
-    let name = name.trim();
-    match name {
-        "version" => vec![serde_json::json!({
-            "tool": "version",
-            "arguments": { "format": "json" }
-        })],
-        "list_tasks" => vec![serde_json::json!({
-            "tool": "list_tasks",
-            "arguments": {
-                "status": ["To Do"],
-                "kind": ["bug"],
-                "sort": "id",
-                "format": "json"
-            }
-        })],
-        "show_task" => vec![serde_json::json!({
-            "tool": "show_task",
-            "arguments": { "task_id": "task-001", "format": "json", "include_body": true }
-        })],
-        "next_task" => vec![serde_json::json!({
-            "tool": "next_task",
-            "arguments": { "format": "json" }
-        })],
-        "ready_tasks" => vec![serde_json::json!({
-            "tool": "ready_tasks",
-            "arguments": { "format": "json", "limit": 10 }
-        })],
-        "workstream_list" => vec![serde_json::json!({
-            "tool": "workstream_list",
-            "arguments": { "format": "json" }
-        })],
-        "workstream_create" => vec![serde_json::json!({
-            "tool": "workstream_create",
-            "arguments": {
-                "name": "Feature A workstream",
-                "key": "fa",
-                "project_id": "demo",
-                "objective": "Ship Feature A",
-                "format": "json"
-            }
-        })],
-        "workstream_show" => vec![serde_json::json!({
-            "tool": "workstream_show",
-            "arguments": { "id": "ws1-001", "restore": true, "truths": true, "format": "json" }
-        })],
-        "config_show" => vec![serde_json::json!({
-            "tool": "config_show",
-            "arguments": { "format": "json" }
-        })],
-        "config_set" => vec![
-            serde_json::json!({
-                "tool": "config_set",
-                "arguments": { "scope": "global", "key": "auto_session_default", "value": "true", "format": "json" }
-            }),
-            serde_json::json!({
-                "tool": "config_set",
-                "arguments": { "scope": "global", "key": "auto_session_default", "value": "true", "format": "json", "verbose": true }
-            }),
-        ],
-        "config_unset" => vec![serde_json::json!({
-            "tool": "config_unset",
-            "arguments": { "scope": "global", "key": "auto_session_default", "format": "json" }
-        })],
-        "workstream_switch" => vec![serde_json::json!({
-            "tool": "workstream_switch",
-            "arguments": { "id": "ws1-001", "format": "json" }
-        })],
-        "workstream_doctor" => vec![serde_json::json!({
-            "tool": "workstream_doctor",
-            "arguments": { "format": "json" }
-        })],
-        "workstream_restore" => vec![serde_json::json!({
-            "tool": "workstream_restore",
-            "arguments": { "all": false, "format": "json" }
-        })],
-        "worktree_list" => vec![serde_json::json!({
-            "tool": "worktree_list",
-            "arguments": { "format": "json" }
-        })],
-        "worktree_create" => vec![serde_json::json!({
-            "tool": "worktree_create",
-            "arguments": {
-                "path": "../repo-feature-a",
-                "branch": "feature/a",
-                "project_id": "demo",
-                "objective": "Implement feature A",
-                "format": "json"
-            }
-        })],
-        "worktree_attach" => vec![serde_json::json!({
-            "tool": "worktree_attach",
-            "arguments": { "path": "../repo-feature-a", "format": "json" }
-        })],
-        "worktree_detach" => vec![serde_json::json!({
-            "tool": "worktree_detach",
-            "arguments": { "format": "json" }
-        })],
-        "worktree_doctor" => vec![serde_json::json!({
-            "tool": "worktree_doctor",
-            "arguments": { "format": "json" }
-        })],
-        "truth_propose" => vec![serde_json::json!({
-            "tool": "truth_propose",
-            "arguments": {
-                "title": "Use append-only truth events",
-                "statement": "Truth records are append-only and immutable.",
-                "project_id": "workmesh",
-                "epic_id": "task-main-001",
-                "format": "json"
-            }
-        })],
-        "truth_accept" => vec![serde_json::json!({
-            "tool": "truth_accept",
-            "arguments": { "truth_id": "truth-01...", "note": "approved", "format": "json" }
-        })],
-        "truth_supersede" => vec![serde_json::json!({
-            "tool": "truth_supersede",
-            "arguments": {
-                "truth_id": "truth-01old",
-                "by_truth_id": "truth-01new",
-                "reason": "replacement accepted",
-                "format": "json"
-            }
-        })],
-        "truth_list" => vec![serde_json::json!({
-            "tool": "truth_list",
-            "arguments": {
-                "states": ["accepted"],
-                "project_id": "workmesh",
-                "epic_id": "task-main-001",
-                "limit": 10,
-                "format": "json"
-            }
-        })],
-        "truth_validate" => vec![serde_json::json!({
-            "tool": "truth_validate",
-            "arguments": { "format": "json" }
-        })],
-        "set_status" => vec![
-            serde_json::json!({
-                "tool": "set_status",
-                "arguments": { "task_id": "task-001", "status": "In Progress", "touch": true }
-            }),
-            serde_json::json!({
-                "tool": "set_status",
-                "arguments": { "task_id": "task-001", "status": "In Progress", "touch": true, "verbose": true }
-            }),
-        ],
-        "set_field" => vec![serde_json::json!({
-            "tool": "set_field",
-            "arguments": { "task_id": "task-001", "field": "kind", "value": "bug", "touch": true }
-        })],
-        "bulk_set_status" => vec![
-            serde_json::json!({
-                "tool": "bulk_set_status",
-                "arguments": { "tasks": ["task-001", "task-002"], "status": "In Progress", "touch": true }
-            }),
-            serde_json::json!({
-                "tool": "bulk_set_status",
-                "arguments": { "tasks": ["task-001", "task-002"], "status": "In Progress", "touch": true, "verbose": true }
-            }),
-        ],
-        "bulk_set_field" => vec![
-            serde_json::json!({
-                "tool": "bulk_set_field",
-                "arguments": { "tasks": ["task-001", "task-002"], "field": "priority", "value": "P1", "touch": true }
-            }),
-            serde_json::json!({
-                "tool": "bulk_set_field",
-                "arguments": { "tasks": ["task-001", "task-002"], "field": "priority", "value": "P1", "touch": true, "verbose": true }
-            }),
-        ],
-        "bulk_add_label" => vec![
-            serde_json::json!({
-                "tool": "bulk_add_label",
-                "arguments": { "tasks": ["task-001", "task-002"], "label": "docs", "touch": true }
-            }),
-            serde_json::json!({
-                "tool": "bulk_add_label",
-                "arguments": { "tasks": ["task-001", "task-002"], "label": "docs", "touch": true, "verbose": true }
-            }),
-        ],
-        "bulk_remove_label" => vec![
-            serde_json::json!({
-                "tool": "bulk_remove_label",
-                "arguments": { "tasks": ["task-001", "task-002"], "label": "docs", "touch": true }
-            }),
-            serde_json::json!({
-                "tool": "bulk_remove_label",
-                "arguments": { "tasks": ["task-001", "task-002"], "label": "docs", "touch": true, "verbose": true }
-            }),
-        ],
-        "bulk_add_dependency" => vec![
-            serde_json::json!({
-                "tool": "bulk_add_dependency",
-                "arguments": { "tasks": ["task-001", "task-002"], "dependency": "task-010", "touch": true }
-            }),
-            serde_json::json!({
-                "tool": "bulk_add_dependency",
-                "arguments": { "tasks": ["task-001", "task-002"], "dependency": "task-010", "touch": true, "verbose": true }
-            }),
-        ],
-        "bulk_remove_dependency" => vec![
-            serde_json::json!({
-                "tool": "bulk_remove_dependency",
-                "arguments": { "tasks": ["task-001", "task-002"], "dependency": "task-010", "touch": true }
-            }),
-            serde_json::json!({
-                "tool": "bulk_remove_dependency",
-                "arguments": { "tasks": ["task-001", "task-002"], "dependency": "task-010", "touch": true, "verbose": true }
-            }),
-        ],
-        "bulk_add_note" => vec![
-            serde_json::json!({
-                "tool": "bulk_add_note",
-                "arguments": { "tasks": ["task-001", "task-002"], "section": "Notes", "note": "Follow up with vendor", "touch": true }
-            }),
-            serde_json::json!({
-                "tool": "bulk_add_note",
-                "arguments": { "tasks": ["task-001", "task-002"], "section": "Notes", "note": "Follow up with vendor", "touch": true, "verbose": true }
-            }),
-        ],
-        "add_task" => vec![
-            serde_json::json!({
-                "tool": "add_task",
-                "arguments": { "title": "Investigate flaky test", "priority": "P2", "phase": "Phase1" }
-            }),
-            serde_json::json!({
-                "tool": "add_task",
-                "arguments": { "title": "Investigate flaky test", "priority": "P2", "phase": "Phase1", "verbose": true }
-            }),
-        ],
-        "add_discovered" => vec![serde_json::json!({
-            "tool": "add_discovered",
-            "arguments": { "from": "task-001", "title": "New edge case discovered", "priority": "P2", "phase": "Phase1" }
-        })],
-        "graph_export" => vec![serde_json::json!({
-            "tool": "graph_export",
-            "arguments": { "pretty": true }
-        })],
-        "issues_export" => vec![serde_json::json!({
-            "tool": "issues_export",
-            "arguments": { "include_body": false }
-        })],
-        "index_rebuild" => vec![serde_json::json!({
-            "tool": "index_rebuild",
-            "arguments": {}
-        })],
-        "checkpoint" => vec![serde_json::json!({
-            "tool": "checkpoint",
-            "arguments": { "project": "workmesh", "json": true }
-        })],
-        "session_save" => vec![
-            serde_json::json!({
-                "tool": "session_save",
-                "arguments": { "objective": "Continue migration work", "project": "workmesh", "format": "json" }
-            }),
-            serde_json::json!({
-                "tool": "session_save",
-                "arguments": { "objective": "Continue migration work", "project": "workmesh", "format": "json", "verbose": true }
-            }),
-        ],
-        "resume" => vec![serde_json::json!({
-            "tool": "resume",
-            "arguments": { "project": "workmesh", "json": true }
-        })],
-        "help" => vec![serde_json::json!({
-            "tool": "help",
-            "arguments": { "format": "json" }
-        })],
-        "tool_info" => vec![serde_json::json!({
-            "tool": "tool_info",
-            "arguments": { "name": "list_tasks", "format": "text" }
-        })],
-        _ => vec![serde_json::json!({
-            "tool": name,
-            "arguments": {}
-        })],
-    }
-}
-
 pub fn tool_info_payload(name: &str) -> Option<serde_json::Value> {
-    let name = name.trim();
-    let tool_def = sdk_tool_definition(name)?;
-    let summary = tool_catalog()
-        .into_iter()
-        .find(|tool| {
-            tool.get("name")
-                .and_then(|v| v.as_str())
-                .map(|n| n == name)
-                .unwrap_or(false)
-        })
-        .and_then(|tool| {
-            tool.get("summary")
-                .and_then(|v| v.as_str())
-                .map(|s| s.to_string())
-        })
-        .unwrap_or_default();
-
-    let mut notes = vec![
-        "root is optional if the server is started inside a repo with workmesh/tasks, .workmesh/tasks, tasks/, or legacy backlog/tasks".to_string(),
-        "List-style arguments accept CSV strings (\"a,b,c\") or JSON arrays (\"[\\\"a\\\",\\\"b\\\"]\").".to_string(),
-    ];
-    if name == "list_tasks" {
-        notes.push(format!(
-            "Task kind is free-form (not enforced). Suggested kinds: {}.",
-            recommended_kinds().join(", ")
-        ));
-    }
-    if name == "add_task" || name == "add_discovered" {
-        notes.push(
-            "New tasks default to kind=task in front matter. You can set kind later with set_field."
-                .to_string(),
-        );
-    }
-    if name.starts_with("truth_") {
-        notes.push(
-            "Truth lifecycle is strict: proposed -> accepted|rejected, and accepted -> superseded."
-                .to_string(),
-        );
-    }
-    if supports_verbose_response(name) {
-        notes.push(
-            "Mutation tools return a minimal acknowledgement by default to save tokens. Pass verbose=true to include richer post-write state."
-                .to_string(),
-        );
-    }
-
-    Some(serde_json::json!({
-        "ok": true,
-        "name": name,
-        "summary": summary,
-        "tool": tool_def,
-        "notes": notes,
-        "examples": tool_examples(name),
-    }))
-}
-
-fn supports_verbose_response(name: &str) -> bool {
-    matches!(
-        name,
-        "config_set"
-            | "config_unset"
-            | "context_set"
-            | "context_clear"
-            | "workstream_create"
-            | "workstream_switch"
-            | "workstream_pause"
-            | "workstream_close"
-            | "workstream_reopen"
-            | "workstream_rename"
-            | "workstream_set"
-            | "worktree_create"
-            | "worktree_adopt_clone"
-            | "worktree_attach"
-            | "worktree_detach"
-            | "truth_propose"
-            | "truth_accept"
-            | "truth_reject"
-            | "truth_supersede"
-            | "truth_migrate_apply"
-            | "set_status"
-            | "set_field"
-            | "add_label"
-            | "remove_label"
-            | "add_dependency"
-            | "remove_dependency"
-            | "bulk_set_status"
-            | "bulk_set_field"
-            | "bulk_add_label"
-            | "bulk_remove_label"
-            | "bulk_add_dependency"
-            | "bulk_remove_dependency"
-            | "bulk_add_note"
-            | "archive_tasks"
-            | "migrate_backlog"
-            | "migrate_apply"
-            | "claim_task"
-            | "release_task"
-            | "add_note"
-            | "set_body"
-            | "set_section"
-            | "add_task"
-            | "add_discovered"
-            | "session_save"
-    )
+    let tool_def = sdk_tool_definition(name.trim())?;
+    build_tool_info_payload(name, tool_def)
 }
 
 impl ToolInfoTool {
@@ -7964,15 +7508,6 @@ fn bulk_result(updated: Vec<String>, missing: Vec<String>) -> serde_json::Value 
         "ok": missing.is_empty(),
         "updated": updated,
         "missing": missing,
-    })
-}
-
-fn bulk_summary(updated: &[String], failed: &[String]) -> serde_json::Value {
-    serde_json::json!({
-        "ok": failed.is_empty(),
-        "updated_count": updated.len(),
-        "failed_count": failed.len(),
-        "failed_ids": failed,
     })
 }
 
@@ -8293,6 +7828,7 @@ Body\n",
                 objective: None,
                 tasks: None,
                 format: "json".to_string(),
+                verbose: true,
             };
 
             let result1 = tool.call(&context).expect("create 1");
@@ -8333,7 +7869,8 @@ Body\n",
         // Deserialize without "status" so tool-level default path applies terminal status filter.
         let tool: ArchiveTool = serde_json::from_value(serde_json::json!({
             "root": root_arg,
-            "before": "2999-01-01"
+            "before": "2999-01-01",
+            "verbose": true
         }))
         .expect("archive tool defaults");
         assert!(tool.status.is_none());
@@ -8502,6 +8039,7 @@ Body\n",
             status: "In Progress".to_string(),
             root: Some(root_arg),
             touch: true,
+            verbose: false,
         };
         let _ = tool.call(&context).expect("set status");
 
@@ -8549,6 +8087,7 @@ Body\n",
             labels: None,
             dependencies: None,
             assignee: None,
+            verbose: false,
         };
         let result = tool.call(&context).expect("add task");
         let created: serde_json::Value = serde_json::from_str(&text_payload(result)).expect("json");

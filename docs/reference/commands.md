@@ -81,6 +81,10 @@ MCP:
 - `doctor`
 - `validate`
 
+`tool-info` note:
+- CLI `tool-info` mirrors the shared metadata/examples from `workmesh-tools`.
+- MCP `tool_info` remains the canonical source for the full MCP input schema.
+
 Doctor storage fix behavior:
 - `--fix-storage` (CLI) / `fix_storage=true` (MCP) performs safe remediation only:
   - trim trailing malformed JSONL lines for sessions/truth event streams

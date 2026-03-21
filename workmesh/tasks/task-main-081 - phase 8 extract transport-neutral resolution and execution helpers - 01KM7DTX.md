@@ -3,7 +3,7 @@ id: task-main-081
 uid: 01KM7DTXAPVMYJ8FGJB2855B09
 title: Phase 8: extract transport-neutral resolution and execution helpers
 kind: task
-status: To Do
+status: Done
 priority: P1
 phase: Phase8
 dependencies: [task-main-080]
@@ -14,7 +14,7 @@ relationships:
   parent: []
   child: []
   discovered_from: []
-updated_date: 2026-03-21 00:28
+updated_date: 2026-03-21 01:15
 ---
 Description:
 --------------------------------------------------

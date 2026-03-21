@@ -90,8 +90,11 @@ use workmesh_core::worktrees::{
     derive_unique_worktree_branch, doctor_worktrees, find_worktree_record_by_path, git_has_head,
     list_worktree_views, set_worktree_attached_session_id, upsert_worktree_record, WorktreeRecord,
 };
-use workmesh_mcp_server::tool_info_payload;
 use workmesh_render::dispatch_tool as render_dispatch_tool;
+use workmesh_tools::{
+    build_tool_info_payload, placeholder_tool_definition, render_tool_info_text,
+    resolve_cli_repo_root,
+};
 
 #[derive(Parser)]
 #[command(name = "workmesh", version = version::FULL, about = "WorkMesh CLI (WIP)")]
@@ -1301,41 +1304,6 @@ fn command_alias(command: &str) -> Option<Vec<String>> {
     Some(alias.into_iter().map(|value| value.to_string()).collect())
 }
 
-fn render_tool_info_text(name: &str, info: &serde_json::Value) -> String {
-    let examples = info
-        .get("examples")
-        .and_then(|value| value.as_array())
-        .map(|arr| {
-            arr.iter()
-                .map(|ex| serde_json::to_string_pretty(ex).unwrap_or_default())
-                .collect::<Vec<_>>()
-                .join("\n\n")
-        })
-        .unwrap_or_default();
-    let notes = info
-        .get("notes")
-        .and_then(|value| value.as_array())
-        .map(|arr| {
-            arr.iter()
-                .filter_map(|v| v.as_str())
-                .map(|line| format!("- {}", line))
-                .collect::<Vec<_>>()
-                .join("\n")
-        })
-        .unwrap_or_default();
-
-    let summary = info.get("summary").and_then(|v| v.as_str()).unwrap_or("");
-    let tool_def = info.get("tool").cloned().unwrap_or_default();
-    format!(
-        "Tool: {name}\n\nSummary:\n  {summary}\n\nTool definition:\n{tool_def}\n\nExamples:\n{examples}\n\nNotes:\n{notes}\n",
-        name = name,
-        summary = summary,
-        tool_def = serde_json::to_string_pretty(&tool_def).unwrap_or_default(),
-        examples = examples,
-        notes = notes
-    )
-}
-
 fn run_fix_target(backlog_dir: &Path, target: FixTargetArg, apply: bool) -> Result<FixRunReport> {
     let tasks = load_tasks(backlog_dir);
     match target {
@@ -2438,7 +2406,7 @@ fn main() -> Result<()> {
     }
 
     if let Command::ToolInfo { name, json } = &cli.command {
-        let Some(info) = tool_info_payload(name) else {
+        let Some(info) = build_tool_info_payload(name, placeholder_tool_definition(name)) else {
             die(&format!("Unknown tool: {}", name));
         };
         if *json {
@@ -5198,15 +5166,6 @@ fn maybe_prompt_migration(resolution: &BacklogResolution) -> Result<PathBuf> {
     }
     let _ = update_do_not_migrate(&resolution.repo_root, true);
     Ok(resolution.backlog_dir.clone())
-}
-
-fn resolve_cli_repo_root(root: &Path) -> PathBuf {
-    if root.join("README.json").exists() || root.join(".git").exists() {
-        return root.to_path_buf();
-    }
-    resolve_backlog(root)
-        .map(|resolution| resolution.repo_root)
-        .unwrap_or_else(|_| repo_root_from_backlog(root))
 }
 
 fn confirm_migration(path: &Path) -> Result<bool> {

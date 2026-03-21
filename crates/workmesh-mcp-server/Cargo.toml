@@ -13,4 +13,8 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json.workspace = true
 shell-words = "1.1"
 workmesh-core = { path = "../workmesh-core" }
+workmesh-tools = { path = "../workmesh-tools" }
 workmesh-render = { path = "../workmesh-render" }
+
+[dev-dependencies]
+tempfile = "3.12"

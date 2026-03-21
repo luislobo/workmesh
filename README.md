@@ -11,6 +11,9 @@ It keeps planning state in plain text next to your code:
 This repository contains:
 - `workmesh`: CLI
 - `workmesh-core`: shared logic
+- `workmesh-render`: renderer library
+- `workmesh-tools`: shared tool-contract layer
+- `workmesh-mcp-server`: MCP adapter library
 - `workmesh-mcp`: MCP stdio server
 
 Agent-readable mirror: [`README.json`](README.json)
@@ -111,6 +114,10 @@ CLI parity helpers:
 - `workmesh --root . project-management-skill --json`
 - `workmesh --root . next-tasks --json`
 
+Note:
+- shared metadata, examples, and response-contract guidance come from `workmesh-tools`
+- the MCP registry remains the canonical source for full MCP input schemas
+
 The CLI also accepts MCP-style aliases such as:
 - `list_tasks`
 - `show_task`
@@ -166,6 +173,22 @@ Adopt old full clones into worktrees:
 ```bash
 workmesh --root . worktree adopt-clone --from <path-to-clone> --apply --json
 ```
+
+## Architecture
+Current crate responsibilities:
+
+- `workmesh-core`: domain logic, storage safety, repo/global state
+- `workmesh-render`: generic human-facing renderers
+- `workmesh-tools`: shared tool metadata, response-policy helpers, and shared root/tooling helpers
+- `workmesh`: CLI adapter
+- `workmesh-mcp-server`: MCP adapter
+- `workmesh-mcp`: stdio wrapper around the MCP adapter
+
+Contributor rule:
+- if a change affects shared tool metadata, response policy, or adapter-neutral tool behavior, start in `workmesh-tools`
+- if it affects only CLI parsing/presentation, change `workmesh`
+- if it affects only MCP transport behavior, change `workmesh-mcp-server`
+- do not make the CLI depend on `workmesh-mcp-server`
 
 ## Mutation Response Contract
 To save tokens, MCP mutation tools default to compact acknowledgements instead of returning full objects.

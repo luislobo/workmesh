@@ -4,6 +4,9 @@
   "artifacts": {
     "cli": "workmesh",
     "core": "workmesh-core",
+    "render": "workmesh-render",
+    "tools": "workmesh-tools",
+    "mcp_server": "workmesh-mcp-server",
     "mcp": "workmesh-mcp"
   },
   "purpose": {
@@ -67,6 +70,7 @@
       "workmesh --root . project-management-skill --json",
       "workmesh --root . next-tasks --json"
     ],
+    "tool_info_note": "Shared metadata, examples, and response-contract guidance come from workmesh-tools. The MCP registry is still the canonical source for full MCP input schemas.",
     "mcp_style_aliases": [
       "list_tasks",
       "show_task",
@@ -106,6 +110,20 @@
       "adopt_clone": "workmesh --root . worktree adopt-clone --from <path-to-clone> --apply --json"
     }
   },
+  "architecture": {
+    "workmesh-core": "domain logic, storage safety, repo/global state",
+    "workmesh-render": "generic human-facing renderers",
+    "workmesh-tools": "shared tool metadata, response-policy helpers, and adapter-neutral tooling helpers",
+    "workmesh": "CLI adapter",
+    "workmesh-mcp-server": "MCP adapter",
+    "workmesh-mcp": "stdio wrapper around the MCP adapter"
+  },
+  "contributor_rules": [
+    "start shared tool metadata, response-policy, and adapter-neutral tooling changes in workmesh-tools",
+    "put CLI-only parsing or presentation changes in workmesh",
+    "put MCP transport-only changes in workmesh-mcp-server",
+    "do not make the CLI depend on workmesh-mcp-server"
+  ],
   "mutation_response_contract": {
     "goal": "save tokens by keeping write responses compact",
     "default_examples": [

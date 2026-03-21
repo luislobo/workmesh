@@ -2877,8 +2877,8 @@ dependencies = [
  "tempfile",
  "which",
  "workmesh-core",
- "workmesh-mcp-server",
  "workmesh-render",
+ "workmesh-tools",
 ]
 
 [[package]]
@@ -2929,8 +2929,10 @@ dependencies = [
  "serde",
  "serde_json",
  "shell-words",
+ "tempfile",
  "workmesh-core",
  "workmesh-render",
+ "workmesh-tools",
 ]
 
 [[package]]
@@ -2942,6 +2944,16 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror 1.0.69",
+]
+
+[[package]]
+name = "workmesh-tools"
+version = "0.3.3"
+dependencies = [
+ "pretty_assertions",
+ "serde",
+ "serde_json",
+ "workmesh-core",
 ]
 
 [[package]]

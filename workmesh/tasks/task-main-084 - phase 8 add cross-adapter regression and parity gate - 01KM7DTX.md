@@ -3,7 +3,7 @@ id: task-main-084
 uid: 01KM7DTXCHJHKYCPKA03Q4N3NJ
 title: Phase 8: add cross-adapter regression and parity gate
 kind: task
-status: To Do
+status: Done
 priority: P1
 phase: Phase8
 dependencies: [task-main-082, task-main-083]
@@ -14,7 +14,7 @@ relationships:
   parent: []
   child: []
   discovered_from: []
-updated_date: 2026-03-21 00:29
+updated_date: 2026-03-21 01:15
 ---
 Description:
 --------------------------------------------------

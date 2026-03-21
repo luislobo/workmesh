@@ -45,6 +45,17 @@ After bootstrap, if user asks to work on a feature, maintain WorkMesh continuous
 - if the user wants to change defaults (worktrees/session behavior), use `config show|set|unset` instead of asking them to edit files by hand
 - when MCP is available and the user wants structured terminal-friendly output, use the `render_*` tools instead of hand-formatting large tables or trees
 
+## Contributor architecture
+- `workmesh-core`: domain logic and storage
+- `workmesh-render`: generic rendering
+- `workmesh-tools`: shared tool metadata, response-policy helpers, and adapter-neutral tooling helpers
+- `workmesh`: CLI adapter
+- `workmesh-mcp-server`: MCP adapter
+- `workmesh-mcp`: stdio wrapper
+- If a change affects shared tool metadata or response-policy semantics, start in `workmesh-tools`.
+- Do not make the CLI depend on `workmesh-mcp-server`.
+- When exact MCP input-schema detail matters, prefer MCP `tool_info`; CLI `tool-info` mirrors shared metadata/examples.
+
 ## Mutation response contract
 - Treat MCP mutation tools as minimal-acknowledgement APIs by default.
 - Do not assume a write tool returns the full refreshed object.

@@ -3,7 +3,7 @@ id: task-main-083
 uid: 01KM7DTXBY8AZKR7C8H0BBZM4P
 title: Phase 8: reduce workmesh-mcp-server to a thin MCP adapter
 kind: task
-status: To Do
+status: Done
 priority: P1
 phase: Phase8
 dependencies: [task-main-080, task-main-081]
@@ -14,7 +14,7 @@ relationships:
   parent: []
   child: []
   discovered_from: []
-updated_date: 2026-03-21 00:29
+updated_date: 2026-03-21 01:15
 ---
 Description:
 --------------------------------------------------

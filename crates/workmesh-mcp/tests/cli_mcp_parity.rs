@@ -403,6 +403,43 @@ async fn cli_and_mcp_global_sessions_parity() {
 
 #[tokio::test]
 #[serial]
+async fn cli_and_mcp_tool_info_share_canonical_metadata() {
+    let temp = TempDir::new().expect("tempdir");
+    let backlog_dir = temp.path().join("workmesh");
+    let tasks_dir = backlog_dir.join("tasks");
+    std::fs::create_dir_all(&tasks_dir).expect("tasks dir");
+    write_task(&tasks_dir, "task-001", "Alpha", "To Do", &[]);
+
+    let cli_output = cli()
+        .arg("--root")
+        .arg(temp.path())
+        .arg("tool-info")
+        .arg("list_tasks")
+        .arg("--json")
+        .output()
+        .expect("cli tool-info");
+    assert_output_success(&cli_output, "cli tool-info");
+    let cli_text = String::from_utf8_lossy(&cli_output.stdout).to_string();
+    let mut cli_value: serde_json::Value = serde_json::from_str(&cli_text).expect("cli json");
+
+    let client = start_client(temp.path()).await;
+    let mcp_text = call_tool_text(
+        &client,
+        "tool_info",
+        serde_json::json!({"root": temp.path().display().to_string(), "name": "list_tasks", "format": "json"}),
+    )
+    .await;
+    client.shut_down().await.expect("shutdown");
+    let mut mcp_value: serde_json::Value = serde_json::from_str(&mcp_text).expect("mcp json");
+
+    cli_value.as_object_mut().unwrap().remove("tool");
+    mcp_value.as_object_mut().unwrap().remove("tool");
+
+    assert_eq!(cli_value, mcp_value);
+}
+
+#[tokio::test]
+#[serial]
 async fn cli_and_mcp_doctor_fix_storage_parity() {
     let _guard = env_lock().lock().expect("env lock");
 

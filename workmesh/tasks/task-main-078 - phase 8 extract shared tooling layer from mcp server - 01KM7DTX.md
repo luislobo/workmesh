@@ -3,7 +3,7 @@ id: task-main-078
 uid: 01KM7DTX52EDG8M3DJ4GDH8RNH
 title: Phase 8: extract shared tooling layer from MCP server
 kind: task
-status: To Do
+status: Done
 priority: P1
 phase: Phase8
 dependencies: [task-main-079, task-main-080, task-main-081, task-main-082, task-main-083, task-main-084, task-main-085]
@@ -14,7 +14,7 @@ relationships:
   parent: []
   child: []
   discovered_from: []
-updated_date: 2026-03-21 00:29
+updated_date: 2026-03-21 01:15
 ---
 Description:
 --------------------------------------------------

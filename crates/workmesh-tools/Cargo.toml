@@ -1,0 +1,13 @@
+[package]
+name = "workmesh-tools"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+workmesh-core = { path = "../workmesh-core" }
+
+[dev-dependencies]
+pretty_assertions = "1.4"

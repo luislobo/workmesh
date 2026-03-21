@@ -3,7 +3,7 @@ id: task-main-079
 uid: 01KM7DTX98BVMBVTS9NH2D38GR
 title: Phase 8: finalize target crate boundaries and migration contract
 kind: task
-status: To Do
+status: Done
 priority: P1
 phase: Phase8
 dependencies: []
@@ -14,7 +14,7 @@ relationships:
   parent: []
   child: []
   discovered_from: []
-updated_date: 2026-03-21 00:28
+updated_date: 2026-03-21 01:15
 ---
 Description:
 --------------------------------------------------
@@ -43,3 +43,9 @@ Definition of Done:
 Notes:
 - Suggested doc path: `docs/projects/workmesh/prds/phase-8-shared-tooling-refactor.md`.
 - This task intentionally precedes all code movement to reduce refactor thrash.
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Drafted architecture contract at docs/projects/workmesh/prds/phase-8-shared-tooling-refactor.md. Next: review the inventory against crates/workmesh-mcp-server/src/tools.rs and begin crate scaffolding in task-main-080.
+<!-- SECTION:NOTES:END -->
