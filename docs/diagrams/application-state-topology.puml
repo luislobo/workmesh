@@ -1,0 +1,53 @@
+@startuml
+title WorkMesh State Topology
+
+skinparam shadowing false
+skinparam backgroundColor white
+skinparam ArrowColor #222222
+skinparam PackageBorderColor #222222
+skinparam PackageBackgroundColor #F7F7F7
+skinparam FolderBorderColor #222222
+skinparam FolderBackgroundColor #FFFFFF
+skinparam NoteBackgroundColor #FFF9DB
+skinparam NoteBorderColor #D09B2C
+left to right direction
+
+package "Repo root" {
+  folder "workmesh/" {
+    folder "tasks/" as TASKS
+    folder "truth/" as TRUTH
+    file "context.json" as CONTEXT
+    folder ".index/" as RINDEX
+    folder ".locks/" as RLOCKS
+  }
+
+  folder "docs/" as DOCS
+}
+
+package "WORKMESH_HOME\n(~/.workmesh by default)" {
+  folder "sessions/" as SESSIONS
+  folder "worktrees/" as WORKTREES
+  folder ".index/" as GINDEX
+  folder ".locks/" as GLOCKS
+  file "config.toml" as CONFIG
+}
+
+TASKS --> CONTEXT : current scope
+TASKS --> TRUTH : feature decisions
+TASKS --> RINDEX : task index
+SESSIONS --> GINDEX : session index
+SESSIONS --> WORKTREES : attached session ids
+RLOCKS --> TASKS : repo-local locks
+GLOCKS --> SESSIONS : global locks
+CONFIG --> WORKTREES : default behavior
+DOCS --> TASKS : PRDs / updates\nreference task work
+
+note bottom of TASKS
+Plain-text tasks live with the repo.
+end note
+
+note bottom of SESSIONS
+Cross-repo continuity and restore state.
+end note
+
+@enduml

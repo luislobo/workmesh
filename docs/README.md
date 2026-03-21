@@ -2,10 +2,12 @@
 
 Read in this order:
 1. [`README.md`](../README.md): high-level product and developer entrypoint
-2. [`docs/getting-started.md`](getting-started.md): day-to-day workflow
-3. [`docs/reference/commands.md`](reference/commands.md): exact command surface
+2. [`docs/architecture.md`](architecture.md): crate boundaries, runtime flow, and state topology
+3. [`docs/getting-started.md`](getting-started.md): day-to-day workflow
+4. [`docs/reference/commands.md`](reference/commands.md): exact command surface
 
 ## Documentation structure
+- [`docs/architecture.md`](architecture.md): application architecture diagrams and contributor routing guidance.
 - [`docs/getting-started.md`](getting-started.md): Codex-first onboarding and daily workflow.
 - [`docs/setup/run-modes-and-agent-mcp.md`](setup/run-modes-and-agent-mcp.md): install and agent wiring for CLI and MCP stdio.
 - [`docs/reference/commands.md`](reference/commands.md): authoritative CLI/MCP command surface.

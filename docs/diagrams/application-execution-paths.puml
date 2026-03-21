@@ -1,0 +1,53 @@
+@startuml
+title WorkMesh Runtime Execution Paths
+
+skinparam shadowing false
+skinparam backgroundColor white
+skinparam ArrowColor #222222
+skinparam ParticipantBorderColor #222222
+skinparam ParticipantBackgroundColor #F7F7F7
+skinparam NoteBackgroundColor #FFF9DB
+skinparam NoteBorderColor #D09B2C
+
+actor "Developer / Agent" as User
+participant "workmesh" as CLI
+participant "workmesh-mcp" as MCP
+participant "workmesh-mcp-server" as MCPS
+participant "workmesh-tools" as TOOLS
+participant "workmesh-core" as CORE
+participant "workmesh-render" as RENDER
+database "Repo-local files" as REPO
+database "Global files" as GLOBAL
+
+== CLI path ==
+User -> CLI : command / alias
+CLI -> TOOLS : shared metadata\n(tool-info, parity)
+CLI -> CORE : domain operation
+alt render output requested
+  CLI -> RENDER : render subcommand
+  RENDER --> CLI : text view
+end
+CORE -> REPO : tasks/context/truth
+CORE -> GLOBAL : sessions/worktrees
+CLI --> User : json / text
+
+== MCP path ==
+User -> MCP : tool call
+MCP -> MCPS : stdio request
+MCPS -> TOOLS : tool contract\nmetadata + response policy
+MCPS -> CORE : execute domain action
+alt render_* tool
+  MCPS -> RENDER : render provider
+  RENDER --> MCPS : text block
+end
+CORE -> REPO : repo-local state
+CORE -> GLOBAL : global state
+MCPS --> MCP : MCP result
+MCP --> User : tool response
+
+note over CLI,MCPS
+Both adapters should converge on the same
+shared tooling contract and domain behavior.
+end note
+
+@enduml

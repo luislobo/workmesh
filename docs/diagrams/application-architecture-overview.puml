@@ -1,0 +1,52 @@
+@startuml
+title WorkMesh Application Architecture Overview
+
+skinparam shadowing false
+skinparam backgroundColor white
+skinparam ArrowColor #222222
+skinparam PackageBorderColor #222222
+skinparam PackageBackgroundColor #F7F7F7
+skinparam ComponentBorderColor #222222
+skinparam ComponentBackgroundColor #FFFFFF
+skinparam DatabaseBorderColor #222222
+skinparam DatabaseBackgroundColor #FFF9DB
+skinparam NoteBackgroundColor #FFF9DB
+skinparam NoteBorderColor #D09B2C
+left to right direction
+
+actor "Developer / Agent" as User
+component "workmesh\nCLI adapter" as CLI
+component "workmesh-mcp\nstdio wrapper" as MCP
+component "workmesh-mcp-server\nMCP adapter" as MCPS
+component "workmesh-tools\nshared tool contract" as TOOLS
+component "workmesh-core\ndomain + storage logic" as CORE
+component "workmesh-render\nrender providers" as RENDER
+
+database "Repo-local state\nworkmesh/tasks\nworkmesh/context.json\nworkmesh/truth/" as REPO
+database "Global state\n~/.workmesh/sessions\n~/.workmesh/worktrees" as GLOBAL
+
+User --> CLI : local commands
+User --> MCP : MCP stdio session
+MCP --> MCPS : tool call transport
+CLI --> TOOLS : tool metadata\nparity helpers
+MCPS --> TOOLS : tool metadata\nresponse policy
+CLI --> CORE : direct domain commands
+MCPS --> CORE : execute tool actions
+CLI --> RENDER : render fallback
+MCPS --> RENDER : render_* tools
+TOOLS --> CORE : shared resolution\nand helper flows
+CORE --> REPO : repo-local persistence
+CORE --> GLOBAL : global continuity\nand worktree state
+
+note bottom of TOOLS
+Shared layer for tool metadata,
+response shaping, and adapter-neutral
+resolution helpers.
+end note
+
+note bottom of CORE
+Business rules, locking, validation,
+truth/session/workstream/worktree state.
+end note
+
+@enduml

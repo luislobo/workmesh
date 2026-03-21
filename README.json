@@ -116,7 +116,8 @@
     "workmesh-tools": "shared tool metadata, response-policy helpers, and adapter-neutral tooling helpers",
     "workmesh": "CLI adapter",
     "workmesh-mcp-server": "MCP adapter",
-    "workmesh-mcp": "stdio wrapper around the MCP adapter"
+    "workmesh-mcp": "stdio wrapper around the MCP adapter",
+    "documentation": "docs/architecture.md"
   },
   "contributor_rules": [
     "start shared tool metadata, response-policy, and adapter-neutral tooling changes in workmesh-tools",
@@ -169,6 +170,7 @@
     ]
   },
   "docs": {
+    "architecture": "docs/architecture.md",
     "getting_started": "docs/getting-started.md",
     "run_modes_and_mcp_setup": "docs/setup/run-modes-and-agent-mcp.md",
     "command_reference": "docs/reference/commands.md",

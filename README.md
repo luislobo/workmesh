@@ -190,6 +190,9 @@ Contributor rule:
 - if it affects only MCP transport behavior, change `workmesh-mcp-server`
 - do not make the CLI depend on `workmesh-mcp-server`
 
+Detailed diagrams and runtime/state views:
+- [`docs/architecture.md`](docs/architecture.md)
+
 ## Mutation Response Contract
 To save tokens, MCP mutation tools default to compact acknowledgements instead of returning full objects.
 
@@ -234,6 +237,7 @@ Archive defaults are safety-first:
 - non-terminal states are archived only with explicit `--status`
 
 ## Docs Map
+- Architecture diagrams and explanation: [`docs/architecture.md`](docs/architecture.md)
 - Getting started: [`docs/getting-started.md`](docs/getting-started.md)
 - Run modes and MCP setup: [`docs/setup/run-modes-and-agent-mcp.md`](docs/setup/run-modes-and-agent-mcp.md)
 - Command reference: [`docs/reference/commands.md`](docs/reference/commands.md)

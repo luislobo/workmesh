@@ -20,6 +20,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - an explicit maintainer section for changelog and docs sync discipline
 - Simplified `README.json` to mirror the new human-facing structure without duplicating low-signal detail.
 - Documented the current crate architecture and clarified that MCP remains the canonical source for full input schemas while shared tool metadata/examples live in `workmesh-tools`.
+- Added a dedicated `docs/architecture.md` page with rendered PlantUML diagrams for the application overview, runtime execution paths, and state topology.
+- Added committed PlantUML source files plus rendered PNG artifacts under `docs/diagrams/` for architecture documentation generation.
 
 ## [0.3.3] - 2026-03-20
 
