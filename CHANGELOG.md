@@ -7,10 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.4] - 2026-03-21
+
 ### Changed
 - Added a new `workmesh-tools` crate to own shared tool metadata, response-policy helpers, and adapter-neutral tooling helpers.
 - Removed the direct CLI dependency on `workmesh-mcp-server`; the CLI now reads shared tool metadata through `workmesh-tools`.
 - `workmesh-mcp-server` now consumes shared metadata/root-resolution/response helpers from `workmesh-tools` instead of owning them all locally.
+
+### Fixed
+- Corrected the core coverage gate so CI measures `workmesh-core` as intended and applies per-file baseline exceptions consistently.
+- Normalized workstream restore session matching across platforms so macOS and Windows recover sessions from worktree paths reliably.
 
 ### Documentation
 - Reworked the top-level README into a clearer developer-first entrypoint with:
@@ -280,7 +286,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Gantt support and best-practices command.
   - Docs-first project model and initial PRDs.
 
-[Unreleased]: https://github.com/luislobo/workmesh/compare/v0.3.3...HEAD
+[Unreleased]: https://github.com/luislobo/workmesh/compare/v0.3.4...HEAD
+[0.3.4]: https://github.com/luislobo/workmesh/compare/v0.3.3...v0.3.4
 [0.3.3]: https://github.com/luislobo/workmesh/compare/v0.3.2...v0.3.3
 [0.3.2]: https://github.com/luislobo/workmesh/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/luislobo/workmesh/compare/v0.3.0...v0.3.1
