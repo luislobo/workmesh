@@ -661,7 +661,12 @@ async fn mcp_truth_tools_smoke() {
         .text
         .clone();
     let proposed_json: serde_json::Value = serde_json::from_str(&proposed_text).expect("json");
-    let truth_id = proposed_json["id"].as_str().expect("id").to_string();
+    let truth_id = proposed_json
+        .get("truth_id")
+        .and_then(|v| v.as_str())
+        .or_else(|| proposed_json.get("id").and_then(|v| v.as_str()))
+        .expect("id")
+        .to_string();
 
     let accepted = client
         .request_tool_call(CallToolRequestParams {

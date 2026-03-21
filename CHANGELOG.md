@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Documentation
+- Reworked the top-level README into a clearer developer-first entrypoint with:
+  - a shorter Codex-first path
+  - clearer CLI fallback guidance
+  - a simpler core concepts section
+  - an explicit maintainer section for changelog and docs sync discipline
+- Simplified `README.json` to mirror the new human-facing structure without duplicating low-signal detail.
+
 ## [0.3.3] - 2026-03-20
 
 ### Changed

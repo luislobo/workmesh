@@ -228,6 +228,11 @@ async fn call_tool_text(
         .clone()
 }
 
+fn value_str<'a>(value: &'a serde_json::Value, keys: &[&str]) -> Option<&'a str> {
+    keys.iter()
+        .find_map(|key| value.get(*key).and_then(|entry| entry.as_str()))
+}
+
 fn write_task(dir: &Path, id: &str, title: &str, status: &str, dependencies: &[&str]) -> PathBuf {
     let filename = format!("{} - {}.md", id, title.to_lowercase());
     let path = dir.join(filename);
@@ -335,9 +340,7 @@ async fn cli_and_mcp_global_sessions_parity() {
     .await;
     let saved_json: serde_json::Value =
         serde_json::from_str(&saved_text).expect("session_save json");
-    let mcp_id = saved_json
-        .get("id")
-        .and_then(|v| v.as_str())
+    let mcp_id = value_str(&saved_json, &["session_id", "id"])
         .expect("id")
         .to_string();
 
@@ -372,9 +375,7 @@ async fn cli_and_mcp_global_sessions_parity() {
     assert_output_ok!(cli_save);
     let cli_save_json: serde_json::Value =
         serde_json::from_slice(&cli_save.stdout).expect("cli save json");
-    let cli_id = cli_save_json
-        .get("id")
-        .and_then(|v| v.as_str())
+    let cli_id = value_str(&cli_save_json, &["session_id", "id"])
         .expect("id")
         .to_string();
 
@@ -1486,7 +1487,7 @@ async fn cli_and_mcp_write_and_session_parity() {
         serde_json::json!({"root": temp.path().display().to_string(), "format": "text"}),
     )
     .await;
-    assert!(pm_skill.contains("WorkMesh MCP Skill"));
+    assert!(pm_skill.contains("WorkMesh skill"));
 
     client.shut_down().await.expect("shutdown");
 
@@ -2136,7 +2137,9 @@ async fn cli_and_mcp_truth_workflow_parity() {
     .await;
     let proposed_b: serde_json::Value =
         serde_json::from_str(&proposed_b_text).expect("propose b json");
-    let truth_b = proposed_b["id"].as_str().expect("truth_b").to_string();
+    let truth_b = value_str(&proposed_b, &["truth_id", "id"])
+        .expect("truth_b")
+        .to_string();
 
     let _ = call_tool_text(
         &client,
@@ -2154,7 +2157,7 @@ async fn cli_and_mcp_truth_workflow_parity() {
         .arg(temp.path())
         .arg("truth")
         .arg("supersede")
-        .arg(&accepted["id"].as_str().unwrap())
+        .arg(value_str(&accepted, &["truth_id", "id"]).unwrap())
         .arg("--by")
         .arg(&truth_b)
         .arg("--reason")
@@ -2304,6 +2307,7 @@ async fn cli_and_mcp_workstream_parity() {
     let created_json: serde_json::Value = serde_json::from_str(&created_text).expect("json");
     let mcp_id = created_json["workstream"]["id"]
         .as_str()
+        .or_else(|| value_str(&created_json, &["workstream_id", "id"]))
         .expect("id")
         .to_string();
 
@@ -2486,7 +2490,9 @@ async fn cli_and_mcp_workstream_session_link_parity() {
     )
     .await;
     let saved_json: serde_json::Value = serde_json::from_str(&saved_text).expect("json");
-    let session_id = saved_json["id"].as_str().expect("session id").to_string();
+    let session_id = value_str(&saved_json, &["session_id", "id"])
+        .expect("session id")
+        .to_string();
 
     let shown = cli()
         .arg("--root")
@@ -2636,6 +2642,7 @@ async fn cli_and_mcp_workstream_restore_parity() {
     let created_b_json: serde_json::Value = serde_json::from_str(&created_b_text).expect("json");
     let ws_b_id = created_b_json["workstream"]["id"]
         .as_str()
+        .or_else(|| value_str(&created_b_json, &["workstream_id", "id"]))
         .expect("workstream id b")
         .to_string();
 
@@ -2655,8 +2662,7 @@ async fn cli_and_mcp_workstream_restore_parity() {
         .expect("cli session save a");
     assert_output_ok!(saved_a);
     let saved_a_json: serde_json::Value = serde_json::from_slice(&saved_a.stdout).expect("json");
-    let session_a_id = saved_a_json["id"]
-        .as_str()
+    let session_a_id = value_str(&saved_a_json, &["session_id", "id"])
         .expect("session id a")
         .to_string();
 
@@ -2675,8 +2681,7 @@ async fn cli_and_mcp_workstream_restore_parity() {
         .expect("cli session save b");
     assert_output_ok!(saved_b);
     let saved_b_json: serde_json::Value = serde_json::from_slice(&saved_b.stdout).expect("json");
-    let session_b_id = saved_b_json["id"]
-        .as_str()
+    let session_b_id = value_str(&saved_b_json, &["session_id", "id"])
         .expect("session id b")
         .to_string();
 

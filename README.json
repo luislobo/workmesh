@@ -1,295 +1,174 @@
 {
   "name": "WorkMesh",
-  "tagline": "Docs-first, MCP-ready project/task orchestration in plain text next to your code.",
+  "tagline": "Docs-first project and task orchestration for developers and coding agents.",
   "artifacts": {
     "cli": "workmesh",
     "core": "workmesh-core",
     "mcp": "workmesh-mcp"
   },
-  "codex_first_workflow": {
-    "recommended": true,
+  "purpose": {
+    "use_for": [
+      "repo-local task tracking",
+      "chat-driven development with durable context",
+      "decision tracking through Truth Ledger",
+      "parallel work across git worktrees",
+      "shared CLI and MCP workflow surface"
+    ],
+    "not_for": [
+      "generic ticketing SaaS",
+      "remote hosted project management"
+    ]
+  },
+  "recommended_workflow": {
+    "mode": "codex-first",
     "steps": [
-      "cd into any repo directory",
-      "run codex (or codex resume)",
+      "cd into a repo",
+      "run codex or codex resume",
       "say: Bootstrap WorkMesh in this repo. Use MCP if available, otherwise CLI.",
-      "say: Use WorkMesh to document this feature end to end: tasks, PRD updates, and decisions."
+      "say: Use WorkMesh for this feature end to end. Create/update PRD, create and maintain tasks with acceptance criteria and definition of done, keep context current, and track stable decisions in Truth Ledger."
     ]
   },
   "bootstrap_behavior": {
-    "no_workmesh_data": "initialize docs/tasks and seed context",
-    "modern_workmesh_layout": "run health checks, show context, and suggest next work",
-    "legacy_layout": "run migrate audit/plan/apply and continue on modern layout",
-    "long_lived_clone_workflow": "keep work moving now and recommend migration to canonical repo + worktrees"
+    "no_workmesh_data": "initialize docs, tasks, and context",
+    "modern_workmesh_layout": "validate health, show context, and suggest next work",
+    "legacy_layout": "migrate to modern layout and continue",
+    "clone_based_workflow": "keep work moving and recommend worktree consolidation"
   },
-  "feature_prompt": "Use WorkMesh for this feature. Create/update PRD, break down tasks with acceptance criteria and definition of done, keep context current, and track decisions in Truth Ledger.",
-  "task_quality_policy": {
-    "required_sections": [
-      "Description",
-      "Acceptance Criteria",
-      "Definition of Done"
-    ],
-    "definition_of_done_rule": "Definition of Done must include outcome-based completion criteria, not only hygiene checks.",
-    "done_gate": [
-      "set-status <task> Done",
-      "set-field <task> status Done",
-      "bulk set-status --status Done",
-      "bulk set-field --field status --value Done"
-    ],
-    "validation_behavior": {
-      "non_done_tasks": "missing/incomplete required sections produce warnings",
-      "done_tasks": "missing/incomplete sections or hygiene-only DoD produce errors"
-    },
-    "migration_action": "task_section_normalization"
-  },
-  "cli_fallback": {
-    "bootstrap_command": "workmesh --root . bootstrap --project-id <project-id> --feature \"<feature-name>\" --json",
-    "behavior": "detect repo state (new/modern/legacy), initialize or migrate as needed, seed missing context, and suggest next tasks",
-    "render_command": "workmesh --root . render table --data '[{\"task\":\"task-001\",\"status\":\"Done\"}]'"
-  },
-  "mutation_response_policy": {
-    "goal": "Save tokens by keeping mutation responses small by default.",
-    "default": {
-      "shape": "minimal acknowledgement",
-      "examples": [
-        {
-          "ok": true,
-          "id": "task-001",
-          "status": "Done"
-        },
-        {
-          "ok": true,
-          "updated_count": 4,
-          "failed_count": 0,
-          "failed_ids": []
-        },
-        {
-          "ok": false,
-          "updated_count": 3,
-          "failed_count": 1,
-          "failed_ids": [
-            "task-009"
-          ]
-        }
-      ]
-    },
-    "verbose_opt_in": {
-      "mcp_argument": "verbose=true",
-      "behavior": "Return richer post-write state when explicitly requested."
-    },
-    "reads": "Use read tools such as show_task, truth_show, session_show, workstream_show, and context_show when full state is needed."
-  },
-  "install": {
-    "verify": [
+  "quick_start": {
+    "verify_install": [
       "workmesh --version",
       "workmesh-mcp --version"
     ],
-    "from_source": [
+    "build_from_source": [
       "git clone git@github.com:luislobo/workmesh.git",
       "cd workmesh",
       "cargo build -p workmesh",
       "cargo build -p workmesh-mcp"
-    ]
-  },
-  "mcp_setup": {
-    "stdio": {
+    ],
+    "mcp_stdio_config": {
       "command": "/usr/local/bin/workmesh-mcp",
       "args": []
     },
-    "full_setup_doc": "docs/setup/run-modes-and-agent-mcp.md",
-    "render_tools": {
-      "tools": [
-        "render_table",
-        "render_kv",
-        "render_stats",
-        "render_list",
-        "render_progress",
-        "render_tree",
-        "render_diff",
-        "render_logs",
-        "render_alerts",
-        "render_chart_bar",
-        "render_sparkline",
-        "render_timeline"
-      ],
-      "input": {
-        "required": [
-          "data"
-        ],
-        "optional": [
-          "format",
-          "configuration"
-        ]
-      },
-      "output": "text",
-      "cli_fallback": {
-        "command": "workmesh --root . render table|kv|stats|list|progress|tree|diff|logs|alerts|chart-bar|sparkline|timeline",
-        "input": [
-          "--data <value>",
-          "--data-file <path>",
-          "--stdin"
-        ],
-        "configuration": [
-          "--configuration <json>",
-          "--config-file <path>"
-        ]
-      }
-    }
+    "full_setup_doc": "docs/setup/run-modes-and-agent-mcp.md"
   },
-  "run_modes_and_agent_setup": {
-    "doc": "docs/setup/run-modes-and-agent-mcp.md",
-    "modes": [
-      {
-        "mode": "cli",
-        "binary": "workmesh",
-        "transport": "local process"
-      },
-      {
-        "mode": "mcp_stdio",
-        "binary": "workmesh-mcp",
-        "transport": "stdio"
-      }
+  "cli_usage": {
+    "bootstrap_command": "workmesh --root . bootstrap --project-id <project-id> --feature \"<feature-name>\" --json",
+    "common_commands": [
+      "workmesh --root . context show --json",
+      "workmesh --root . next --json",
+      "workmesh --root . list --json",
+      "workmesh --root . workstream restore --json"
     ],
-    "agent_targets": [
-      "CLI agents (Codex and similar MCP clients)",
-      "GUI agents that support command-based MCP"
-    ]
-  },
-  "defaults": {
-    "global_config": "~/.workmesh/config.toml (or $WORKMESH_HOME/config.toml)",
-    "project_config": [
-      ".workmesh.toml"
-    ],
-    "keys": [
-      "worktrees_default = true|false",
-      "worktrees_dir = \"<path>\"",
-      "auto_session_default = true|false"
-    ],
-    "config_helpers": {
-      "show": "workmesh --root . config show --json",
-      "set_project": "workmesh --root . config set --scope project --key worktrees_dir --value \"../myrepo.worktrees\" --json",
-      "set_global": "workmesh --root . config set --scope global --key auto_session_default --value true --json"
-    },
-    "archive_default_status_filter": [
-      "Done",
-      "Cancelled",
-      "Canceled",
-      "Won't Do",
-      "Wont Do"
-    ],
-    "archive_status_override": "pass --status one or more times to archive any specific state, including non-terminal states",
-    "auto_session": {
-      "default": "ON in interactive non-CI terminals, OFF in CI/non-interactive contexts",
-      "override_on": [
-        "--auto-session-save",
-        "WORKMESH_AUTO_SESSION=1"
-      ],
-      "override_off": [
-        "--no-auto-session-save",
-        "WORKMESH_AUTO_SESSION=0"
-      ]
-    }
-  },
-  "concurrency_integrity_foundation": {
-    "phase": "Phase 0",
-    "guarantees": [
-      "Critical tracking writes use lock-safe and atomic storage primitives.",
-      "Mutable snapshots are versioned and use CAS update semantics.",
-      "Trailing malformed JSONL is tolerated by event readers.",
-      "Safe recovery is available through doctor fix-storage pathways.",
-      "CLI and MCP expose the same storage recovery contract."
-    ],
-    "versioned_snapshots": [
-      "workmesh/context.json",
-      "$WORKMESH_HOME/sessions/current.json",
-      "$WORKMESH_HOME/worktrees/registry.json"
-    ],
-    "recovery": {
-      "cli": "workmesh --root . doctor --fix-storage --json",
-      "mcp": {
-        "tool": "doctor",
-        "arguments": {
-          "fix_storage": true
-        }
-      }
-    }
-  },
-  "workstreams": {
-    "phase": "Phase 1 + Phase WS2",
-    "summary": "Workstreams let you manage multiple parallel streams of work in the same repo (often one git worktree per stream), with durable pointers to context, sessions, and per-stream scope/objective.",
-    "start": {
-      "recommended": "workmesh --root . workstream create --name \"OCA integration\" --project <project-id> --objective \"...\" --json",
-      "behavior": [
-        "From the canonical checkout (with a real HEAD commit), workstream create auto-provisions a new git worktree by default unless you pass --existing or explicit --path/--branch.",
-        "Auto-provision uses worktrees_dir when set; otherwise it defaults to <repo_parent>/<repo_name>.worktrees/.",
-        "From a non-canonical git worktree checkout, workstream create binds to the current worktree by default (no new worktree).",
-        "If the target worktree path is already bound to a workstream, workstream create returns the existing workstream (already_exists=true) instead of creating a duplicate."
-      ]
-    },
-    "auto_linking": "When a workstream is active in a worktree, session save and worktree attach/detach keep the stream's session/worktree pointers updated automatically.",
-    "restore": "After reboot (or losing terminals), run `workmesh --root . workstream restore --json` to get per-stream resume commands (path, session id, objective/scope, next task).",
-    "resume_single": "To get resume commands for one stream: `workmesh --root . workstream show <id-or-key> --restore --json`.",
-    "lifecycle_commands": [
-      "workmesh --root . workstream pause [<id-or-key>] --json",
-      "workmesh --root . workstream close [<id-or-key>] --json",
-      "workmesh --root . workstream reopen [<id-or-key>] --json",
-      "workmesh --root . workstream rename [<id-or-key>] --name \"...\" --json",
-      "workmesh --root . workstream set [<id-or-key>] --key ... --notes \"...\" --objective \"...\" --json"
-    ],
-    "adopt_clones": {
-      "command": "workmesh --root . worktree adopt-clone --from <path-to-clone> --apply --json",
-      "next": "Bind a workstream to the created worktree with `workstream create --existing` (the adoption plan includes the exact command)."
-    },
-    "truth_ledger": {
-      "propose_current": "workmesh --root . truth propose --title \"...\" --statement \"...\" --current --json",
-      "show_truths": "workmesh --root . workstream show [<id-or-key>] --truth --json"
-    },
-    "registry_path": "$WORKMESH_HOME/workstreams/registry.json",
-    "context_pointer": "workmesh/context.json -> workstream_id",
-    "see": "docs/reference/commands.md"
-  },
-  "docs": {
-    "onboarding": "docs/getting-started.md",
-    "run_modes_and_agent_setup": "docs/setup/run-modes-and-agent-mcp.md",
-    "commands": "docs/reference/commands.md",
-    "index": "docs/README.md"
-  },
-  "legacy_note": {
-    "automatic": "bootstrap already handles legacy backlog/focus structures",
-    "commands": [
-      "workmesh --root . migrate audit",
-      "workmesh --root . migrate plan",
-      "workmesh --root . migrate apply --apply"
-    ],
-    "common_actions": [
-      "layout_backlog_to_workmesh",
-      "focus_to_context",
-      "task_section_normalization",
-      "truth_backfill",
-      "session_handoff_enrichment",
-      "config_cleanup"
-    ]
-  },
-  "cli_parity": {
-    "metadata_commands": [
+    "render_fallback": "workmesh --root . render table --data '[{\"task\":\"task-001\",\"status\":\"Done\"}]'",
+    "parity_helpers": [
       "workmesh --root . readme --json",
       "workmesh --root . tool-info render_table --json",
       "workmesh --root . skill-content --json",
       "workmesh --root . project-management-skill --json",
       "workmesh --root . next-tasks --json"
     ],
-    "alias_examples": [
+    "mcp_style_aliases": [
       "list_tasks",
       "show_task",
-      "next_task",
-      "next_tasks",
-      "config_show",
       "truth_list",
       "workstream_list",
-      "worktree_list",
-      "render_table",
-      "render_tree",
-      "render_timeline"
+      "render_table"
+    ]
+  },
+  "core_concepts": {
+    "tasks": {
+      "path": "workmesh/tasks/ or .workmesh/tasks/",
+      "required_sections": [
+        "Description",
+        "Acceptance Criteria",
+        "Definition of Done"
+      ],
+      "definition_of_done_rule": "Definition of Done must be outcome-based, not just hygiene items."
+    },
+    "context": {
+      "path": "workmesh/context.json",
+      "fields": [
+        "project",
+        "epic",
+        "objective",
+        "tasks",
+        "workstream_id"
+      ]
+    },
+    "truth_ledger": {
+      "path": "workmesh/truth/",
+      "purpose": "durable decisions for humans and agents"
+    },
+    "workstreams": {
+      "summary": "parallel work model, usually one active workstream per git worktree",
+      "create": "workmesh --root . workstream create --name \"OCA integration\" --project <project-id> --objective \"...\" --json",
+      "restore": "workmesh --root . workstream restore --json",
+      "adopt_clone": "workmesh --root . worktree adopt-clone --from <path-to-clone> --apply --json"
+    }
+  },
+  "mutation_response_contract": {
+    "goal": "save tokens by keeping write responses compact",
+    "default_examples": [
+      {
+        "ok": true,
+        "id": "task-001",
+        "status": "Done"
+      },
+      {
+        "ok": false,
+        "updated_count": 7,
+        "failed_count": 2,
+        "failed_ids": [
+          "task-003",
+          "task-009"
+        ]
+      }
     ],
-    "behavior": "The CLI accepts MCP-style command aliases in underscore or hyphen form and maps them onto the equivalent local CLI workflow."
+    "verbose_opt_in": "pass verbose=true for richer post-write state",
+    "read_tools_for_full_state": [
+      "show_task",
+      "context_show",
+      "truth_show",
+      "session_show",
+      "workstream_show"
+    ]
+  },
+  "safety_and_storage": {
+    "guarantees": [
+      "lock-safe and atomic writes for critical tracking files",
+      "versioned mutable snapshots",
+      "CAS-based updates",
+      "append-safe JSONL event streams",
+      "doctor-based recovery"
+    ],
+    "recovery_command": "workmesh --root . doctor --fix-storage --json",
+    "archive_defaults": [
+      "Done",
+      "Cancelled",
+      "Canceled",
+      "Won't Do",
+      "Wont Do"
+    ]
+  },
+  "docs": {
+    "getting_started": "docs/getting-started.md",
+    "run_modes_and_mcp_setup": "docs/setup/run-modes-and-agent-mcp.md",
+    "command_reference": "docs/reference/commands.md",
+    "docs_index": "docs/README.md",
+    "sample_project": "docs/samples/workmesh-demo/README.md"
+  },
+  "maintainers": {
+    "changelog_discipline": [
+      "move relevant Unreleased items into a new versioned CHANGELOG section",
+      "update compare links at the bottom of CHANGELOG.md",
+      "bump Cargo.toml",
+      "tag the release"
+    ],
+    "docs_sync_rule": [
+      "update README.md",
+      "update README.json",
+      "keep both changes in the same commit when install, setup, commands, layout, or roadmap changes"
+    ],
+    "version_metadata": "X.Y.Z+git.<commit_count>.<sha>[.dirty]"
   }
 }

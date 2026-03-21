@@ -11,5 +11,9 @@ tokio = { version = "1.39", features = ["macros", "rt-multi-thread"] }
 workmesh-mcp-server = { path = "../workmesh-mcp-server" }
 
 [dev-dependencies]
+async-trait = "0.1"
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
+serde_json.workspace = true
 tempfile = "3.12"
 serial_test = "3.2"
+workmesh-core = { path = "../workmesh-core" }

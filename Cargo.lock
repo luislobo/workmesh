@@ -2906,11 +2906,15 @@ dependencies = [
 name = "workmesh-mcp"
 version = "0.3.3"
 dependencies = [
+ "async-trait",
+ "chrono",
  "clap",
  "rust-mcp-sdk",
+ "serde_json",
  "serial_test",
  "tempfile",
  "tokio",
+ "workmesh-core",
  "workmesh-mcp-server",
 ]
 

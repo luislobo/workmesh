@@ -1,14 +1,13 @@
 # WorkMesh Docs
 
-Canonical workflow entrypoint:
-- [`docs/getting-started.md`](getting-started.md)
-
-Command catalog:
-- [`docs/reference/commands.md`](reference/commands.md)
+Read in this order:
+1. [`README.md`](../README.md): high-level product and developer entrypoint
+2. [`docs/getting-started.md`](getting-started.md): day-to-day workflow
+3. [`docs/reference/commands.md`](reference/commands.md): exact command surface
 
 ## Documentation structure
 - [`docs/getting-started.md`](getting-started.md): Codex-first onboarding and daily workflow.
-- [`docs/setup/run-modes-and-agent-mcp.md`](setup/run-modes-and-agent-mcp.md): run/install/configure for CLI and MCP stdio agent wiring (CLI/GUI).
+- [`docs/setup/run-modes-and-agent-mcp.md`](setup/run-modes-and-agent-mcp.md): install and agent wiring for CLI and MCP stdio.
 - [`docs/reference/commands.md`](reference/commands.md): authoritative CLI/MCP command surface.
 - `docs/projects/<project-id>/`: project-level PRDs, decisions, and updates.
 - [`docs/diagrams/`](diagrams/): architecture and workflow diagrams.
