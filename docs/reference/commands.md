@@ -98,6 +98,15 @@ Conflict semantics:
 - Stale writes surface explicit conflict errors; they are not silently overwritten.
 - Legacy unversioned snapshots are treated as version `0` and migrated on first safe write.
 
+## Mutation response policy
+- MCP mutation tools return minimal acknowledgements by default to save tokens.
+- Pass `verbose=true` when you need richer post-write state in the same response.
+- Prefer dedicated read tools (`show_task`, `truth_show`, `session_show`, `workstream_show`, `context_show`) when you need the full current object.
+- Typical defaults:
+  - single-record mutation: `{"ok": true, "id": "..."}`
+  - field/status mutation: `{"ok": true, "id": "...", "status": "Done"}`
+  - bulk mutation: `{"ok": false, "updated_count": 3, "failed_count": 1, "failed_ids": ["task-009"]}`
+
 ## Renderer tools
 CLI:
 - `render table|kv|stats|list|progress|tree|diff|logs|alerts|chart-bar|sparkline|timeline`
@@ -150,6 +159,15 @@ MCP:
 - `set_body`, `set_section`
 - `claim_task`, `release_task`
 
+MCP mutation response contract:
+- default: minimal acknowledgement
+- opt-in: `verbose=true` for richer post-write state
+- examples:
+  - `set_status` default: `{"ok": true, "id": "task-001", "status": "Done"}`
+  - `set_status` verbose: includes the refreshed `task`
+  - `add_task` default: `{"ok": true, "id": "task-123", "path": "..."}`
+  - `add_task` verbose: includes `task`, `hints`, and `next_steps`
+
 Task quality guardrails:
 - Required task-body sections: `Description`, `Acceptance Criteria`, `Definition of Done`.
 - `Definition of Done` must include outcome-based criteria (not only hygiene bullets).
@@ -179,6 +197,10 @@ MCP:
 - `bulk_add_dependency`, `bulk_remove_dependency`
 - `bulk_add_note`
 
+MCP mutation response contract:
+- default: summary only (`ok`, `updated_count`, `failed_count`, `failed_ids`)
+- opt-in: `verbose=true` for full updated/missing lists
+
 ## Context
 CLI:
 - `context show [--json]`
@@ -189,6 +211,10 @@ MCP:
 - `context_show`
 - `context_set`
 - `context_clear`
+
+MCP mutation response contract:
+- `context_set` / `context_clear` default to compact acknowledgements
+- pass `verbose=true` to include richer context payloads
 
 ## Truth Ledger
 CLI:
@@ -212,6 +238,10 @@ MCP:
 - `truth_migrate_audit`
 - `truth_migrate_plan`
 - `truth_migrate_apply`
+
+MCP mutation response contract:
+- truth mutations default to compact `{ ok, truth_id, state, version }` style responses
+- pass `verbose=true` for the full truth record or full migration result
 
 ## Workstream runtime
 CLI:
@@ -239,6 +269,10 @@ MCP:
 - `workstream_set`
 - `workstream_doctor`
 - `workstream_restore`
+
+MCP mutation response contract:
+- workstream mutations default to compact success metadata
+- pass `verbose=true` to include the refreshed workstream object or full creation details
 
 Notes:
 - Active workstream pointer is per-worktree: `workmesh/context.json.workstream_id`.
@@ -268,6 +302,10 @@ MCP:
 - `worktree_detach`
 - `worktree_doctor`
 
+MCP mutation response contract:
+- worktree mutations default to compact success metadata
+- pass `verbose=true` to include the full worktree/adoption/session payload
+
 ## Sessions and continuity
 Repo-local CLI:
 - `checkpoint [--project <id>] [--id <checkpoint-id>] [--json]`
@@ -293,6 +331,10 @@ MCP:
 - `session_list`
 - `session_show`
 - `session_resume`
+
+MCP mutation response contract:
+- `session_save` defaults to `{ ok, session_id, cwd, repo_root }`
+- pass `verbose=true` to receive the full saved session object
 
 ## Migration actions
 `migrate audit|plan|apply` may produce the following action ids:
@@ -349,6 +391,10 @@ MCP:
 - `archive_tasks` accepts optional `status` (string or list); when omitted it uses the same default terminal status filter as CLI
 - `fix_ids`
 
+MCP mutation response contract:
+- `archive_tasks` defaults to summary counts and archive path metadata
+- pass `verbose=true` to include full archived/skipped lists
+
 ## Legacy migration (minimal)
 Use only when a repo still has deprecated structures.
 
@@ -361,3 +407,7 @@ MCP:
 - `migrate_audit`
 - `migrate_plan`
 - `migrate_apply`
+
+MCP mutation response contract:
+- `migrate_apply` defaults to summary counts
+- pass `verbose=true` for the full applied/skipped/backup result

@@ -46,6 +46,38 @@
     "behavior": "detect repo state (new/modern/legacy), initialize or migrate as needed, seed missing context, and suggest next tasks",
     "render_command": "workmesh --root . render table --data '[{\"task\":\"task-001\",\"status\":\"Done\"}]'"
   },
+  "mutation_response_policy": {
+    "goal": "Save tokens by keeping mutation responses small by default.",
+    "default": {
+      "shape": "minimal acknowledgement",
+      "examples": [
+        {
+          "ok": true,
+          "id": "task-001",
+          "status": "Done"
+        },
+        {
+          "ok": true,
+          "updated_count": 4,
+          "failed_count": 0,
+          "failed_ids": []
+        },
+        {
+          "ok": false,
+          "updated_count": 3,
+          "failed_count": 1,
+          "failed_ids": [
+            "task-009"
+          ]
+        }
+      ]
+    },
+    "verbose_opt_in": {
+      "mcp_argument": "verbose=true",
+      "behavior": "Return richer post-write state when explicitly requested."
+    },
+    "reads": "Use read tools such as show_task, truth_show, session_show, workstream_show, and context_show when full state is needed."
+  },
   "install": {
     "verify": [
       "workmesh --version",

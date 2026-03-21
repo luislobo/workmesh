@@ -45,6 +45,13 @@ After bootstrap, if user asks to work on a feature, maintain WorkMesh continuous
 - if the user wants to change defaults (worktrees/session behavior), use `config show|set|unset` instead of asking them to edit files by hand
 - when MCP is available and the user wants structured terminal-friendly output, use the `render_*` tools instead of hand-formatting large tables or trees
 
+## Mutation response contract
+- Treat MCP mutation tools as minimal-acknowledgement APIs by default.
+- Do not assume a write tool returns the full refreshed object.
+- Pass `verbose=true` only when the richer post-write payload is worth the token cost.
+- For bulk mutations, expect compact failure identification by default (`failed_ids`) rather than full per-item result objects.
+- If you need the authoritative current state after a write, prefer the matching read tool (`show_task`, `context_show`, `truth_show`, `session_show`, `workstream_show`) instead of overusing verbose writes.
+
 ## Recommended workflows
 
 ### Initialization (first time in a repo)

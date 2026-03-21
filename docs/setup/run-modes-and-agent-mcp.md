@@ -59,6 +59,11 @@ Render tools (MCP stdio):
 
 Each render tool accepts `data` plus optional `format` and `configuration`, and returns rendered text.
 
+Mutation response policy (MCP stdio):
+- mutation tools return minimal acknowledgements by default to save tokens
+- pass `verbose=true` when you need richer post-write state in the same call
+- prefer read tools (`show_task`, `truth_show`, `session_show`, `workstream_show`, `context_show`) when full objects are needed
+
 ### Agent configuration: CLI clients
 
 Codex (`~/.codex/config.toml`):

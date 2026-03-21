@@ -2867,7 +2867,7 @@ dependencies = [
 
 [[package]]
 name = "workmesh"
-version = "0.3.2"
+version = "0.3.3"
 dependencies = [
  "anyhow",
  "chrono",
@@ -2883,7 +2883,7 @@ dependencies = [
 
 [[package]]
 name = "workmesh-core"
-version = "0.3.2"
+version = "0.3.3"
 dependencies = [
  "anyhow",
  "chrono",
@@ -2904,7 +2904,7 @@ dependencies = [
 
 [[package]]
 name = "workmesh-mcp"
-version = "0.3.2"
+version = "0.3.3"
 dependencies = [
  "clap",
  "rust-mcp-sdk",
@@ -2916,7 +2916,7 @@ dependencies = [
 
 [[package]]
 name = "workmesh-mcp-server"
-version = "0.3.2"
+version = "0.3.3"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2931,7 +2931,7 @@ dependencies = [
 
 [[package]]
 name = "workmesh-render"
-version = "0.3.2"
+version = "0.3.3"
 dependencies = [
  "chrono",
  "csv",

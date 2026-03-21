@@ -552,6 +552,8 @@ pub struct ConfigSetTool {
     pub scope: ConfigScope,
     pub key: String,
     pub value: String,
+    #[serde(default = "default_verbose")]
+    pub verbose: bool,
     #[serde(default = "default_format")]
     pub format: String,
 }
@@ -566,6 +568,8 @@ pub struct ConfigUnsetTool {
     #[serde(default = "default_config_scope")]
     pub scope: ConfigScope,
     pub key: String,
+    #[serde(default = "default_verbose")]
+    pub verbose: bool,
     #[serde(default = "default_format")]
     pub format: String,
 }
@@ -586,6 +590,8 @@ pub struct ContextSetTool {
     pub epic_id: Option<String>,
     pub objective: Option<String>,
     pub tasks: Option<ListInput>,
+    #[serde(default = "default_verbose")]
+    pub verbose: bool,
     #[serde(default = "default_format")]
     pub format: String,
 }
@@ -597,6 +603,8 @@ pub struct ContextSetTool {
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct ContextClearTool {
     pub root: Option<String>,
+    #[serde(default = "default_verbose")]
+    pub verbose: bool,
     #[serde(default = "default_format")]
     pub format: String,
 }
@@ -631,6 +639,8 @@ pub struct WorkstreamCreateTool {
     pub epic_id: Option<String>,
     pub objective: Option<String>,
     pub tasks: Option<ListInput>,
+    #[serde(default = "default_verbose")]
+    pub verbose: bool,
     #[serde(default = "default_format")]
     pub format: String,
 }
@@ -661,6 +671,8 @@ pub struct WorkstreamShowTool {
 pub struct WorkstreamSwitchTool {
     pub root: Option<String>,
     pub id: String,
+    #[serde(default = "default_verbose")]
+    pub verbose: bool,
     #[serde(default = "default_format")]
     pub format: String,
 }
@@ -673,6 +685,8 @@ pub struct WorkstreamSwitchTool {
 pub struct WorkstreamPauseTool {
     pub root: Option<String>,
     pub id: Option<String>,
+    #[serde(default = "default_verbose")]
+    pub verbose: bool,
     #[serde(default = "default_format")]
     pub format: String,
 }
@@ -685,6 +699,8 @@ pub struct WorkstreamPauseTool {
 pub struct WorkstreamCloseTool {
     pub root: Option<String>,
     pub id: Option<String>,
+    #[serde(default = "default_verbose")]
+    pub verbose: bool,
     #[serde(default = "default_format")]
     pub format: String,
 }
@@ -697,6 +713,8 @@ pub struct WorkstreamCloseTool {
 pub struct WorkstreamReopenTool {
     pub root: Option<String>,
     pub id: Option<String>,
+    #[serde(default = "default_verbose")]
+    pub verbose: bool,
     #[serde(default = "default_format")]
     pub format: String,
 }
@@ -707,6 +725,8 @@ pub struct WorkstreamRenameTool {
     pub root: Option<String>,
     pub id: Option<String>,
     pub name: String,
+    #[serde(default = "default_verbose")]
+    pub verbose: bool,
     #[serde(default = "default_format")]
     pub format: String,
 }
@@ -725,6 +745,8 @@ pub struct WorkstreamSetTool {
     pub epic_id: Option<String>,
     pub objective: Option<String>,
     pub tasks: Option<ListInput>,
+    #[serde(default = "default_verbose")]
+    pub verbose: bool,
     #[serde(default = "default_format")]
     pub format: String,
 }
@@ -779,6 +801,8 @@ pub struct WorktreeCreateTool {
     pub epic_id: Option<String>,
     pub objective: Option<String>,
     pub tasks: Option<ListInput>,
+    #[serde(default = "default_verbose")]
+    pub verbose: bool,
     #[serde(default = "default_format")]
     pub format: String,
 }
@@ -802,6 +826,8 @@ pub struct WorktreeAdoptCloneTool {
     /// Apply the plan (default is dry-run / plan only).
     #[serde(default)]
     pub apply: bool,
+    #[serde(default = "default_verbose")]
+    pub verbose: bool,
     #[serde(default = "default_format")]
     pub format: String,
 }
@@ -815,6 +841,8 @@ pub struct WorktreeAttachTool {
     pub root: Option<String>,
     pub session_id: Option<String>,
     pub path: Option<String>,
+    #[serde(default = "default_verbose")]
+    pub verbose: bool,
     #[serde(default = "default_format")]
     pub format: String,
 }
@@ -826,6 +854,8 @@ pub struct WorktreeAttachTool {
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct WorktreeDetachTool {
     pub session_id: Option<String>,
+    #[serde(default = "default_verbose")]
+    pub verbose: bool,
     #[serde(default = "default_format")]
     pub format: String,
 }
@@ -865,6 +895,8 @@ pub struct TruthProposeTool {
     #[serde(default)]
     pub current: bool,
     pub actor: Option<String>,
+    #[serde(default = "default_verbose")]
+    pub verbose: bool,
     #[serde(default = "default_format")]
     pub format: String,
 }
@@ -876,6 +908,8 @@ pub struct TruthAcceptTool {
     pub truth_id: String,
     pub note: Option<String>,
     pub actor: Option<String>,
+    #[serde(default = "default_verbose")]
+    pub verbose: bool,
     #[serde(default = "default_format")]
     pub format: String,
 }
@@ -887,6 +921,8 @@ pub struct TruthRejectTool {
     pub truth_id: String,
     pub note: Option<String>,
     pub actor: Option<String>,
+    #[serde(default = "default_verbose")]
+    pub verbose: bool,
     #[serde(default = "default_format")]
     pub format: String,
 }
@@ -902,6 +938,8 @@ pub struct TruthSupersedeTool {
     pub by_truth_id: String,
     pub reason: Option<String>,
     pub actor: Option<String>,
+    #[serde(default = "default_verbose")]
+    pub verbose: bool,
     #[serde(default = "default_format")]
     pub format: String,
 }
@@ -978,6 +1016,8 @@ pub struct TruthMigrateApplyTool {
     pub root: Option<String>,
     #[serde(default)]
     pub apply: bool,
+    #[serde(default = "default_verbose")]
+    pub verbose: bool,
     #[serde(default = "default_format")]
     pub format: String,
 }
@@ -1113,6 +1153,8 @@ pub struct SetStatusTool {
     pub root: Option<String>,
     #[serde(default = "default_touch")]
     pub touch: bool,
+    #[serde(default = "default_verbose")]
+    pub verbose: bool,
 }
 
 #[mcp_tool(name = "set_field", description = "Set a front matter field value.")]
@@ -1124,6 +1166,8 @@ pub struct SetFieldTool {
     pub root: Option<String>,
     #[serde(default = "default_touch")]
     pub touch: bool,
+    #[serde(default = "default_verbose")]
+    pub verbose: bool,
 }
 
 #[mcp_tool(name = "add_label", description = "Add a label to a task.")]
@@ -1134,6 +1178,8 @@ pub struct AddLabelTool {
     pub root: Option<String>,
     #[serde(default = "default_touch")]
     pub touch: bool,
+    #[serde(default = "default_verbose")]
+    pub verbose: bool,
 }
 
 #[mcp_tool(name = "remove_label", description = "Remove a label from a task.")]
@@ -1144,6 +1190,8 @@ pub struct RemoveLabelTool {
     pub root: Option<String>,
     #[serde(default = "default_touch")]
     pub touch: bool,
+    #[serde(default = "default_verbose")]
+    pub verbose: bool,
 }
 
 #[mcp_tool(name = "add_dependency", description = "Add a dependency to a task.")]
@@ -1154,6 +1202,8 @@ pub struct AddDependencyTool {
     pub root: Option<String>,
     #[serde(default = "default_touch")]
     pub touch: bool,
+    #[serde(default = "default_verbose")]
+    pub verbose: bool,
 }
 
 #[mcp_tool(
@@ -1167,6 +1217,8 @@ pub struct RemoveDependencyTool {
     pub root: Option<String>,
     #[serde(default = "default_touch")]
     pub touch: bool,
+    #[serde(default = "default_verbose")]
+    pub verbose: bool,
 }
 
 #[mcp_tool(name = "bulk_set_status", description = "Bulk update task statuses.")]
@@ -1177,6 +1229,8 @@ pub struct BulkSetStatusTool {
     pub root: Option<String>,
     #[serde(default = "default_touch")]
     pub touch: bool,
+    #[serde(default = "default_verbose")]
+    pub verbose: bool,
 }
 
 #[mcp_tool(
@@ -1191,6 +1245,8 @@ pub struct BulkSetFieldTool {
     pub root: Option<String>,
     #[serde(default = "default_touch")]
     pub touch: bool,
+    #[serde(default = "default_verbose")]
+    pub verbose: bool,
 }
 
 #[mcp_tool(name = "bulk_add_label", description = "Bulk add a label to tasks.")]
@@ -1201,6 +1257,8 @@ pub struct BulkAddLabelTool {
     pub root: Option<String>,
     #[serde(default = "default_touch")]
     pub touch: bool,
+    #[serde(default = "default_verbose")]
+    pub verbose: bool,
 }
 
 #[mcp_tool(
@@ -1214,6 +1272,8 @@ pub struct BulkRemoveLabelTool {
     pub root: Option<String>,
     #[serde(default = "default_touch")]
     pub touch: bool,
+    #[serde(default = "default_verbose")]
+    pub verbose: bool,
 }
 
 #[mcp_tool(
@@ -1227,6 +1287,8 @@ pub struct BulkAddDependencyTool {
     pub root: Option<String>,
     #[serde(default = "default_touch")]
     pub touch: bool,
+    #[serde(default = "default_verbose")]
+    pub verbose: bool,
 }
 
 #[mcp_tool(
@@ -1240,6 +1302,8 @@ pub struct BulkRemoveDependencyTool {
     pub root: Option<String>,
     #[serde(default = "default_touch")]
     pub touch: bool,
+    #[serde(default = "default_verbose")]
+    pub verbose: bool,
 }
 
 #[mcp_tool(name = "bulk_add_note", description = "Bulk append a note to tasks.")]
@@ -1252,6 +1316,8 @@ pub struct BulkAddNoteTool {
     pub section: String,
     #[serde(default = "default_touch")]
     pub touch: bool,
+    #[serde(default = "default_verbose")]
+    pub verbose: bool,
 }
 
 #[mcp_tool(
@@ -1264,6 +1330,8 @@ pub struct ArchiveTool {
     #[serde(default = "default_archive_before")]
     pub before: String,
     pub status: Option<ListInput>,
+    #[serde(default = "default_verbose")]
+    pub verbose: bool,
 }
 
 #[mcp_tool(
@@ -1274,6 +1342,8 @@ pub struct ArchiveTool {
 pub struct MigrateTool {
     pub root: Option<String>,
     pub to: Option<String>,
+    #[serde(default = "default_verbose")]
+    pub verbose: bool,
 }
 
 #[mcp_tool(
@@ -1311,6 +1381,8 @@ pub struct MigrateApplyTool {
     pub apply: bool,
     #[serde(default)]
     pub backup: bool,
+    #[serde(default = "default_verbose")]
+    pub verbose: bool,
 }
 
 #[mcp_tool(name = "claim_task", description = "Claim a task lease.")]
@@ -1322,6 +1394,8 @@ pub struct ClaimTaskTool {
     pub minutes: Option<i64>,
     #[serde(default = "default_touch")]
     pub touch: bool,
+    #[serde(default = "default_verbose")]
+    pub verbose: bool,
 }
 
 #[mcp_tool(name = "release_task", description = "Release a task lease.")]
@@ -1331,6 +1405,8 @@ pub struct ReleaseTaskTool {
     pub root: Option<String>,
     #[serde(default = "default_touch")]
     pub touch: bool,
+    #[serde(default = "default_verbose")]
+    pub verbose: bool,
 }
 
 #[mcp_tool(
@@ -1346,6 +1422,8 @@ pub struct AddNoteTool {
     pub section: String,
     #[serde(default = "default_touch")]
     pub touch: bool,
+    #[serde(default = "default_verbose")]
+    pub verbose: bool,
 }
 
 #[mcp_tool(
@@ -1359,6 +1437,8 @@ pub struct SetBodyTool {
     pub root: Option<String>,
     #[serde(default = "default_touch")]
     pub touch: bool,
+    #[serde(default = "default_verbose")]
+    pub verbose: bool,
 }
 
 #[mcp_tool(
@@ -1373,6 +1453,8 @@ pub struct SetSectionTool {
     pub root: Option<String>,
     #[serde(default = "default_touch")]
     pub touch: bool,
+    #[serde(default = "default_verbose")]
+    pub verbose: bool,
 }
 
 #[mcp_tool(name = "add_task", description = "Create a new task file.")]
@@ -1390,6 +1472,8 @@ pub struct AddTaskTool {
     pub labels: Option<ListInput>,
     pub dependencies: Option<ListInput>,
     pub assignee: Option<ListInput>,
+    #[serde(default = "default_verbose")]
+    pub verbose: bool,
 }
 
 #[mcp_tool(
@@ -1411,6 +1495,8 @@ pub struct AddDiscoveredTool {
     pub labels: Option<ListInput>,
     pub dependencies: Option<ListInput>,
     pub assignee: Option<ListInput>,
+    #[serde(default = "default_verbose")]
+    pub verbose: bool,
 }
 
 #[mcp_tool(name = "project_init", description = "Create project docs scaffold.")]
@@ -1608,6 +1694,8 @@ pub struct SessionSaveTool {
     pub project: Option<String>,
     pub tasks: Option<ListInput>,
     pub notes: Option<String>,
+    #[serde(default = "default_verbose")]
+    pub verbose: bool,
     #[serde(default = "default_format")]
     pub format: String,
 }
@@ -1886,6 +1974,27 @@ fn default_archive_before() -> String {
 
 fn default_touch() -> bool {
     true
+}
+
+fn default_verbose() -> bool {
+    false
+}
+
+fn maybe_verbose_payload(
+    verbose: bool,
+    minimal: serde_json::Value,
+    detailed: serde_json::Value,
+) -> Result<CallToolResult, CallToolError> {
+    if verbose {
+        ok_json(detailed)
+    } else {
+        ok_json(minimal)
+    }
+}
+
+fn refreshed_task_value(backlog_dir: &Path, task_id: &str) -> Option<serde_json::Value> {
+    let tasks = load_tasks(backlog_dir);
+    find_task(&tasks, task_id).map(|task| task_to_json_value(task, true))
 }
 
 fn is_done_status(status: &str) -> bool {
@@ -2392,12 +2501,22 @@ impl ConfigSetTool {
             return ok_text(format!("Wrote {}", path.display()));
         }
 
-        ok_json(serde_json::json!({
-            "ok": true,
-            "scope": match self.scope { ConfigScope::Project => "project", ConfigScope::Global => "global" },
-            "path": path,
-            "config": config
-        }))
+        maybe_verbose_payload(
+            self.verbose,
+            serde_json::json!({
+                "ok": true,
+                "scope": match self.scope { ConfigScope::Project => "project", ConfigScope::Global => "global" },
+                "path": path,
+                "key": key,
+            }),
+            serde_json::json!({
+                "ok": true,
+                "scope": match self.scope { ConfigScope::Project => "project", ConfigScope::Global => "global" },
+                "path": path,
+                "key": key,
+                "config": config
+            }),
+        )
     }
 }
 
@@ -2441,12 +2560,22 @@ impl ConfigUnsetTool {
             return ok_text(format!("Wrote {}", path.display()));
         }
 
-        ok_json(serde_json::json!({
-            "ok": true,
-            "scope": match self.scope { ConfigScope::Project => "project", ConfigScope::Global => "global" },
-            "path": path,
-            "config": config
-        }))
+        maybe_verbose_payload(
+            self.verbose,
+            serde_json::json!({
+                "ok": true,
+                "scope": match self.scope { ConfigScope::Project => "project", ConfigScope::Global => "global" },
+                "path": path,
+                "key": key,
+            }),
+            serde_json::json!({
+                "ok": true,
+                "scope": match self.scope { ConfigScope::Project => "project", ConfigScope::Global => "global" },
+                "path": path,
+                "key": key,
+                "config": config
+            }),
+        )
     }
 }
 
@@ -2492,6 +2621,7 @@ fn call_context_set(
     epic_id: Option<String>,
     objective: Option<String>,
     tasks: Option<ListInput>,
+    verbose: bool,
     audit_action: &str,
 ) -> Result<CallToolResult, CallToolError> {
     let backlog_dir = match resolve_root(context, root) {
@@ -2569,18 +2699,26 @@ fn call_context_set(
             );
         }
     }
-    let mut payload = serde_json::json!({
+    let mut detailed = serde_json::json!({
         "ok": true,
         "path": path
     });
-    payload["context"] =
+    detailed["context"] =
         serde_json::to_value(&state).map_err(|err| CallToolError::from_message(err.to_string()))?;
-    ok_json(payload)
+    maybe_verbose_payload(
+        verbose,
+        serde_json::json!({
+            "ok": true,
+            "path": path
+        }),
+        detailed,
+    )
 }
 
 fn call_context_clear(
     context: &McpContext,
     root: Option<&str>,
+    verbose: bool,
     audit_action: &str,
 ) -> Result<CallToolResult, CallToolError> {
     let backlog_dir = match resolve_root(context, root) {
@@ -2592,7 +2730,11 @@ fn call_context_clear(
     if cleared {
         audit_event(&backlog_dir, audit_action, None, serde_json::json!({}))?;
     }
-    ok_json(serde_json::json!({"ok": true, "cleared": cleared}))
+    maybe_verbose_payload(
+        verbose,
+        serde_json::json!({"ok": true, "cleared": cleared}),
+        serde_json::json!({"ok": true, "cleared": cleared, "path": context_path(&backlog_dir)}),
+    )
 }
 
 impl ContextShowTool {
@@ -2610,6 +2752,7 @@ impl ContextSetTool {
             self.epic_id.clone(),
             self.objective.clone(),
             self.tasks.clone(),
+            self.verbose,
             "context_set",
         )
     }
@@ -2617,7 +2760,7 @@ impl ContextSetTool {
 
 impl ContextClearTool {
     fn call(&self, context: &McpContext) -> Result<CallToolResult, CallToolError> {
-        call_context_clear(context, self.root.as_deref(), "context_clear")
+        call_context_clear(context, self.root.as_deref(), self.verbose, "context_clear")
     }
 }
 
@@ -3018,17 +3161,27 @@ impl WorkstreamCreateTool {
                 )),
             }
 
-            ok_json(serde_json::json!({
-                "ok": true,
-                "already_exists": true,
-                "workstream": found,
-                "registry_path": workmesh_core::workstreams::workstreams_registry_path(&home),
-                "worktree": serde_json::Value::Null,
-                "context_seeded": false,
-                "context_updated": true,
-                "target_context_updated": target_context_updated,
-                "warnings": warnings
-            }))
+            maybe_verbose_payload(
+                self.verbose,
+                serde_json::json!({
+                    "ok": true,
+                    "already_exists": true,
+                    "workstream_id": found.id,
+                    "context_updated": true,
+                    "target_context_updated": target_context_updated,
+                }),
+                serde_json::json!({
+                    "ok": true,
+                    "already_exists": true,
+                    "workstream": found,
+                    "registry_path": workmesh_core::workstreams::workstreams_registry_path(&home),
+                    "worktree": serde_json::Value::Null,
+                    "context_seeded": false,
+                    "context_updated": true,
+                    "target_context_updated": target_context_updated,
+                    "warnings": warnings
+                }),
+            )
         };
 
         // Smart/idempotent create: if the target worktree path is already bound to a workstream,
@@ -3402,15 +3555,25 @@ impl WorkstreamCreateTool {
             }
         }
 
-        ok_json(serde_json::json!({
-            "ok": true,
-            "already_exists": false,
-            "workstream": inserted,
-            "registry_path": workmesh_core::workstreams::workstreams_registry_path(&home),
-            "worktree": created_worktree,
-            "context_seeded": context_seeded,
-            "warnings": warnings
-        }))
+        maybe_verbose_payload(
+            self.verbose,
+            serde_json::json!({
+                "ok": true,
+                "already_exists": false,
+                "workstream_id": inserted.id,
+                "worktree_path": binding.path,
+                "context_seeded": context_seeded,
+            }),
+            serde_json::json!({
+                "ok": true,
+                "already_exists": false,
+                "workstream": inserted,
+                "registry_path": workmesh_core::workstreams::workstreams_registry_path(&home),
+                "worktree": created_worktree,
+                "context_seeded": context_seeded,
+                "warnings": warnings
+            }),
+        )
     }
 }
 
@@ -3456,12 +3619,21 @@ impl WorkstreamSwitchTool {
             return ok_text(lines.join("\n"));
         }
 
-        ok_json(serde_json::json!({
-            "ok": true,
-            "workstream": record,
-            "worktree_path": record.worktree.as_ref().map(|w| w.path.clone()),
-            "session_id": record.session_id
-        }))
+        maybe_verbose_payload(
+            self.verbose,
+            serde_json::json!({
+                "ok": true,
+                "workstream_id": record.id,
+                "worktree_path": record.worktree.as_ref().map(|w| w.path.clone()),
+                "session_id": record.session_id
+            }),
+            serde_json::json!({
+                "ok": true,
+                "workstream": record,
+                "worktree_path": record.worktree.as_ref().map(|w| w.path.clone()),
+                "session_id": record.session_id
+            }),
+        )
     }
 }
 
@@ -3527,11 +3699,20 @@ impl WorkstreamPauseTool {
         if self.format == "text" {
             return ok_text(format!("Paused workstream {}", updated.id));
         }
-        ok_json(serde_json::json!({
-            "ok": true,
-            "workstream": updated,
-            "cleared_active": cleared_active
-        }))
+        maybe_verbose_payload(
+            self.verbose,
+            serde_json::json!({
+                "ok": true,
+                "workstream_id": updated.id,
+                "status": updated.status.as_str(),
+                "cleared_active": cleared_active
+            }),
+            serde_json::json!({
+                "ok": true,
+                "workstream": updated,
+                "cleared_active": cleared_active
+            }),
+        )
     }
 }
 
@@ -3559,11 +3740,20 @@ impl WorkstreamCloseTool {
         if self.format == "text" {
             return ok_text(format!("Closed workstream {}", updated.id));
         }
-        ok_json(serde_json::json!({
-            "ok": true,
-            "workstream": updated,
-            "cleared_active": cleared_active
-        }))
+        maybe_verbose_payload(
+            self.verbose,
+            serde_json::json!({
+                "ok": true,
+                "workstream_id": updated.id,
+                "status": updated.status.as_str(),
+                "cleared_active": cleared_active
+            }),
+            serde_json::json!({
+                "ok": true,
+                "workstream": updated,
+                "cleared_active": cleared_active
+            }),
+        )
     }
 }
 
@@ -3589,10 +3779,18 @@ impl WorkstreamReopenTool {
         if self.format == "text" {
             return ok_text(format!("Reopened workstream {}", updated.id));
         }
-        ok_json(serde_json::json!({
-            "ok": true,
-            "workstream": updated
-        }))
+        maybe_verbose_payload(
+            self.verbose,
+            serde_json::json!({
+                "ok": true,
+                "workstream_id": updated.id,
+                "status": updated.status.as_str()
+            }),
+            serde_json::json!({
+                "ok": true,
+                "workstream": updated
+            }),
+        )
     }
 }
 
@@ -3626,10 +3824,18 @@ impl WorkstreamRenameTool {
                 updated.id, updated.name
             ));
         }
-        ok_json(serde_json::json!({
-            "ok": true,
-            "workstream": updated
-        }))
+        maybe_verbose_payload(
+            self.verbose,
+            serde_json::json!({
+                "ok": true,
+                "workstream_id": updated.id,
+                "name": updated.name
+            }),
+            serde_json::json!({
+                "ok": true,
+                "workstream": updated
+            }),
+        )
     }
 }
 
@@ -3771,11 +3977,19 @@ impl WorkstreamSetTool {
         if self.format == "text" {
             return ok_text(format!("Updated workstream {}", updated.id));
         }
-        ok_json(serde_json::json!({
-            "ok": true,
-            "workstream": updated,
-            "context_updated": should_update_context
-        }))
+        maybe_verbose_payload(
+            self.verbose,
+            serde_json::json!({
+                "ok": true,
+                "workstream_id": updated.id,
+                "context_updated": should_update_context
+            }),
+            serde_json::json!({
+                "ok": true,
+                "workstream": updated,
+                "context_updated": should_update_context
+            }),
+        )
     }
 }
 
@@ -4095,13 +4309,23 @@ impl WorktreeCreateTool {
             }
         }
 
-        ok_json(serde_json::json!({
-            "ok": true,
-            "worktree": created,
-            "registry": record,
-            "context_seeded": context_seeded,
-            "warnings": warnings
-        }))
+        maybe_verbose_payload(
+            self.verbose,
+            serde_json::json!({
+                "ok": true,
+                "worktree_id": record.id,
+                "path": created.path,
+                "branch": created.branch,
+                "context_seeded": context_seeded
+            }),
+            serde_json::json!({
+                "ok": true,
+                "worktree": created,
+                "registry": record,
+                "context_seeded": context_seeded,
+                "warnings": warnings
+            }),
+        )
     }
 }
 
@@ -4152,7 +4376,17 @@ impl WorktreeAdoptCloneTool {
             return ok_text(lines.join("\n"));
         }
 
-        ok_json(serde_json::to_value(outcome).unwrap_or_default())
+        maybe_verbose_payload(
+            self.verbose,
+            serde_json::json!({
+                "ok": true,
+                "applied": outcome.applied,
+                "from": outcome.plan.from_path,
+                "to": outcome.plan.to_path,
+                "target_branch": outcome.plan.target_branch
+            }),
+            serde_json::to_value(outcome).unwrap_or_default(),
+        )
     }
 }
 
@@ -4258,11 +4492,20 @@ impl WorktreeAttachTool {
                 }
             }
         }
-        ok_json(serde_json::json!({
-            "ok": true,
-            "session": updated,
-            "worktree": binding
-        }))
+        maybe_verbose_payload(
+            self.verbose,
+            serde_json::json!({
+                "ok": true,
+                "session_id": updated.id,
+                "worktree_path": binding.path,
+                "worktree_id": binding.id
+            }),
+            serde_json::json!({
+                "ok": true,
+                "session": updated,
+                "worktree": binding
+            }),
+        )
     }
 }
 
@@ -4350,7 +4593,14 @@ impl WorktreeDetachTool {
                 }
             }
         }
-        ok_json(serde_json::to_value(updated).unwrap_or_default())
+        maybe_verbose_payload(
+            self.verbose,
+            serde_json::json!({
+                "ok": true,
+                "session_id": updated.id
+            }),
+            serde_json::to_value(updated).unwrap_or_default(),
+        )
     }
 }
 
@@ -4468,7 +4718,16 @@ impl TruthProposeTool {
         if self.format == "text" {
             return ok_text(render_truth_line(&record));
         }
-        ok_json(serde_json::to_value(record).unwrap_or_default())
+        maybe_verbose_payload(
+            self.verbose,
+            serde_json::json!({
+                "ok": true,
+                "truth_id": record.id,
+                "state": record.state.as_str(),
+                "version": record.version
+            }),
+            serde_json::to_value(record).unwrap_or_default(),
+        )
     }
 }
 
@@ -4497,7 +4756,16 @@ impl TruthAcceptTool {
         if self.format == "text" {
             return ok_text(render_truth_line(&record));
         }
-        ok_json(serde_json::to_value(record).unwrap_or_default())
+        maybe_verbose_payload(
+            self.verbose,
+            serde_json::json!({
+                "ok": true,
+                "truth_id": record.id,
+                "state": record.state.as_str(),
+                "version": record.version
+            }),
+            serde_json::to_value(record).unwrap_or_default(),
+        )
     }
 }
 
@@ -4526,7 +4794,16 @@ impl TruthRejectTool {
         if self.format == "text" {
             return ok_text(render_truth_line(&record));
         }
-        ok_json(serde_json::to_value(record).unwrap_or_default())
+        maybe_verbose_payload(
+            self.verbose,
+            serde_json::json!({
+                "ok": true,
+                "truth_id": record.id,
+                "state": record.state.as_str(),
+                "version": record.version
+            }),
+            serde_json::to_value(record).unwrap_or_default(),
+        )
     }
 }
 
@@ -4559,7 +4836,17 @@ impl TruthSupersedeTool {
         if self.format == "text" {
             return ok_text(render_truth_line(&record));
         }
-        ok_json(serde_json::to_value(record).unwrap_or_default())
+        maybe_verbose_payload(
+            self.verbose,
+            serde_json::json!({
+                "ok": true,
+                "truth_id": record.id,
+                "state": record.state.as_str(),
+                "version": record.version,
+                "superseded_by": record.superseded_by
+            }),
+            serde_json::to_value(record).unwrap_or_default(),
+        )
     }
 }
 
@@ -4702,7 +4989,16 @@ impl TruthMigrateApplyTool {
                 serde_json::to_string_pretty(&result).unwrap_or_else(|_| "{}".to_string()),
             );
         }
-        ok_json(serde_json::to_value(result).unwrap_or_default())
+        maybe_verbose_payload(
+            self.verbose,
+            serde_json::json!({
+                "ok": true,
+                "apply": self.apply,
+                "created_count": result.created_ids.len(),
+                "skipped_count": result.skipped.len()
+            }),
+            serde_json::to_value(result).unwrap_or_default(),
+        )
     }
 }
 
@@ -5088,7 +5384,16 @@ impl SetStatusTool {
         )?;
         refresh_index_best_effort(&backlog_dir);
         maybe_auto_checkpoint(&backlog_dir);
-        ok_json(serde_json::json!({"ok": true, "id": task.id, "status": self.status.clone()}))
+        maybe_verbose_payload(
+            self.verbose,
+            serde_json::json!({"ok": true, "id": task.id, "status": self.status.clone()}),
+            serde_json::json!({
+                "ok": true,
+                "id": task.id,
+                "status": self.status.clone(),
+                "task": refreshed_task_value(&backlog_dir, &task.id)
+            }),
+        )
     }
 }
 
@@ -5128,8 +5433,16 @@ impl SetFieldTool {
         )?;
         refresh_index_best_effort(&backlog_dir);
         maybe_auto_checkpoint(&backlog_dir);
-        ok_json(
+        maybe_verbose_payload(
+            self.verbose,
             serde_json::json!({"ok": true, "id": task.id, "field": self.field.clone(), "value": self.value.clone()}),
+            serde_json::json!({
+                "ok": true,
+                "id": task.id,
+                "field": self.field.clone(),
+                "value": self.value.clone(),
+                "task": refreshed_task_value(&backlog_dir, &task.id)
+            }),
         )
     }
 }
@@ -5144,6 +5457,7 @@ impl AddLabelTool {
             &self.label,
             true,
             self.touch,
+            self.verbose,
         )
     }
 }
@@ -5158,6 +5472,7 @@ impl RemoveLabelTool {
             &self.label,
             false,
             self.touch,
+            self.verbose,
         )
     }
 }
@@ -5172,6 +5487,7 @@ impl AddDependencyTool {
             &self.dependency,
             true,
             self.touch,
+            self.verbose,
         )
     }
 }
@@ -5186,6 +5502,7 @@ impl RemoveDependencyTool {
             &self.dependency,
             false,
             self.touch,
+            self.verbose,
         )
     }
 }
@@ -5229,7 +5546,9 @@ impl BulkSetStatusTool {
         }
         refresh_index_best_effort(&backlog_dir);
         maybe_auto_checkpoint(&backlog_dir);
-        ok_json(bulk_result(updated, missing))
+        let detailed = bulk_result(updated.clone(), missing.clone());
+        let minimal = bulk_summary(&updated, &missing);
+        maybe_verbose_payload(self.verbose, minimal, detailed)
     }
 }
 
@@ -5272,7 +5591,9 @@ impl BulkSetFieldTool {
         }
         refresh_index_best_effort(&backlog_dir);
         maybe_auto_checkpoint(&backlog_dir);
-        ok_json(bulk_result(updated, missing))
+        let detailed = bulk_result(updated.clone(), missing.clone());
+        let minimal = bulk_summary(&updated, &missing);
+        maybe_verbose_payload(self.verbose, minimal, detailed)
     }
 }
 
@@ -5313,7 +5634,9 @@ impl BulkAddLabelTool {
         }
         refresh_index_best_effort(&backlog_dir);
         maybe_auto_checkpoint(&backlog_dir);
-        ok_json(bulk_result(updated, missing))
+        let detailed = bulk_result(updated.clone(), missing.clone());
+        let minimal = bulk_summary(&updated, &missing);
+        maybe_verbose_payload(self.verbose, minimal, detailed)
     }
 }
 
@@ -5352,7 +5675,9 @@ impl BulkRemoveLabelTool {
         }
         refresh_index_best_effort(&backlog_dir);
         maybe_auto_checkpoint(&backlog_dir);
-        ok_json(bulk_result(updated, missing))
+        let detailed = bulk_result(updated.clone(), missing.clone());
+        let minimal = bulk_summary(&updated, &missing);
+        maybe_verbose_payload(self.verbose, minimal, detailed)
     }
 }
 
@@ -5393,7 +5718,9 @@ impl BulkAddDependencyTool {
         }
         refresh_index_best_effort(&backlog_dir);
         maybe_auto_checkpoint(&backlog_dir);
-        ok_json(bulk_result(updated, missing))
+        let detailed = bulk_result(updated.clone(), missing.clone());
+        let minimal = bulk_summary(&updated, &missing);
+        maybe_verbose_payload(self.verbose, minimal, detailed)
     }
 }
 
@@ -5432,7 +5759,9 @@ impl BulkRemoveDependencyTool {
         }
         refresh_index_best_effort(&backlog_dir);
         maybe_auto_checkpoint(&backlog_dir);
-        ok_json(bulk_result(updated, missing))
+        let detailed = bulk_result(updated.clone(), missing.clone());
+        let minimal = bulk_summary(&updated, &missing);
+        maybe_verbose_payload(self.verbose, minimal, detailed)
     }
 }
 
@@ -5470,7 +5799,9 @@ impl BulkAddNoteTool {
         }
         refresh_index_best_effort(&backlog_dir);
         maybe_auto_checkpoint(&backlog_dir);
-        ok_json(bulk_result(updated, missing))
+        let detailed = bulk_result(updated.clone(), missing.clone());
+        let minimal = bulk_summary(&updated, &missing);
+        maybe_verbose_payload(self.verbose, minimal, detailed)
     }
 }
 
@@ -5494,19 +5825,30 @@ impl ArchiveTool {
         .map_err(CallToolError::new)?;
         refresh_index_best_effort(&backlog_dir);
         maybe_auto_checkpoint(&backlog_dir);
-        ok_json(serde_json::json!({
-            "archived": result.archived,
-            "skipped": result.skipped,
-            "archive_dir": result.archive_dir,
-            "status_filter": if statuses.is_empty() {
-                workmesh_core::archive::default_archive_statuses()
-                    .iter()
-                    .map(|value| value.to_string())
-                    .collect::<Vec<_>>()
-            } else {
-                statuses
-            }
-        }))
+        let status_filter = if statuses.is_empty() {
+            workmesh_core::archive::default_archive_statuses()
+                .iter()
+                .map(|value| value.to_string())
+                .collect::<Vec<_>>()
+        } else {
+            statuses
+        };
+        maybe_verbose_payload(
+            self.verbose,
+            serde_json::json!({
+                "ok": true,
+                "archived_count": result.archived.len(),
+                "skipped_count": result.skipped.len(),
+                "archive_dir": result.archive_dir,
+                "status_filter": status_filter
+            }),
+            serde_json::json!({
+                "archived": result.archived,
+                "skipped": result.skipped,
+                "archive_dir": result.archive_dir,
+                "status_filter": status_filter
+            }),
+        )
     }
 }
 
@@ -5521,10 +5863,18 @@ impl MigrateTool {
             .filter(|value| !value.is_empty())
             .unwrap_or("workmesh");
         let result = migrate_backlog(&resolution, target).map_err(CallToolError::new)?;
-        ok_json(serde_json::json!({
-            "from": result.from,
-            "to": result.to
-        }))
+        maybe_verbose_payload(
+            self.verbose,
+            serde_json::json!({
+                "ok": true,
+                "from": result.from,
+                "to": result.to
+            }),
+            serde_json::json!({
+                "from": result.from,
+                "to": result.to
+            }),
+        )
     }
 }
 
@@ -5563,7 +5913,17 @@ impl MigrateApplyTool {
             },
         )
         .map_err(CallToolError::new)?;
-        ok_json(serde_json::to_value(result).unwrap_or_default())
+        maybe_verbose_payload(
+            self.verbose,
+            serde_json::json!({
+                "ok": true,
+                "apply": self.apply,
+                "applied_count": result.applied.len(),
+                "skipped_count": result.skipped.len(),
+                "backup_count": result.backups.len(),
+            }),
+            serde_json::to_value(result).unwrap_or_default(),
+        )
     }
 }
 
@@ -5611,7 +5971,16 @@ impl ClaimTaskTool {
         )?;
         refresh_index_best_effort(&backlog_dir);
         maybe_auto_checkpoint(&backlog_dir);
-        ok_json(serde_json::json!({"ok": true, "id": task.id, "owner": lease.owner.clone()}))
+        maybe_verbose_payload(
+            self.verbose,
+            serde_json::json!({"ok": true, "id": task.id, "owner": lease.owner.clone()}),
+            serde_json::json!({
+                "ok": true,
+                "id": task.id,
+                "owner": lease.owner.clone(),
+                "task": refreshed_task_value(&backlog_dir, &task.id)
+            }),
+        )
     }
 }
 
@@ -5645,7 +6014,11 @@ impl ReleaseTaskTool {
         )?;
         refresh_index_best_effort(&backlog_dir);
         maybe_auto_checkpoint(&backlog_dir);
-        ok_json(serde_json::json!({"ok": true, "id": task.id}))
+        maybe_verbose_payload(
+            self.verbose,
+            serde_json::json!({"ok": true, "id": task.id}),
+            serde_json::json!({"ok": true, "id": task.id, "task": refreshed_task_value(&backlog_dir, &task.id)}),
+        )
     }
 }
 
@@ -5685,7 +6058,16 @@ impl AddNoteTool {
         )?;
         refresh_index_best_effort(&backlog_dir);
         maybe_auto_checkpoint(&backlog_dir);
-        ok_json(serde_json::json!({"ok": true, "id": task.id, "section": self.section}))
+        maybe_verbose_payload(
+            self.verbose,
+            serde_json::json!({"ok": true, "id": task.id, "section": self.section}),
+            serde_json::json!({
+                "ok": true,
+                "id": task.id,
+                "section": self.section,
+                "task": refreshed_task_value(&backlog_dir, &task.id)
+            }),
+        )
     }
 }
 
@@ -5719,7 +6101,11 @@ impl SetBodyTool {
         )?;
         refresh_index_best_effort(&backlog_dir);
         maybe_auto_checkpoint(&backlog_dir);
-        ok_json(serde_json::json!({"ok": true, "id": task.id}))
+        maybe_verbose_payload(
+            self.verbose,
+            serde_json::json!({"ok": true, "id": task.id}),
+            serde_json::json!({"ok": true, "id": task.id, "task": refreshed_task_value(&backlog_dir, &task.id)}),
+        )
     }
 }
 
@@ -5754,7 +6140,16 @@ impl SetSectionTool {
         )?;
         refresh_index_best_effort(&backlog_dir);
         maybe_auto_checkpoint(&backlog_dir);
-        ok_json(serde_json::json!({"ok": true, "id": task.id, "section": self.section}))
+        maybe_verbose_payload(
+            self.verbose,
+            serde_json::json!({"ok": true, "id": task.id, "section": self.section}),
+            serde_json::json!({
+                "ok": true,
+                "id": task.id,
+                "section": self.section,
+                "task": refreshed_task_value(&backlog_dir, &task.id)
+            }),
+        )
     }
 }
 
@@ -5808,17 +6203,26 @@ impl AddTaskTool {
             enriched.extend(hints);
             hints = enriched;
         }
-        ok_json(serde_json::json!({
-            "ok": true,
-            "id": task_id,
-            "path": path,
-            "hints": hints,
-            "next_steps": [
-                "Add dependencies with add_dependency if this task is blocked.",
-                "Add labels for better filtering.",
-                "Add a note if there is important context.",
-            ]
-        }))
+        maybe_verbose_payload(
+            self.verbose,
+            serde_json::json!({
+                "ok": true,
+                "id": task_id,
+                "path": path,
+            }),
+            serde_json::json!({
+                "ok": true,
+                "id": task_id,
+                "path": path,
+                "task": refreshed_task_value(&backlog_dir, &task_id),
+                "hints": hints,
+                "next_steps": [
+                    "Add dependencies with add_dependency if this task is blocked.",
+                    "Add labels for better filtering.",
+                    "Add a note if there is important context.",
+                ]
+            }),
+        )
     }
 }
 
@@ -5869,12 +6273,22 @@ impl AddDiscoveredTool {
         )?;
         refresh_index_best_effort(&backlog_dir);
         maybe_auto_checkpoint(&backlog_dir);
-        ok_json(serde_json::json!({
-            "ok": true,
-            "id": task_id,
-            "path": path,
-            "from": self.from.clone(),
-        }))
+        maybe_verbose_payload(
+            self.verbose,
+            serde_json::json!({
+                "ok": true,
+                "id": task_id,
+                "path": path,
+                "from": self.from.clone(),
+            }),
+            serde_json::json!({
+                "ok": true,
+                "id": task_id,
+                "path": path,
+                "from": self.from.clone(),
+                "task": refreshed_task_value(&backlog_dir, &task_id),
+            }),
+        )
     }
 }
 
@@ -6423,7 +6837,16 @@ impl SessionSaveTool {
         if self.format == "text" {
             return ok_text(format!("Saved session {}", session.id));
         }
-        ok_json(serde_json::to_value(session).unwrap_or_default())
+        maybe_verbose_payload(
+            self.verbose,
+            serde_json::json!({
+                "ok": true,
+                "session_id": session.id,
+                "cwd": session.cwd,
+                "repo_root": session.repo_root,
+            }),
+            serde_json::to_value(session).unwrap_or_default(),
+        )
     }
 }
 
@@ -6920,10 +7343,16 @@ fn tool_examples(name: &str) -> Vec<serde_json::Value> {
             "tool": "config_show",
             "arguments": { "format": "json" }
         })],
-        "config_set" => vec![serde_json::json!({
-            "tool": "config_set",
-            "arguments": { "scope": "global", "key": "auto_session_default", "value": "true", "format": "json" }
-        })],
+        "config_set" => vec![
+            serde_json::json!({
+                "tool": "config_set",
+                "arguments": { "scope": "global", "key": "auto_session_default", "value": "true", "format": "json" }
+            }),
+            serde_json::json!({
+                "tool": "config_set",
+                "arguments": { "scope": "global", "key": "auto_session_default", "value": "true", "format": "json", "verbose": true }
+            }),
+        ],
         "config_unset" => vec![serde_json::json!({
             "tool": "config_unset",
             "arguments": { "scope": "global", "key": "auto_session_default", "format": "json" }
@@ -7003,18 +7432,100 @@ fn tool_examples(name: &str) -> Vec<serde_json::Value> {
             "tool": "truth_validate",
             "arguments": { "format": "json" }
         })],
-        "set_status" => vec![serde_json::json!({
-            "tool": "set_status",
-            "arguments": { "task_id": "task-001", "status": "In Progress", "touch": true }
-        })],
+        "set_status" => vec![
+            serde_json::json!({
+                "tool": "set_status",
+                "arguments": { "task_id": "task-001", "status": "In Progress", "touch": true }
+            }),
+            serde_json::json!({
+                "tool": "set_status",
+                "arguments": { "task_id": "task-001", "status": "In Progress", "touch": true, "verbose": true }
+            }),
+        ],
         "set_field" => vec![serde_json::json!({
             "tool": "set_field",
             "arguments": { "task_id": "task-001", "field": "kind", "value": "bug", "touch": true }
         })],
-        "add_task" => vec![serde_json::json!({
-            "tool": "add_task",
-            "arguments": { "title": "Investigate flaky test", "priority": "P2", "phase": "Phase1" }
-        })],
+        "bulk_set_status" => vec![
+            serde_json::json!({
+                "tool": "bulk_set_status",
+                "arguments": { "tasks": ["task-001", "task-002"], "status": "In Progress", "touch": true }
+            }),
+            serde_json::json!({
+                "tool": "bulk_set_status",
+                "arguments": { "tasks": ["task-001", "task-002"], "status": "In Progress", "touch": true, "verbose": true }
+            }),
+        ],
+        "bulk_set_field" => vec![
+            serde_json::json!({
+                "tool": "bulk_set_field",
+                "arguments": { "tasks": ["task-001", "task-002"], "field": "priority", "value": "P1", "touch": true }
+            }),
+            serde_json::json!({
+                "tool": "bulk_set_field",
+                "arguments": { "tasks": ["task-001", "task-002"], "field": "priority", "value": "P1", "touch": true, "verbose": true }
+            }),
+        ],
+        "bulk_add_label" => vec![
+            serde_json::json!({
+                "tool": "bulk_add_label",
+                "arguments": { "tasks": ["task-001", "task-002"], "label": "docs", "touch": true }
+            }),
+            serde_json::json!({
+                "tool": "bulk_add_label",
+                "arguments": { "tasks": ["task-001", "task-002"], "label": "docs", "touch": true, "verbose": true }
+            }),
+        ],
+        "bulk_remove_label" => vec![
+            serde_json::json!({
+                "tool": "bulk_remove_label",
+                "arguments": { "tasks": ["task-001", "task-002"], "label": "docs", "touch": true }
+            }),
+            serde_json::json!({
+                "tool": "bulk_remove_label",
+                "arguments": { "tasks": ["task-001", "task-002"], "label": "docs", "touch": true, "verbose": true }
+            }),
+        ],
+        "bulk_add_dependency" => vec![
+            serde_json::json!({
+                "tool": "bulk_add_dependency",
+                "arguments": { "tasks": ["task-001", "task-002"], "dependency": "task-010", "touch": true }
+            }),
+            serde_json::json!({
+                "tool": "bulk_add_dependency",
+                "arguments": { "tasks": ["task-001", "task-002"], "dependency": "task-010", "touch": true, "verbose": true }
+            }),
+        ],
+        "bulk_remove_dependency" => vec![
+            serde_json::json!({
+                "tool": "bulk_remove_dependency",
+                "arguments": { "tasks": ["task-001", "task-002"], "dependency": "task-010", "touch": true }
+            }),
+            serde_json::json!({
+                "tool": "bulk_remove_dependency",
+                "arguments": { "tasks": ["task-001", "task-002"], "dependency": "task-010", "touch": true, "verbose": true }
+            }),
+        ],
+        "bulk_add_note" => vec![
+            serde_json::json!({
+                "tool": "bulk_add_note",
+                "arguments": { "tasks": ["task-001", "task-002"], "section": "Notes", "note": "Follow up with vendor", "touch": true }
+            }),
+            serde_json::json!({
+                "tool": "bulk_add_note",
+                "arguments": { "tasks": ["task-001", "task-002"], "section": "Notes", "note": "Follow up with vendor", "touch": true, "verbose": true }
+            }),
+        ],
+        "add_task" => vec![
+            serde_json::json!({
+                "tool": "add_task",
+                "arguments": { "title": "Investigate flaky test", "priority": "P2", "phase": "Phase1" }
+            }),
+            serde_json::json!({
+                "tool": "add_task",
+                "arguments": { "title": "Investigate flaky test", "priority": "P2", "phase": "Phase1", "verbose": true }
+            }),
+        ],
         "add_discovered" => vec![serde_json::json!({
             "tool": "add_discovered",
             "arguments": { "from": "task-001", "title": "New edge case discovered", "priority": "P2", "phase": "Phase1" }
@@ -7035,6 +7546,16 @@ fn tool_examples(name: &str) -> Vec<serde_json::Value> {
             "tool": "checkpoint",
             "arguments": { "project": "workmesh", "json": true }
         })],
+        "session_save" => vec![
+            serde_json::json!({
+                "tool": "session_save",
+                "arguments": { "objective": "Continue migration work", "project": "workmesh", "format": "json" }
+            }),
+            serde_json::json!({
+                "tool": "session_save",
+                "arguments": { "objective": "Continue migration work", "project": "workmesh", "format": "json", "verbose": true }
+            }),
+        ],
         "resume" => vec![serde_json::json!({
             "tool": "resume",
             "arguments": { "project": "workmesh", "json": true }
@@ -7094,6 +7615,12 @@ pub fn tool_info_payload(name: &str) -> Option<serde_json::Value> {
                 .to_string(),
         );
     }
+    if supports_verbose_response(name) {
+        notes.push(
+            "Mutation tools return a minimal acknowledgement by default to save tokens. Pass verbose=true to include richer post-write state."
+                .to_string(),
+        );
+    }
 
     Some(serde_json::json!({
         "ok": true,
@@ -7103,6 +7630,56 @@ pub fn tool_info_payload(name: &str) -> Option<serde_json::Value> {
         "notes": notes,
         "examples": tool_examples(name),
     }))
+}
+
+fn supports_verbose_response(name: &str) -> bool {
+    matches!(
+        name,
+        "config_set"
+            | "config_unset"
+            | "context_set"
+            | "context_clear"
+            | "workstream_create"
+            | "workstream_switch"
+            | "workstream_pause"
+            | "workstream_close"
+            | "workstream_reopen"
+            | "workstream_rename"
+            | "workstream_set"
+            | "worktree_create"
+            | "worktree_adopt_clone"
+            | "worktree_attach"
+            | "worktree_detach"
+            | "truth_propose"
+            | "truth_accept"
+            | "truth_reject"
+            | "truth_supersede"
+            | "truth_migrate_apply"
+            | "set_status"
+            | "set_field"
+            | "add_label"
+            | "remove_label"
+            | "add_dependency"
+            | "remove_dependency"
+            | "bulk_set_status"
+            | "bulk_set_field"
+            | "bulk_add_label"
+            | "bulk_remove_label"
+            | "bulk_add_dependency"
+            | "bulk_remove_dependency"
+            | "bulk_add_note"
+            | "archive_tasks"
+            | "migrate_backlog"
+            | "migrate_apply"
+            | "claim_task"
+            | "release_task"
+            | "add_note"
+            | "set_body"
+            | "set_section"
+            | "add_task"
+            | "add_discovered"
+            | "session_save"
+    )
 }
 
 impl ToolInfoTool {
@@ -7266,6 +7843,7 @@ fn update_list_field(
     value: &str,
     add: bool,
     touch: bool,
+    verbose: bool,
 ) -> Result<CallToolResult, CallToolError> {
     let backlog_dir = match resolve_root(context, root) {
         Ok(dir) => dir,
@@ -7313,12 +7891,17 @@ fn update_list_field(
     )?;
     refresh_index_best_effort(&backlog_dir);
     maybe_auto_checkpoint(&backlog_dir);
-    let payload = if field == "labels" {
-        serde_json::json!({"ok": true, "id": task.id, "labels": current})
+    let detailed = if field == "labels" {
+        serde_json::json!({"ok": true, "id": task.id, "labels": current, "task": refreshed_task_value(&backlog_dir, &task.id)})
     } else {
-        serde_json::json!({"ok": true, "id": task.id, "dependencies": current})
+        serde_json::json!({"ok": true, "id": task.id, "dependencies": current, "task": refreshed_task_value(&backlog_dir, &task.id)})
     };
-    ok_json(payload)
+    let minimal = if field == "labels" {
+        serde_json::json!({"ok": true, "id": task.id, "label": value, "action": if add { "add" } else { "remove" }})
+    } else {
+        serde_json::json!({"ok": true, "id": task.id, "dependency": value, "action": if add { "add" } else { "remove" }})
+    };
+    maybe_verbose_payload(verbose, minimal, detailed)
 }
 
 fn find_task<'a>(tasks: &'a [Task], task_id: &str) -> Option<&'a Task> {
@@ -7381,6 +7964,15 @@ fn bulk_result(updated: Vec<String>, missing: Vec<String>) -> serde_json::Value 
         "ok": missing.is_empty(),
         "updated": updated,
         "missing": missing,
+    })
+}
+
+fn bulk_summary(updated: &[String], failed: &[String]) -> serde_json::Value {
+    serde_json::json!({
+        "ok": failed.is_empty(),
+        "updated_count": updated.len(),
+        "failed_count": failed.len(),
+        "failed_ids": failed,
     })
 }
 

@@ -52,6 +52,13 @@ When user says to use WorkMesh for feature development:
 - capture stable decisions as truths (use `truth propose --current` for stream-aware defaults)
 - use the CLI `render` subcommand for pretty tables/trees/stats/timelines when structured human-friendly output is needed
 
+## Mutation response contract
+- Treat WorkMesh writes as acknowledgement-first operations.
+- Do not assume a write should echo the full updated object.
+- When using MCP-backed workflows, default to minimal responses and request `verbose=true` only when the richer payload is actually needed.
+- For bulk mutations, expect compact failure identification by default (`failed_ids`) rather than full per-item result objects.
+- Prefer a follow-up read command when you need current full state after a mutation.
+
 ## Multi-stream restore (after reboot)
 If the user runs multiple workstreams in parallel (often one git worktree per stream), use:
 ```bash

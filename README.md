@@ -76,6 +76,31 @@ CLI parity helpers:
   - `config_show`, `truth_list`, `workstream_list`, `worktree_list`
   - `render_table`, `render_tree`, `render_timeline`, and the rest of the render tool family
 
+## Mutation Response Policy
+To save tokens for agents, WorkMesh mutation tools default to small acknowledgements instead of full post-write objects.
+
+- Default mutation responses are minimal:
+  - task/status updates return identifiers plus the changed field or action
+  - bulk updates return counts plus `failed_ids` instead of full per-task payloads
+  - session/context/workstream/worktree/truth mutations return compact success metadata
+- When richer post-write state is needed, MCP mutation tools accept `verbose=true`.
+- Read tools (`show_task`, `truth_show`, `session_show`, `workstream_show`, `context_show`) remain the source of full state.
+
+Typical pattern:
+```json
+{ "ok": true, "id": "task-001", "status": "Done" }
+```
+
+Verbose pattern:
+```json
+{ "ok": true, "id": "task-001", "status": "Done", "task": { "...": "..." } }
+```
+
+Bulk default pattern:
+```json
+{ "ok": false, "updated_count": 7, "failed_count": 2, "failed_ids": ["task-003", "task-009"] }
+```
+
 ## Install
 
 ### Prebuilt binaries (recommended)
