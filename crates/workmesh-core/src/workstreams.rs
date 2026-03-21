@@ -637,13 +637,19 @@ fn best_session_for_worktree(sessions: &[AgentSession], worktree_path: &str) -> 
     if path_norm.is_empty() {
         return None;
     }
+    let target = normalize_path_string(Path::new(path_norm))
+        .unwrap_or_else(|_| path_norm.to_string());
     sessions
         .iter()
         .find(|session| {
             session
                 .worktree
                 .as_ref()
-                .map(|binding| binding.path == path_norm)
+                .map(|binding| {
+                    normalize_path_string(Path::new(binding.path.trim()))
+                        .unwrap_or_else(|_| binding.path.trim().to_string())
+                        == target
+                })
                 .unwrap_or(false)
         })
         .map(|session| session.id.clone())
