@@ -336,3 +336,36 @@ These remain useful, but they are no longer the primary entrypoint:
 - [`docs/setup/run-modes-and-agent-mcp.md`](setup/run-modes-and-agent-mcp.md)
 - [`docs/test-coverage.md`](test-coverage.md)
 - [`docs/samples/workmesh-demo/README.md`](samples/workmesh-demo/README.md)
+
+## 17. Skills
+
+WorkMesh uses a layered skill model so agents do not have to rediscover the workflow on every session.
+
+The skills are:
+- `workmesh`: router skill that selects CLI-first or MCP-first execution
+- `workmesh-cli`: CLI adapter skill
+- `workmesh-mcp`: MCP adapter skill
+
+These skills now share one operating doctrine instead of duplicating policy independently.
+
+The shared doctrine covers:
+- task quality rules
+- SOLID/TDD expectations
+- compaction-safe persistence discipline
+- when to use tasks vs notes vs truths vs context updates
+- output/rendering rules
+- mutation response expectations
+
+Recommended agent behavior under compaction pressure:
+1. restore context, accepted truths, and current task before starting new work
+2. claim/set `In Progress` and validate task quality before coding
+3. update WorkMesh immediately when scope, blockers, dependencies, or durable decisions change
+4. before likely compaction or topic switches, persist a concise note, ensure context is correct, and capture durable truths
+5. only mark `Done` after goals, acceptance criteria, and definition of done are truly satisfied
+
+The main principle is simple:
+- tasks are the work contract
+- context is the current pointer
+- truths are durable decisions
+- notes are the volatile breadcrumb trail
+- sessions/workstreams are the continuity layer

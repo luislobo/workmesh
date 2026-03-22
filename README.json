@@ -55,6 +55,12 @@
       "Use WorkMesh for this feature end to end. Create/update PRD, create and maintain tasks with acceptance criteria and definition of done, keep context current, and track stable decisions in Truth Ledger."
     ]
   },
+  "skills": {
+    "router": "workmesh",
+    "cli": "workmesh-cli",
+    "mcp": "workmesh-mcp",
+    "shared_doctrine": "skills and .codex skill variants share one operating doctrine covering task quality, compaction-safe persistence, truth/note/task boundaries, and output rules."
+  },
   "rules": {
     "task_sections": [
       "Description",

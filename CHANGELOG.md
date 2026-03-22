@@ -11,6 +11,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Promoted `docs/README.md` to the canonical human manual and consolidated the main usage guidance there in one sectioned document.
 - Reduced `README.md` to a short landing page with install instructions and links to the canonical documentation.
 - Simplified `README.json` so the agent-readable mirror points directly to the canonical documentation structure.
+- Documented the WorkMesh skill model and compaction-safe agent operating procedure in the canonical manual.
+- Refactored WorkMesh skills to use one shared operating doctrine with thin CLI and MCP adapter skill layers.
 
 ## [0.3.4] - 2026-03-21
 
