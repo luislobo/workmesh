@@ -5,7 +5,7 @@ description: MCP-first WorkMesh workflow. Use when WorkMesh MCP tools are availa
 
 # WorkMesh MCP Skill
 
-Read `OPERATING_MODEL.md` in this folder first. It is the shared doctrine for router, CLI, and MCP operation.
+Read `../workmesh-shared/OPERATING_MODEL.md` first. It is the canonical shared doctrine for router, CLI, and MCP operation.
 
 ## MCP mode rules
 - Prefer MCP tools over shell commands when parity exists.

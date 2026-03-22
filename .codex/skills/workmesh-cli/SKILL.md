@@ -7,7 +7,7 @@ description: CLI-first WorkMesh workflow. Use when agents should run shell comma
 
 Use this skill when WorkMesh MCP is not available.
 
-Read `OPERATING_MODEL.md` in this folder before executing feature work. It is the shared doctrine for router, CLI, and MCP operation.
+Read `../../../skills/workmesh-shared/OPERATING_MODEL.md` before executing feature work. It is the canonical shared doctrine for router, CLI, and MCP operation.
 
 ## CLI mode rules
 - Always pass `--root <repo>`.

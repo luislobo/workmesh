@@ -7,7 +7,7 @@ description: Router skill for WorkMesh. Selects CLI-first or MCP-first workflow 
 
 Use this skill to provide a Codex-first WorkMesh experience.
 
-Read `OPERATING_MODEL.md` in this folder before executing feature work. It is the shared doctrine for router, CLI, and MCP operation.
+Read `../../../skills/workmesh-shared/OPERATING_MODEL.md` before executing feature work. It is the canonical shared doctrine for router, CLI, and MCP operation.
 
 ## Mode selection
 - If WorkMesh MCP tools are available, use MCP mode.
