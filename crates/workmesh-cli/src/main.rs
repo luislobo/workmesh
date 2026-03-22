@@ -47,7 +47,7 @@ use workmesh_core::migration_audit::{
     MigrationPlanOptions,
 };
 use workmesh_core::project::{ensure_project_docs, repo_root_from_backlog};
-use workmesh_core::quickstart::quickstart;
+use workmesh_core::quickstart::{quickstart, QuickstartOptions};
 use workmesh_core::rekey::{
     parse_rekey_request, rekey_apply, render_rekey_prompt, RekeyApplyOptions, RekeyPromptOptions,
 };
@@ -61,7 +61,7 @@ use workmesh_core::skills::{
     uninstall_embedded_skill_report, SkillAgent, SkillInstallReport, SkillScope,
     SkillUninstallReport,
 };
-use workmesh_core::task::{load_tasks, load_tasks_with_archive, Lease, Task};
+use workmesh_core::task::{load_tasks, load_tasks_with_archive, tasks_dir_for_root, Lease, Task};
 use workmesh_core::task_ops::{
     append_note, create_task_file, ensure_can_mark_done, filter_tasks, graph_export,
     is_lease_active, now_timestamp, ready_tasks, recommend_next_tasks_with_context,
@@ -725,6 +725,12 @@ enum Command {
         /// Objective to set when context is missing
         #[arg(long)]
         objective: Option<String>,
+        /// Repo-relative or absolute path for task files when initializing a new repo
+        #[arg(long)]
+        tasks_root: Option<String>,
+        /// Repo-relative or absolute path for repo-local WorkMesh state when initializing a new repo
+        #[arg(long)]
+        state_root: Option<String>,
         #[arg(long, action = ArgAction::SetTrue)]
         json: bool,
     },
@@ -736,6 +742,12 @@ enum Command {
         /// Feature/project phrase used to seed initiative acronym for the first task id
         #[arg(long)]
         feature: Option<String>,
+        /// Repo-relative or absolute path for task files
+        #[arg(long)]
+        tasks_root: Option<String>,
+        /// Repo-relative or absolute path for repo-local WorkMesh state
+        #[arg(long)]
+        state_root: Option<String>,
         #[arg(long, action = ArgAction::SetTrue)]
         agents_snippet: bool,
         #[arg(long, action = ArgAction::SetTrue)]
@@ -2476,6 +2488,8 @@ fn main() -> Result<()> {
         project_id,
         feature,
         objective,
+        tasks_root,
+        state_root,
         json,
     } = &cli.command
     {
@@ -2488,6 +2502,8 @@ fn main() -> Result<()> {
                 feature: feature.clone(),
                 objective: objective.clone(),
                 agents_snippet: true,
+                tasks_root: tasks_root.clone(),
+                state_root: state_root.clone(),
             },
         )?;
         if *json {
@@ -2495,7 +2511,8 @@ fn main() -> Result<()> {
         } else {
             println!("Bootstrap state: {}", result.state.as_str());
             println!("Repo root: {}", result.repo_root.display());
-            println!("WorkMesh: {}", result.backlog_dir.display());
+            println!("State root: {}", result.state_root.display());
+            println!("Tasks root: {}", result.tasks_root.display());
             println!("Project: {}", result.project_id);
             if result.quickstart.is_some() {
                 println!("Initialized WorkMesh layout and seed task.");
@@ -2528,6 +2545,8 @@ fn main() -> Result<()> {
         project_id,
         name,
         feature,
+        tasks_root,
+        state_root,
         agents_snippet,
         json,
     } = &cli.command
@@ -2538,13 +2557,18 @@ fn main() -> Result<()> {
             project_id,
             name.as_deref(),
             feature.as_deref(),
-            *agents_snippet,
+            &QuickstartOptions {
+                agents_snippet: *agents_snippet,
+                tasks_root: tasks_root.clone(),
+                state_root: state_root.clone(),
+            },
         )?;
         if *json {
             println!("{}", serde_json::to_string_pretty(&result)?);
         } else {
             println!("Docs: {}", result.project_dir.display());
-            println!("WorkMesh: {}", result.backlog_dir.display());
+            println!("State root: {}", result.state_root.display());
+            println!("Tasks root: {}", result.tasks_root.display());
             if let Some(task_path) = result.created_task.as_ref() {
                 println!("Seed task: {}", task_path.display());
             }
@@ -4738,7 +4762,7 @@ fn main() -> Result<()> {
             assignee,
             json,
         } => {
-            let tasks_dir = backlog_dir.join("tasks");
+            let tasks_dir = tasks_dir_for_root(&backlog_dir);
             let task_id = match id {
                 Some(value) => value,
                 None => {
@@ -4789,7 +4813,7 @@ fn main() -> Result<()> {
             assignee,
             json,
         } => {
-            let tasks_dir = backlog_dir.join("tasks");
+            let tasks_dir = tasks_dir_for_root(&backlog_dir);
             let task_id = match id {
                 Some(value) => value,
                 None => {
@@ -5146,7 +5170,7 @@ fn prompts_disabled() -> bool {
 
 fn maybe_prompt_migration(resolution: &BacklogResolution) -> Result<PathBuf> {
     if !resolution.layout.is_legacy() {
-        return Ok(resolution.backlog_dir.clone());
+        return Ok(resolution.state_root.clone());
     }
     if resolution
         .config
@@ -5154,27 +5178,27 @@ fn maybe_prompt_migration(resolution: &BacklogResolution) -> Result<PathBuf> {
         .and_then(|cfg| cfg.do_not_migrate)
         .unwrap_or(false)
     {
-        return Ok(resolution.backlog_dir.clone());
+        return Ok(resolution.state_root.clone());
     }
     if prompts_disabled() || !io::stdin().is_terminal() {
         eprintln!(
-            "Legacy backlog detected at {}. Run `workmesh --root . migrate` to move to workmesh/.",
-            resolution.backlog_dir.display()
+            "Legacy repo layout detected at {}. Run `workmesh --root . migrate --to split` to move to tasks/ + .workmesh/.",
+            resolution.state_root.display()
         );
-        return Ok(resolution.backlog_dir.clone());
+        return Ok(resolution.state_root.clone());
     }
-    if confirm_migration(&resolution.backlog_dir)? {
-        let result = migrate_backlog(resolution, "workmesh")?;
+    if confirm_migration(&resolution.state_root)? {
+        let result = migrate_backlog(resolution, "split")?;
         let _ = update_do_not_migrate(&resolution.repo_root, false);
         return Ok(result.to);
     }
     let _ = update_do_not_migrate(&resolution.repo_root, true);
-    Ok(resolution.backlog_dir.clone())
+    Ok(resolution.state_root.clone())
 }
 
 fn confirm_migration(path: &Path) -> Result<bool> {
     eprint!(
-        "Legacy backlog found at {}. Migrate to workmesh/? [y/N] ",
+        "Legacy repo layout found at {}. Migrate to tasks/ + .workmesh/? [y/N] ",
         path.display()
     );
     let mut input = String::new();
@@ -5185,7 +5209,7 @@ fn confirm_migration(path: &Path) -> Result<bool> {
 
 fn handle_migrate_command(resolution: &BacklogResolution, target: &str, yes: bool) -> Result<()> {
     if !yes && io::stdin().is_terminal() && !prompts_disabled() {
-        if !confirm_migration(&resolution.backlog_dir)? {
+        if !confirm_migration(&resolution.state_root)? {
             let _ = update_do_not_migrate(&resolution.repo_root, true);
             println!("Migration cancelled.");
             return Ok(());
@@ -5937,7 +5961,7 @@ fn handle_workstream_command(
                 let seed_root = normalize_path(target_path);
                 match resolve_backlog(&seed_root) {
                     Ok(resolution) => {
-                        let existing = load_context(&resolution.backlog_dir)?.unwrap_or_default();
+                        let existing = load_context(&resolution.state_root)?.unwrap_or_default();
                         let mut state = existing;
                         state.workstream_id = Some(found.id.clone());
                         if let Some(snapshot) = found.context.as_ref() {
@@ -5945,11 +5969,11 @@ fn handle_workstream_command(
                             state.objective = snapshot.objective.clone();
                             state.scope = snapshot.scope.clone();
                         }
-                        save_context(&resolution.backlog_dir, state)?;
+                        save_context(&resolution.state_root, state)?;
                         target_context_updated = true;
                     }
                     Err(_) => warnings.push(format!(
-                        "context update skipped (no workmesh/tasks found under {})",
+                        "context update skipped (no tasks found under {})",
                         seed_root.display()
                     )),
                 }
@@ -6220,7 +6244,7 @@ fn handle_workstream_command(
                 match resolve_backlog(&seed_root) {
                     Ok(resolution) => {
                         let _ = save_context(
-                            &resolution.backlog_dir,
+                            &resolution.state_root,
                             ContextState {
                                 version: 1,
                                 project_id: inferred_project.clone(),
@@ -6233,7 +6257,7 @@ fn handle_workstream_command(
                         seeded = true;
                     }
                     Err(_) => warnings.push(format!(
-                        "context seed skipped (no workmesh/tasks found under {})",
+                        "context seed skipped (no tasks found under {})",
                         seed_root.display()
                     )),
                 }
@@ -6267,7 +6291,7 @@ fn handle_workstream_command(
                 match resolve_backlog(&seed_root) {
                     Ok(resolution) => {
                         let _ = save_context(
-                            &resolution.backlog_dir,
+                            &resolution.state_root,
                             ContextState {
                                 version: 1,
                                 project_id: inferred_project.clone(),
@@ -6280,7 +6304,7 @@ fn handle_workstream_command(
                         seeded = true;
                     }
                     Err(_) => warnings.push(format!(
-                        "context seed skipped (no workmesh/tasks found under {})",
+                        "context seed skipped (no tasks found under {})",
                         seed_root.display()
                     )),
                 }
@@ -6337,10 +6361,10 @@ fn handle_workstream_command(
             if let Some(path) = path.as_ref() {
                 let seed_root = normalize_path(path);
                 if let Ok(resolution) = resolve_backlog(&seed_root) {
-                    if let Ok(existing) = load_context(&resolution.backlog_dir) {
+                    if let Ok(existing) = load_context(&resolution.state_root) {
                         let mut state = existing.unwrap_or_default();
                         state.workstream_id = Some(inserted.id.clone());
-                        let _ = save_context(&resolution.backlog_dir, state);
+                        let _ = save_context(&resolution.state_root, state);
                     }
                 }
             }
@@ -6604,7 +6628,7 @@ fn handle_worktree_command(repo_root: &Path, home: &Path, command: WorktreeComma
                             }
                         };
                         let _ = save_context(
-                            &resolution.backlog_dir,
+                            &resolution.state_root,
                             ContextState {
                                 version: 1,
                                 project_id: project
@@ -6619,7 +6643,7 @@ fn handle_worktree_command(repo_root: &Path, home: &Path, command: WorktreeComma
                         context_seeded = true;
                     }
                     Err(_) => warnings.push(format!(
-                        "context seed skipped (no workmesh/tasks found under {})",
+                        "context seed skipped (no tasks found under {})",
                         seed_root.display()
                     )),
                 }
@@ -6753,7 +6777,7 @@ fn handle_worktree_command(repo_root: &Path, home: &Path, command: WorktreeComma
                 .and_then(|root| resolve_backlog(Path::new(root)).ok())
                 .map(|resolution| {
                     truth_refs_for_scope(
-                        &resolution.backlog_dir,
+                        &resolution.state_root,
                         updated.project_id.as_deref(),
                         updated.epic_id.as_deref(),
                         updated.worktree.as_ref().map(|item| item.path.as_str()),
@@ -6822,7 +6846,7 @@ fn handle_worktree_command(repo_root: &Path, home: &Path, command: WorktreeComma
                 .and_then(|root| resolve_backlog(Path::new(root)).ok())
                 .map(|resolution| {
                     truth_refs_for_scope(
-                        &resolution.backlog_dir,
+                        &resolution.state_root,
                         updated.project_id.as_deref(),
                         updated.epic_id.as_deref(),
                         None,
@@ -6944,6 +6968,17 @@ fn handle_config_command(repo_root: &Path, command: &ConfigCommand) -> Result<()
                     "- worktrees_default: {} ({})",
                     worktrees_default, worktrees_default_source
                 );
+                if let Some((config, _)) = load_config_with_path(repo_root) {
+                    if let Some(value) = config.tasks_root.as_ref() {
+                        println!("- tasks_root: {} (project)", value);
+                    }
+                    if let Some(value) = config.state_root.as_ref() {
+                        println!("- state_root: {} (project)", value);
+                    }
+                    if let Some(value) = config.root_dir.as_ref() {
+                        println!("- root_dir: {} (project, deprecated)", value);
+                    }
+                }
                 if let Some(dir) = worktrees_dir.as_ref() {
                     println!(
                         "- worktrees_dir: {} ({})",
@@ -7016,6 +7051,18 @@ fn handle_config_command(repo_root: &Path, command: &ConfigCommand) -> Result<()
                     });
                     config.auto_session_default = Some(parsed);
                 }
+                "tasks_root" => {
+                    if value.is_empty() {
+                        die("tasks_root cannot be blank (use config unset to remove)");
+                    }
+                    config.tasks_root = Some(value.to_string());
+                }
+                "state_root" => {
+                    if value.is_empty() {
+                        die("state_root cannot be blank (use config unset to remove)");
+                    }
+                    config.state_root = Some(value.to_string());
+                }
                 "root_dir" => {
                     if value.is_empty() {
                         die("root_dir cannot be blank (use config unset to remove)");
@@ -7065,6 +7112,8 @@ fn handle_config_command(repo_root: &Path, command: &ConfigCommand) -> Result<()
                 "worktrees_default" => config.worktrees_default = None,
                 "worktrees_dir" => config.worktrees_dir = None,
                 "auto_session_default" => config.auto_session_default = None,
+                "tasks_root" => config.tasks_root = None,
+                "state_root" => config.state_root = None,
                 "root_dir" => config.root_dir = None,
                 "do_not_migrate" => config.do_not_migrate = None,
                 _ => die(&format!("Unknown config key: {}", key)),
@@ -7713,7 +7762,7 @@ fn handle_bulk_note(
 }
 
 fn best_practices_text() -> &'static str {
-    "workmesh best practices\n\nTask quality:\n- Fill `Description`, `Acceptance Criteria`, and `Definition of Done` for every task.\n- `Definition of Done` must include outcome-based completion criteria, not only hygiene checks.\n- `Done` transitions are gated: tasks must satisfy quality requirements before completion.\n\nDependencies:\n- Add dependencies whenever a task is blocked by other work.\n- Prefer explicit task ids (task-042) over vague references.\n- Update dependencies as status changes to avoid stale blockers.\n- Use validate to catch missing or broken dependency chains.\n\nDerived files:\n- Ignore derived artifacts like `workmesh/.index/` and `workmesh/.audit.log` in git.\n- If they show up as changes, rebuild/refresh and do not commit them.\n\nLabels:\n- Use labels to group work (docs, infra, ops).\n- Keep labels short and consistent.\n\nNotes:\n- Capture blockers or decisions in notes for future context.\n"
+    "workmesh best practices\n\nTask quality:\n- Fill `Description`, `Acceptance Criteria`, and `Definition of Done` for every task.\n- `Definition of Done` must include outcome-based completion criteria, not only hygiene checks.\n- `Done` transitions are gated: tasks must satisfy quality requirements before completion.\n\nDependencies:\n- Add dependencies whenever a task is blocked by other work.\n- Prefer explicit task ids (task-042) over vague references.\n- Update dependencies as status changes to avoid stale blockers.\n- Use validate to catch missing or broken dependency chains.\n\nDerived files:\n- Ignore derived artifacts like `.workmesh/.index/` and `.workmesh/.audit.log` in git.\n- If they show up as changes, rebuild/refresh and do not commit them.\n\nLabels:\n- Use labels to group work (docs, infra, ops).\n- Keep labels short and consistent.\n\nNotes:\n- Capture blockers or decisions in notes for future context.\n"
 }
 
 fn update_list_field(

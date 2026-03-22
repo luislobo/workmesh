@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 use thiserror::Error;
 
 use crate::config::{find_config_root, load_config, WorkmeshConfig};
+use crate::project::write_repo_root_metadata;
 
 #[derive(Debug, Error)]
 pub enum BacklogError {
@@ -12,6 +13,7 @@ pub enum BacklogError {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BacklogLayout {
+    Split,
     Workmesh,
     HiddenWorkmesh,
     Backlog,
@@ -35,14 +37,25 @@ impl BacklogLayout {
 
 #[derive(Debug, Clone)]
 pub struct BacklogResolution {
-    pub backlog_dir: PathBuf,
+    pub state_root: PathBuf,
+    pub tasks_root: PathBuf,
     pub layout: BacklogLayout,
     pub repo_root: PathBuf,
     pub config: Option<WorkmeshConfig>,
 }
 
+impl BacklogResolution {
+    pub fn backlog_dir(&self) -> &Path {
+        &self.state_root
+    }
+}
+
 pub fn resolve_backlog_dir(root: &Path) -> Result<PathBuf, BacklogError> {
-    Ok(resolve_backlog(root)?.backlog_dir)
+    Ok(resolve_backlog(root)?.state_root)
+}
+
+pub fn resolve_tasks_dir(root: &Path) -> Result<PathBuf, BacklogError> {
+    Ok(resolve_backlog(root)?.tasks_root)
 }
 
 pub fn resolve_backlog(root: &Path) -> Result<BacklogResolution, BacklogError> {
@@ -69,14 +82,17 @@ pub fn locate_backlog_dir(start: &Path) -> Result<PathBuf, BacklogError> {
     let start = start.canonicalize().unwrap_or_else(|_| start.to_path_buf());
     if let Some(config_root) = find_config_root(&start) {
         if let Ok(resolution) = resolve_backlog(&config_root) {
-            return Ok(resolution.backlog_dir);
+            return Ok(resolution.state_root);
         }
     }
     for candidate in start.ancestors() {
-        if is_named(candidate, "workmesh") && candidate.join("tasks").is_dir() {
-            return Ok(candidate.to_path_buf());
+        if is_named(candidate, ".workmesh") && candidate.parent().is_some() {
+            let repo_root = candidate.parent().unwrap_or(candidate);
+            if repo_root.join("tasks").is_dir() || candidate.join("tasks").is_dir() {
+                return Ok(candidate.to_path_buf());
+            }
         }
-        if is_named(candidate, ".workmesh") && candidate.join("tasks").is_dir() {
+        if is_named(candidate, "workmesh") && candidate.join("tasks").is_dir() {
             return Ok(candidate.to_path_buf());
         }
         if is_named(candidate, "backlog") && candidate.join("tasks").is_dir() {
@@ -86,7 +102,21 @@ pub fn locate_backlog_dir(start: &Path) -> Result<PathBuf, BacklogError> {
             return Ok(candidate.to_path_buf());
         }
         if is_named(candidate, "tasks") {
-            return Ok(candidate.parent().unwrap_or(candidate).to_path_buf());
+            let parent = candidate.parent().unwrap_or(candidate);
+            if parent.join(".workmesh").is_dir() {
+                return Ok(parent.join(".workmesh"));
+            }
+            if is_named(parent, "workmesh")
+                || is_named(parent, ".workmesh")
+                || is_named(parent, "backlog")
+                || is_named(parent, "project")
+            {
+                return Ok(parent.to_path_buf());
+            }
+            return Ok(parent.to_path_buf());
+        }
+        if candidate.join(".workmesh").is_dir() && candidate.join("tasks").is_dir() {
+            return Ok(candidate.join(".workmesh"));
         }
         if candidate.join("workmesh").join("tasks").is_dir() {
             return Ok(candidate.join("workmesh"));
@@ -112,55 +142,66 @@ fn resolve_explicit_root(
     repo_root: &Path,
     config: Option<&WorkmeshConfig>,
 ) -> Option<BacklogResolution> {
+    if let Some((state_root, tasks_root)) = configured_roots(repo_root, config) {
+        if path_matches(root, &state_root) || path_matches(root, &tasks_root) || path_matches(root, repo_root)
+        {
+            if tasks_root.is_dir() || state_root.is_dir() {
+                return Some(resolution_for_roots(
+                    &state_root,
+                    &tasks_root,
+                    repo_root,
+                    config,
+                ));
+            }
+        }
+    }
+
     if is_named(root, "tasks") && root.is_dir() {
         let parent = root.parent().unwrap_or(root).to_path_buf();
-        let layout = layout_from_dir(&parent);
-        return Some(BacklogResolution {
-            backlog_dir: parent,
-            layout,
-            repo_root: repo_root.to_path_buf(),
-            config: config.cloned(),
-        });
+        if is_named(&parent, "workmesh")
+            || is_named(&parent, ".workmesh")
+            || is_named(&parent, "backlog")
+            || is_named(&parent, "project")
+        {
+            return Some(resolution_for_roots(root.parent().unwrap_or(root), root, repo_root, config));
+        }
+        let split_state = parent.join(".workmesh");
+        if split_state.is_dir() {
+            return Some(resolution_for_roots(&split_state, root, repo_root, config));
+        }
+        return Some(resolution_for_roots(&parent, root, repo_root, config));
     }
     if is_named(root, "workmesh") && root.join("tasks").is_dir() {
-        return Some(resolution_for(
-            root,
-            BacklogLayout::Workmesh,
-            repo_root,
-            config,
-        ));
+        return Some(resolution_for_roots(root, &root.join("tasks"), repo_root, config));
     }
     if is_named(root, ".workmesh") && root.join("tasks").is_dir() {
-        return Some(resolution_for(
+        return Some(resolution_for_roots(root, &root.join("tasks"), repo_root, config));
+    }
+    if is_named(root, ".workmesh") && root.parent().unwrap_or(root).join("tasks").is_dir() {
+        return Some(resolution_for_roots(
             root,
-            BacklogLayout::HiddenWorkmesh,
+            &root.parent().unwrap_or(root).join("tasks"),
             repo_root,
             config,
         ));
     }
     if is_named(root, "backlog") && root.join("tasks").is_dir() {
-        return Some(resolution_for(
-            root,
-            BacklogLayout::Backlog,
-            repo_root,
-            config,
-        ));
+        return Some(resolution_for_roots(root, &root.join("tasks"), repo_root, config));
     }
     if is_named(root, "project") && root.join("tasks").is_dir() {
-        return Some(resolution_for(
-            root,
-            BacklogLayout::Project,
-            repo_root,
-            config,
-        ));
+        return Some(resolution_for_roots(root, &root.join("tasks"), repo_root, config));
     }
     if root.join("tasks").is_dir() {
-        return Some(resolution_for(
-            root,
-            BacklogLayout::RootTasks,
-            repo_root,
-            config,
-        ));
+        let split_state = root.join(".workmesh");
+        if split_state.is_dir() {
+            return Some(resolution_for_roots(
+                &split_state,
+                &root.join("tasks"),
+                repo_root,
+                config,
+            ));
+        }
+        return Some(resolution_for_roots(root, &root.join("tasks"), repo_root, config));
     }
     None
 }
@@ -169,14 +210,17 @@ fn resolve_from_config(
     repo_root: &Path,
     config: Option<&WorkmeshConfig>,
 ) -> Option<BacklogResolution> {
-    let root_dir = config
-        .and_then(|cfg| cfg.root_dir.as_deref())
-        .map(|value| value.trim())
-        .filter(|value| !value.is_empty())?;
-    let candidate = repo_root.join(root_dir);
-    if candidate.join("tasks").is_dir() {
-        let layout = layout_from_dir(&candidate);
-        return Some(resolution_for(&candidate, layout, repo_root, config));
+    let (state_root, tasks_root) = configured_roots(repo_root, config)?;
+    if tasks_root.is_dir() || state_root.is_dir() {
+        if state_root.is_dir() && !state_root.starts_with(repo_root) {
+            let _ = write_repo_root_metadata(&state_root, repo_root);
+        }
+        return Some(resolution_for_roots(
+            &state_root,
+            &tasks_root,
+            repo_root,
+            config,
+        ));
     }
     None
 }
@@ -185,52 +229,101 @@ fn resolve_default_dirs(
     repo_root: &Path,
     config: Option<&WorkmeshConfig>,
 ) -> Option<BacklogResolution> {
+    let split_state = repo_root.join(".workmesh");
+    let split_tasks = repo_root.join("tasks");
+    if split_state.is_dir() && split_tasks.is_dir() {
+        return Some(resolution_for_roots(
+            &split_state,
+            &split_tasks,
+            repo_root,
+            config,
+        ));
+    }
+
     let workmesh = repo_root.join("workmesh");
     if workmesh.join("tasks").is_dir() {
-        return Some(resolution_for(
+        return Some(resolution_for_roots(
             &workmesh,
-            BacklogLayout::Workmesh,
+            &workmesh.join("tasks"),
             repo_root,
             config,
         ));
     }
     let hidden = repo_root.join(".workmesh");
     if hidden.join("tasks").is_dir() {
-        return Some(resolution_for(
+        return Some(resolution_for_roots(
             &hidden,
-            BacklogLayout::HiddenWorkmesh,
+            &hidden.join("tasks"),
             repo_root,
             config,
         ));
     }
     let backlog = repo_root.join("backlog");
     if backlog.join("tasks").is_dir() {
-        return Some(resolution_for(
+        return Some(resolution_for_roots(
             &backlog,
-            BacklogLayout::Backlog,
+            &backlog.join("tasks"),
             repo_root,
             config,
         ));
     }
     let project = repo_root.join("project");
     if project.join("tasks").is_dir() {
-        return Some(resolution_for(
+        return Some(resolution_for_roots(
             &project,
-            BacklogLayout::Project,
+            &project.join("tasks"),
             repo_root,
             config,
         ));
     }
-    let tasks_root = repo_root.join("tasks");
-    if tasks_root.is_dir() {
-        return Some(resolution_for(
-            repo_root,
-            BacklogLayout::RootTasks,
-            repo_root,
-            config,
-        ));
+    if split_tasks.is_dir() {
+        return Some(resolution_for_roots(repo_root, &split_tasks, repo_root, config));
     }
     None
+}
+
+fn configured_roots(
+    repo_root: &Path,
+    config: Option<&WorkmeshConfig>,
+) -> Option<(PathBuf, PathBuf)> {
+    let config = config?;
+    let legacy_root = trim_config_value(config.root_dir.as_deref())
+        .map(|value| rooted_path(repo_root, value));
+    let explicit_tasks = trim_config_value(config.tasks_root.as_deref())
+        .map(|value| rooted_path(repo_root, value));
+    let explicit_state = trim_config_value(config.state_root.as_deref())
+        .map(|value| rooted_path(repo_root, value));
+
+    if legacy_root.is_none() && explicit_tasks.is_none() && explicit_state.is_none() {
+        return None;
+    }
+
+    let tasks_root = explicit_tasks.unwrap_or_else(|| {
+        legacy_root
+            .as_ref()
+            .map(|path| path.join("tasks"))
+            .unwrap_or_else(|| repo_root.join("tasks"))
+    });
+    let state_root = explicit_state.unwrap_or_else(|| {
+        legacy_root
+            .clone()
+            .unwrap_or_else(|| repo_root.join(".workmesh"))
+    });
+
+    Some((state_root, tasks_root))
+}
+
+fn trim_config_value(value: Option<&str>) -> Option<&str> {
+    value.map(str::trim).filter(|value| !value.is_empty())
+}
+
+fn rooted_path(repo_root: &Path, value: &str) -> PathBuf {
+    let path = PathBuf::from(value);
+    if path.is_absolute() {
+        path
+    } else {
+        repo_root.join(path)
+    }
 }
 
 fn derive_repo_root(root: &Path) -> PathBuf {
@@ -240,7 +333,6 @@ fn derive_repo_root(root: &Path) -> PathBuf {
         || is_named(root, "workmesh")
         || is_named(root, ".workmesh")
     {
-        // If the explicit root is `.../<layout>/tasks`, the repo root is `.../`, not `.../<layout>`.
         if is_named(root, "tasks") {
             let parent = root.parent().unwrap_or(root);
             if is_named(parent, "workmesh")
@@ -257,32 +349,49 @@ fn derive_repo_root(root: &Path) -> PathBuf {
     root.to_path_buf()
 }
 
-fn layout_from_dir(dir: &Path) -> BacklogLayout {
-    if is_named(dir, "workmesh") {
-        BacklogLayout::Workmesh
-    } else if is_named(dir, ".workmesh") {
-        BacklogLayout::HiddenWorkmesh
-    } else if is_named(dir, "backlog") {
-        BacklogLayout::Backlog
-    } else if is_named(dir, "project") {
-        BacklogLayout::Project
-    } else {
-        BacklogLayout::RootTasks
-    }
-}
-
-fn resolution_for(
-    dir: &Path,
-    layout: BacklogLayout,
+fn resolution_for_roots(
+    state_root: &Path,
+    tasks_root: &Path,
     repo_root: &Path,
     config: Option<&WorkmeshConfig>,
 ) -> BacklogResolution {
     BacklogResolution {
-        backlog_dir: dir.to_path_buf(),
-        layout,
+        state_root: state_root.to_path_buf(),
+        tasks_root: tasks_root.to_path_buf(),
+        layout: layout_from_roots(state_root, tasks_root, repo_root),
         repo_root: repo_root.to_path_buf(),
         config: config.cloned(),
     }
+}
+
+fn layout_from_roots(state_root: &Path, tasks_root: &Path, repo_root: &Path) -> BacklogLayout {
+    if state_root == repo_root.join(".workmesh") && tasks_root == repo_root.join("tasks") {
+        return BacklogLayout::Split;
+    }
+    if tasks_root == state_root.join("tasks") {
+        if is_named(state_root, "workmesh") {
+            BacklogLayout::Workmesh
+        } else if is_named(state_root, ".workmesh") {
+            BacklogLayout::HiddenWorkmesh
+        } else if is_named(state_root, "backlog") {
+            BacklogLayout::Backlog
+        } else if is_named(state_root, "project") {
+            BacklogLayout::Project
+        } else if state_root == repo_root {
+            BacklogLayout::RootTasks
+        } else {
+            BacklogLayout::Custom
+        }
+    } else if is_named(tasks_root, "tasks") {
+        BacklogLayout::TasksDir
+    } else {
+        BacklogLayout::Custom
+    }
+}
+
+fn path_matches(left: &Path, right: &Path) -> bool {
+    left == right
+        || left.canonicalize().ok().zip(right.canonicalize().ok()).map(|(a, b)| a == b).unwrap_or(false)
 }
 
 fn is_named(path: &Path, name: &str) -> bool {
@@ -301,38 +410,40 @@ mod tests {
     }
 
     #[test]
-    fn prefers_workmesh_over_backlog() {
+    fn prefers_split_layout_over_legacy_single_root() {
         let temp = TempDir::new().expect("tempdir");
-        let workmesh = temp.path().join("workmesh").join("tasks");
-        let backlog = temp.path().join("backlog").join("tasks");
-        std::fs::create_dir_all(&workmesh).expect("workmesh");
-        std::fs::create_dir_all(&backlog).expect("backlog");
+        std::fs::create_dir_all(temp.path().join(".workmesh")).expect("state");
+        std::fs::create_dir_all(temp.path().join("tasks")).expect("tasks");
+        std::fs::create_dir_all(temp.path().join("backlog").join("tasks")).expect("backlog");
 
         let resolution = resolve_backlog(temp.path()).expect("resolve");
-        assert_eq!(resolution.layout, BacklogLayout::Workmesh);
-        assert_eq!(resolution.backlog_dir, temp.path().join("workmesh"));
+        assert_eq!(resolution.layout, BacklogLayout::Split);
+        assert_eq!(resolution.state_root, temp.path().join(".workmesh"));
+        assert_eq!(resolution.tasks_root, temp.path().join("tasks"));
     }
 
     #[test]
     fn falls_back_to_backlog_when_only_legacy_exists() {
         let temp = TempDir::new().expect("tempdir");
-        let backlog = temp.path().join("backlog").join("tasks");
-        std::fs::create_dir_all(&backlog).expect("backlog");
+        std::fs::create_dir_all(temp.path().join("backlog").join("tasks")).expect("backlog");
 
         let resolution = resolve_backlog(temp.path()).expect("resolve");
         assert_eq!(resolution.layout, BacklogLayout::Backlog);
-        assert_eq!(resolution.backlog_dir, temp.path().join("backlog"));
+        assert_eq!(resolution.state_root, temp.path().join("backlog"));
+        assert_eq!(resolution.tasks_root, temp.path().join("backlog").join("tasks"));
     }
 
     #[test]
     fn resolve_backlog_accepts_explicit_tasks_dir() {
         let temp = TempDir::new().expect("tempdir");
-        let tasks_dir = temp.path().join("workmesh").join("tasks");
+        let tasks_dir = temp.path().join("tasks");
         std::fs::create_dir_all(&tasks_dir).expect("tasks");
+        std::fs::create_dir_all(temp.path().join(".workmesh")).expect("state");
 
         let resolution = resolve_backlog(&tasks_dir).expect("resolve");
-        assert_eq!(resolution.layout, BacklogLayout::Workmesh);
-        assert_eq!(resolution.backlog_dir, temp.path().join("workmesh"));
+        assert_eq!(resolution.layout, BacklogLayout::Split);
+        assert_eq!(resolution.state_root, temp.path().join(".workmesh"));
+        assert_eq!(resolution.tasks_root, tasks_dir);
         assert_eq!(resolution.repo_root, temp.path().to_path_buf());
     }
 
@@ -354,44 +465,42 @@ mod tests {
         std::fs::create_dir_all(temp3.path().join("tasks")).expect("root tasks");
         let resolution = resolve_backlog(temp3.path()).expect("resolve");
         assert_eq!(resolution.layout, BacklogLayout::RootTasks);
-        assert_eq!(resolution.backlog_dir, temp3.path().to_path_buf());
+        assert_eq!(resolution.state_root, temp3.path().to_path_buf());
     }
 
     #[test]
-    fn resolve_backlog_uses_config_root_dir_override() {
+    fn resolve_backlog_uses_config_split_root_override() {
         let temp = TempDir::new().expect("tempdir");
-        // Set up both workmesh and hidden; config should pick hidden.
-        std::fs::create_dir_all(temp.path().join("workmesh").join("tasks")).expect("workmesh");
-        std::fs::create_dir_all(temp.path().join(".workmesh").join("tasks")).expect("hidden");
+        std::fs::create_dir_all(temp.path().join("state")).expect("state");
+        std::fs::create_dir_all(temp.path().join("tracker")).expect("tasks");
         std::fs::write(
             temp.path().join(".workmesh.toml"),
-            "root_dir = \".workmesh\"\n",
+            "state_root = \"state\"\ntasks_root = \"tracker\"\n",
         )
         .expect("config");
 
         let resolution = resolve_backlog(temp.path()).expect("resolve");
-        assert_eq!(resolution.layout, BacklogLayout::HiddenWorkmesh);
-        assert_eq!(
-            canon(&resolution.backlog_dir),
-            canon(&temp.path().join(".workmesh"))
-        );
+        assert_eq!(resolution.layout, BacklogLayout::Custom);
+        assert_eq!(canon(&resolution.state_root), canon(&temp.path().join("state")));
+        assert_eq!(canon(&resolution.tasks_root), canon(&temp.path().join("tracker")));
         assert!(resolution.config.is_some());
     }
 
     #[test]
     fn locate_backlog_dir_prefers_config_root_when_present() {
         let temp = TempDir::new().expect("tempdir");
-        std::fs::create_dir_all(temp.path().join(".workmesh").join("tasks")).expect("hidden");
+        std::fs::create_dir_all(temp.path().join("state")).expect("state");
+        std::fs::create_dir_all(temp.path().join("tracker")).expect("tasks");
         std::fs::write(
             temp.path().join(".workmesh.toml"),
-            "root_dir = \".workmesh\"\n",
+            "state_root = \"state\"\ntasks_root = \"tracker\"\n",
         )
         .expect("config");
 
         let deep = temp.path().join("src").join("pkg");
         std::fs::create_dir_all(&deep).expect("deep");
         let located = locate_backlog_dir(&deep).expect("locate");
-        assert_eq!(canon(&located), canon(&temp.path().join(".workmesh")));
+        assert_eq!(canon(&located), canon(&temp.path().join("state")));
     }
 
     #[test]
@@ -400,6 +509,7 @@ mod tests {
         assert!(BacklogLayout::Project.is_legacy());
         assert!(BacklogLayout::RootTasks.is_legacy());
         assert!(BacklogLayout::TasksDir.is_legacy());
+        assert!(!BacklogLayout::Split.is_legacy());
         assert!(!BacklogLayout::Workmesh.is_legacy());
         assert!(!BacklogLayout::HiddenWorkmesh.is_legacy());
         assert!(!BacklogLayout::Custom.is_legacy());

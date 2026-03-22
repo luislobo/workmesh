@@ -3,9 +3,9 @@
 WorkMesh is a docs-first project and task orchestration system for developers and coding agents.
 
 It keeps planning state next to the code:
-- tasks in Markdown
-- repo-local context in `workmesh/context.json`
-- durable decisions in `workmesh/truth/`
+- tasks in `tasks/`
+- repo-local context in `.workmesh/context.json`
+- durable decisions in `.workmesh/truth/`
 - global continuity in `~/.workmesh/`
 
 ## Install

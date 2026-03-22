@@ -5,7 +5,8 @@ It includes tasks with dependencies, a repo-local context, and a Truth Ledger re
 
 ## Layout
 - `docs/projects/wm-demo/`: PRD/decisions/updates scaffolding.
-- `workmesh/tasks/`: tasks with dependencies and rich metadata.
+- `tasks/`: tasks with dependencies and rich metadata.
+- `.workmesh/`: repo-local context, truth, and derived state.
 - `workmesh/context.json`: current objective and task scope.
 - `workmesh/truth/`: decision records.
 - `app/`: minimal reference implementation + sample payloads.

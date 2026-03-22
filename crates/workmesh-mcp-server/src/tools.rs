@@ -43,7 +43,7 @@ use workmesh_core::migration_audit::{
     MigrationPlanOptions,
 };
 use workmesh_core::project::{ensure_project_docs, repo_root_from_backlog};
-use workmesh_core::quickstart::quickstart;
+use workmesh_core::quickstart::{quickstart, QuickstartOptions};
 use workmesh_core::rekey::{
     parse_rekey_request, rekey_apply, render_rekey_prompt, RekeyApplyOptions, RekeyPromptOptions,
 };
@@ -51,7 +51,7 @@ use workmesh_core::session::{
     append_session_journal, diff_since_checkpoint, render_diff, render_resume, resolve_project_id,
     resume_summary, task_summary, write_checkpoint, write_working_set, CheckpointOptions,
 };
-use workmesh_core::task::{load_tasks, load_tasks_with_archive, Lease, Task};
+use workmesh_core::task::{load_tasks, load_tasks_with_archive, tasks_dir_for_root, Lease, Task};
 use workmesh_core::task_ops::{
     append_note, create_task_file, ensure_can_mark_done, filter_tasks, graph_export,
     is_lease_active, now_timestamp, ready_tasks, recommend_next_tasks_with_context,
@@ -389,7 +389,7 @@ fn tool_catalog() -> Vec<serde_json::Value> {
         serde_json::json!({"name": "add_task", "summary": "Create a new task file."}),
         serde_json::json!({"name": "add_discovered", "summary": "Create a task discovered from another task."}),
         serde_json::json!({"name": "project_init", "summary": "Create project docs scaffold."}),
-        serde_json::json!({"name": "quickstart", "summary": "Scaffold docs + backlog + seed task."}),
+        serde_json::json!({"name": "quickstart", "summary": "Scaffold docs + task/state roots + seed task."}),
         serde_json::json!({"name": "validate", "summary": "Validate task metadata and dependencies."}),
         serde_json::json!({"name": "graph_export", "summary": "Export task graph as JSON."}),
         serde_json::json!({"name": "issues_export", "summary": "Export tasks as JSONL."}),
@@ -1453,6 +1453,8 @@ pub struct BootstrapTool {
     pub project_id: Option<String>,
     pub feature: Option<String>,
     pub objective: Option<String>,
+    pub tasks_root: Option<String>,
+    pub state_root: Option<String>,
     #[serde(default = "default_format")]
     pub format: String,
 }
@@ -1467,6 +1469,8 @@ pub struct QuickstartTool {
     pub root: Option<String>,
     pub name: Option<String>,
     pub feature: Option<String>,
+    pub tasks_root: Option<String>,
+    pub state_root: Option<String>,
     #[serde(default)]
     pub agents_snippet: bool,
 }
@@ -2305,6 +2309,17 @@ impl ConfigShowTool {
                 "- worktrees_default: {} ({})",
                 worktrees_default, worktrees_default_source
             ));
+            if let Some((config, _)) = workmesh_core::config::load_config_with_path(&repo_root) {
+                if let Some(value) = config.tasks_root.as_ref() {
+                    lines.push(format!("- tasks_root: {} (project)", value));
+                }
+                if let Some(value) = config.state_root.as_ref() {
+                    lines.push(format!("- state_root: {} (project)", value));
+                }
+                if let Some(value) = config.root_dir.as_ref() {
+                    lines.push(format!("- root_dir: {} (project, deprecated)", value));
+                }
+            }
             if let Some(dir) = worktrees_dir.as_ref() {
                 lines.push(format!(
                     "- worktrees_dir: {} ({})",
@@ -2393,6 +2408,22 @@ impl ConfigSetTool {
                 })?;
                 config.auto_session_default = Some(parsed);
             }
+            "tasks_root" => {
+                if value.is_empty() {
+                    return Err(CallToolError::from_message(
+                        "tasks_root cannot be blank (use config_unset)".to_string(),
+                    ));
+                }
+                config.tasks_root = Some(value.to_string());
+            }
+            "state_root" => {
+                if value.is_empty() {
+                    return Err(CallToolError::from_message(
+                        "state_root cannot be blank (use config_unset)".to_string(),
+                    ));
+                }
+                config.state_root = Some(value.to_string());
+            }
             "root_dir" => {
                 if value.is_empty() {
                     return Err(CallToolError::from_message(
@@ -2467,6 +2498,8 @@ impl ConfigUnsetTool {
             "worktrees_default" => config.worktrees_default = None,
             "worktrees_dir" => config.worktrees_dir = None,
             "auto_session_default" => config.auto_session_default = None,
+            "tasks_root" => config.tasks_root = None,
+            "state_root" => config.state_root = None,
             "root_dir" => config.root_dir = None,
             "do_not_migrate" => config.do_not_migrate = None,
             _ => {
@@ -3069,7 +3102,7 @@ impl WorkstreamCreateTool {
             let seed_root = normalize_path(target_path);
             match resolve_backlog(&seed_root) {
                 Ok(resolution) => {
-                    let existing = load_context(&resolution.backlog_dir)
+                    let existing = load_context(&resolution.state_root)
                         .map_err(|err| CallToolError::from_message(err.to_string()))?
                         .unwrap_or_default();
                     let mut state = existing;
@@ -3079,12 +3112,12 @@ impl WorkstreamCreateTool {
                         state.objective = snapshot.objective.clone();
                         state.scope = snapshot.scope.clone();
                     }
-                    save_context(&resolution.backlog_dir, state)
+                    save_context(&resolution.state_root, state)
                         .map_err(|err| CallToolError::from_message(err.to_string()))?;
                     target_context_updated = true;
                 }
                 Err(_) => warnings.push(format!(
-                    "context update skipped (no workmesh/tasks found under {})",
+                    "context update skipped (no tasks found under {})",
                     seed_root.display()
                 )),
             }
@@ -3347,7 +3380,7 @@ impl WorkstreamCreateTool {
             match resolve_backlog(&seed_root) {
                 Ok(resolution) => {
                     let _ = save_context(
-                        &resolution.backlog_dir,
+                        &resolution.state_root,
                         ContextState {
                             version: 1,
                             project_id: inferred_project.clone(),
@@ -3361,7 +3394,7 @@ impl WorkstreamCreateTool {
                     context_seeded = true;
                 }
                 Err(_) => warnings.push(format!(
-                    "context seed skipped (no workmesh/tasks found under {})",
+                    "context seed skipped (no tasks found under {})",
                     seed_root.display()
                 )),
             }
@@ -3402,7 +3435,7 @@ impl WorkstreamCreateTool {
             match resolve_backlog(&seed_root) {
                 Ok(resolution) => {
                     let _ = save_context(
-                        &resolution.backlog_dir,
+                        &resolution.state_root,
                         ContextState {
                             version: 1,
                             project_id: inferred_project.clone(),
@@ -3416,7 +3449,7 @@ impl WorkstreamCreateTool {
                     context_seeded = true;
                 }
                 Err(_) => warnings.push(format!(
-                    "context seed skipped (no workmesh/tasks found under {})",
+                    "context seed skipped (no tasks found under {})",
                     seed_root.display()
                 )),
             }
@@ -3475,10 +3508,10 @@ impl WorkstreamCreateTool {
         if let Some(path) = path.as_deref() {
             let seed_root = normalize_path(Path::new(path.trim()));
             if let Ok(resolution) = resolve_backlog(&seed_root) {
-                if let Ok(existing) = load_context(&resolution.backlog_dir) {
+                if let Ok(existing) = load_context(&resolution.state_root) {
                     let mut state = existing.unwrap_or_default();
                     state.workstream_id = Some(inserted.id.clone());
-                    let _ = save_context(&resolution.backlog_dir, state);
+                    let _ = save_context(&resolution.state_root, state);
                 }
             }
         }
@@ -4214,7 +4247,7 @@ impl WorktreeCreateTool {
                         }
                     };
                     let _ = save_context(
-                        &resolution.backlog_dir,
+                        &resolution.state_root,
                         ContextState {
                             version: 1,
                             project_id: self
@@ -4231,7 +4264,7 @@ impl WorktreeCreateTool {
                     context_seeded = true;
                 }
                 Err(_) => warnings.push(format!(
-                    "context seed skipped (no workmesh/tasks found under {})",
+                    "context seed skipped (no tasks found under {})",
                     seed_root.display()
                 )),
             }
@@ -4382,7 +4415,7 @@ impl WorktreeAttachTool {
             .and_then(|root| resolve_backlog(Path::new(root)).ok())
             .map(|resolution| {
                 truth_refs_for_scope(
-                    &resolution.backlog_dir,
+                    &resolution.state_root,
                     updated.project_id.as_deref(),
                     updated.epic_id.as_deref(),
                     updated.worktree.as_ref().map(|item| item.path.as_str()),
@@ -4462,7 +4495,7 @@ impl WorktreeDetachTool {
             .and_then(|root| resolve_backlog(Path::new(root)).ok())
             .map(|resolution| {
                 truth_refs_for_scope(
-                    &resolution.backlog_dir,
+                    &resolution.state_root,
                     updated.project_id.as_deref(),
                     updated.epic_id.as_deref(),
                     None,
@@ -6088,7 +6121,7 @@ impl AddTaskTool {
             Err(err) => return ok_json(err),
         };
         let tasks = load_tasks(&backlog_dir);
-        let tasks_dir = backlog_dir.join("tasks");
+        let tasks_dir = tasks_dir_for_root(&backlog_dir);
         let task_id = match self.task_id.clone() {
             Some(value) => value,
             None => {
@@ -6161,7 +6194,7 @@ impl AddDiscoveredTool {
             Err(err) => return ok_json(err),
         };
         let tasks = load_tasks(&backlog_dir);
-        let tasks_dir = backlog_dir.join("tasks");
+        let tasks_dir = tasks_dir_for_root(&backlog_dir);
         let task_id = match self.task_id.clone() {
             Some(value) => value,
             None => {
@@ -6248,7 +6281,8 @@ fn render_bootstrap_summary(result: &BootstrapResult) -> String {
     let mut lines = Vec::new();
     lines.push(format!("state: {}", result.state.as_str()));
     lines.push(format!("repo_root: {}", result.repo_root.display()));
-    lines.push(format!("backlog_dir: {}", result.backlog_dir.display()));
+    lines.push(format!("state_root: {}", result.state_root.display()));
+    lines.push(format!("tasks_root: {}", result.tasks_root.display()));
     lines.push(format!("project_id: {}", result.project_id));
     if result.quickstart.is_some() {
         lines.push("initialized: true".to_string());
@@ -6293,6 +6327,8 @@ impl BootstrapTool {
                 feature: self.feature.clone(),
                 objective: self.objective.clone(),
                 agents_snippet: true,
+                tasks_root: self.tasks_root.clone(),
+                state_root: self.state_root.clone(),
             },
         )
         .map_err(CallToolError::new)?;
@@ -6312,7 +6348,11 @@ impl QuickstartTool {
             &self.project_id,
             self.name.as_deref(),
             self.feature.as_deref(),
-            self.agents_snippet,
+            &QuickstartOptions {
+                agents_snippet: self.agents_snippet,
+                tasks_root: self.tasks_root.clone(),
+                state_root: self.state_root.clone(),
+            },
         )
         .map_err(CallToolError::new)?;
         ok_json(serde_json::to_value(result).unwrap_or_default())
@@ -7167,7 +7207,7 @@ impl HelpTool {
                 "best_practices": best_practice_hints(),
                 "tools": tool_catalog(),
                 "notes": [
-                    "root is optional if the server is started inside a repo with workmesh/tasks, .workmesh/tasks, tasks/, or legacy backlog/tasks",
+                    "root is optional if the server is started inside a repo with tasks/ + .workmesh/, a legacy single-root layout, or legacy backlog/tasks",
                     "Dependencies are first-class. Use them to model blockers.",
                     "Use validate to catch missing or broken dependencies.",
                     "List-style arguments accept CSV strings or JSON arrays.",

@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use chrono::{Datelike, Local, NaiveDate, NaiveDateTime};
 use thiserror::Error;
 
-use crate::task::Task;
+use crate::task::{archive_root_for_root, Task};
 
 #[derive(Debug, Error)]
 pub enum ArchiveError {
@@ -33,7 +33,7 @@ pub fn archive_tasks(
     tasks: &[Task],
     options: &ArchiveOptions,
 ) -> Result<ArchiveResult, ArchiveError> {
-    let archive_root = backlog_dir.join("archive");
+    let archive_root = archive_root_for_root(backlog_dir);
     let mut archived = Vec::new();
     let skipped = Vec::new();
     let allowed_statuses = if options.statuses.is_empty() {

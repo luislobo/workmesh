@@ -25,6 +25,7 @@ use crate::worktrees::worktrees_registry_path;
 
 fn layout_name(layout: BacklogLayout) -> &'static str {
     match layout {
+        BacklogLayout::Split => "split",
         BacklogLayout::Workmesh => "workmesh",
         BacklogLayout::HiddenWorkmesh => ".workmesh",
         BacklogLayout::Backlog => "backlog",
@@ -448,7 +449,7 @@ pub fn doctor_report_with_options(
     let (repo_root, backlog_dir, layout) = if let Some(res) = resolution.as_ref() {
         (
             res.repo_root.clone(),
-            res.backlog_dir.clone(),
+            res.state_root.clone(),
             layout_name(res.layout).to_string(),
         )
     } else {

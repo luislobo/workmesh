@@ -46,7 +46,7 @@ pub fn best_practice_hints() -> &'static [&'static str] {
         "If unsure, start with an empty list and add dependencies as soon as blockers appear.",
         "Prefer specific task ids (e.g., task-042) over vague references.",
         "Update dependencies when status changes to avoid stale blocked tasks.",
-        "Do not commit derived artifacts like `workmesh/.index/` or `workmesh/.audit.log` (they are rebuildable).",
+        "Do not commit derived artifacts like `.workmesh/.index/` or `.workmesh/.audit.log` (they are rebuildable).",
     ]
 }
 
@@ -134,7 +134,7 @@ pub fn tool_catalog() -> Vec<Value> {
         serde_json::json!({"name": "session_journal", "summary": "Append a session journal entry."}),
         serde_json::json!({"name": "working_set", "summary": "Write the working set file."}),
         serde_json::json!({"name": "project_init", "summary": "Create project docs scaffold."}),
-        serde_json::json!({"name": "quickstart", "summary": "Scaffold docs + backlog + seed task."}),
+        serde_json::json!({"name": "quickstart", "summary": "Scaffold docs + task/state roots + seed task."}),
         serde_json::json!({"name": "best_practices", "summary": "Return best practices guidance."}),
         serde_json::json!({"name": "help", "summary": "Show available tools and best practices."}),
         serde_json::json!({"name": "tool_info", "summary": "Show detailed usage for a specific tool."}),
@@ -381,7 +381,7 @@ pub fn build_tool_info_payload(name: &str, tool_def: Value) -> Option<Value> {
         })?;
 
     let mut notes = vec![
-        "root is optional if the server is started inside a repo with workmesh/tasks, .workmesh/tasks, tasks/, or legacy backlog/tasks".to_string(),
+        "root is optional if the server is started inside a repo with tasks/ + .workmesh/, a legacy single-root layout, or legacy backlog/tasks".to_string(),
         "List-style arguments accept CSV strings (\"a,b,c\") or JSON arrays (\"[\\\"a\\\",\\\"b\\\"]\").".to_string(),
     ];
     if name == "list_tasks" {

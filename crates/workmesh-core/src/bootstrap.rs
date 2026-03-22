@@ -12,7 +12,7 @@ use crate::migration_audit::{
     apply_migration_plan, audit_deprecations, plan_migrations, MigrationApplyOptions,
     MigrationAuditError, MigrationPlanOptions,
 };
-use crate::quickstart::{quickstart, QuickstartError, QuickstartResult};
+use crate::quickstart::{quickstart, QuickstartError, QuickstartOptions, QuickstartResult};
 use crate::session::resolve_project_id;
 use crate::task::load_tasks;
 use crate::task_ops::recommend_next_tasks_with_context;
@@ -55,12 +55,15 @@ pub struct BootstrapOptions {
     pub feature: Option<String>,
     pub objective: Option<String>,
     pub agents_snippet: bool,
+    pub tasks_root: Option<String>,
+    pub state_root: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
 pub struct BootstrapResult {
     pub repo_root: PathBuf,
-    pub backlog_dir: PathBuf,
+    pub state_root: PathBuf,
+    pub tasks_root: PathBuf,
     pub state: BootstrapState,
     pub project_id: String,
     pub context_seeded: bool,
@@ -94,7 +97,7 @@ pub fn bootstrap_repo(
                     &report,
                     &MigrationPlanOptions {
                         include: vec![
-                            "layout_backlog_to_workmesh".to_string(),
+                            "layout_to_split".to_string(),
                             "focus_to_context".to_string(),
                         ],
                         exclude: Vec::new(),
@@ -137,7 +140,11 @@ pub fn bootstrap_repo(
                 &project_id,
                 options.project_name.as_deref(),
                 options.feature.as_deref(),
-                options.agents_snippet,
+                &QuickstartOptions {
+                    agents_snippet: options.agents_snippet,
+                    tasks_root: options.tasks_root.clone(),
+                    state_root: options.state_root.clone(),
+                },
             )?;
             quickstart_result = Some(created);
             BootstrapState::NewRepo
@@ -145,8 +152,9 @@ pub fn bootstrap_repo(
     };
 
     let resolution = resolve_backlog(&repo_root)?;
-    let backlog_dir = resolution.backlog_dir;
-    let tasks = load_tasks(&backlog_dir);
+    let state_root = resolution.state_root;
+    let tasks_root = resolution.tasks_root;
+    let tasks = load_tasks(&state_root);
 
     let project_id = options
         .project_id
@@ -156,9 +164,9 @@ pub fn bootstrap_repo(
         .unwrap_or_else(|| resolve_project_id(&repo_root, &tasks, None));
 
     let mut context_seeded = false;
-    if load_context(&backlog_dir).ok().flatten().is_none() {
+    if load_context(&state_root).ok().flatten().is_none() {
         save_context(
-            &backlog_dir,
+            &state_root,
             ContextState {
                 version: 1,
                 project_id: Some(project_id.clone()),
@@ -179,7 +187,7 @@ pub fn bootstrap_repo(
         context_seeded = true;
     }
 
-    let context_state = load_context(&backlog_dir).ok().flatten();
+    let context_state = load_context(&state_root).ok().flatten();
     let next_task_ids = recommend_next_tasks_with_context(&tasks, context_state.as_ref())
         .into_iter()
         .take(10)
@@ -198,11 +206,12 @@ pub fn bootstrap_repo(
 
     Ok(BootstrapResult {
         repo_root: repo_root.clone(),
-        backlog_dir: backlog_dir.clone(),
+        state_root: state_root.clone(),
+        tasks_root: tasks_root.clone(),
         state,
         project_id,
         context_seeded,
-        context_path: context_path(&backlog_dir),
+        context_path: context_path(&state_root),
         quickstart: quickstart_result,
         migration_applied,
         migration_warnings,
@@ -305,7 +314,7 @@ Seed\n",
     }
 
     #[test]
-    fn bootstrap_legacy_repo_migrates_to_workmesh_layout() {
+    fn bootstrap_legacy_repo_migrates_to_split_layout() {
         let temp = TempDir::new().expect("tempdir");
         let backlog_tasks = temp.path().join("backlog").join("tasks");
         fs::create_dir_all(&backlog_tasks).expect("mkdir");
@@ -313,7 +322,8 @@ Seed\n",
 
         let result = bootstrap_repo(temp.path(), &BootstrapOptions::default()).expect("bootstrap");
         assert!(matches!(result.state, BootstrapState::LegacyRepo));
-        assert!(temp.path().join("workmesh").join("tasks").is_dir());
+        assert!(temp.path().join(".workmesh").is_dir());
+        assert!(temp.path().join("tasks").is_dir());
         assert!(!result.migration_applied.is_empty());
     }
 }

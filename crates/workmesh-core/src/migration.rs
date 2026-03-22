@@ -4,6 +4,8 @@ use std::path::{Path, PathBuf};
 use thiserror::Error;
 
 use crate::backlog::{BacklogLayout, BacklogResolution};
+use crate::project::write_repo_root_metadata;
+use crate::task::archive_root_for_root;
 
 #[derive(Debug, Error)]
 pub enum MigrationError {
@@ -21,6 +23,7 @@ pub enum MigrationError {
 pub struct MigrationResult {
     pub from: PathBuf,
     pub to: PathBuf,
+    pub tasks_to: PathBuf,
 }
 
 pub fn migrate_backlog(
@@ -28,16 +31,26 @@ pub fn migrate_backlog(
     target_root: &str,
 ) -> Result<MigrationResult, MigrationError> {
     let repo_root = &resolution.repo_root;
+    if resolution.layout == BacklogLayout::Split
+        && matches!(target_root, "split" | "default" | "tasks")
+    {
+        return Err(MigrationError::AlreadyMigrated(
+            resolution.state_root.clone(),
+        ));
+    }
     let target_dir = repo_root.join(target_root);
     if resolution.layout == BacklogLayout::Workmesh && target_root == "workmesh" {
         return Err(MigrationError::AlreadyMigrated(
-            resolution.backlog_dir.clone(),
+            resolution.state_root.clone(),
         ));
     }
     if resolution.layout == BacklogLayout::HiddenWorkmesh && target_root == ".workmesh" {
         return Err(MigrationError::AlreadyMigrated(
-            resolution.backlog_dir.clone(),
+            resolution.state_root.clone(),
         ));
+    }
+    if matches!(target_root, "split" | "default" | "tasks") {
+        return migrate_to_split(resolution);
     }
     if target_dir.exists() {
         return Err(MigrationError::DestinationExists(target_dir));
@@ -45,25 +58,88 @@ pub fn migrate_backlog(
 
     match resolution.layout {
         BacklogLayout::Backlog | BacklogLayout::Project => {
-            fs::rename(&resolution.backlog_dir, &target_dir)?;
+            fs::rename(&resolution.state_root, &target_dir)?;
         }
         BacklogLayout::RootTasks | BacklogLayout::TasksDir => {
             fs::create_dir_all(&target_dir)?;
-            let tasks_dir = resolution.backlog_dir.join("tasks");
+            let tasks_dir = resolution.tasks_root.clone();
             if tasks_dir.is_dir() {
                 fs::rename(&tasks_dir, target_dir.join("tasks"))?;
             }
-            move_if_exists(&resolution.backlog_dir, &target_dir, ".audit.log")?;
-            move_if_exists(&resolution.backlog_dir, &target_dir, ".index")?;
+            move_if_exists(&resolution.state_root, &target_dir, ".audit.log")?;
+            move_if_exists(&resolution.state_root, &target_dir, ".index")?;
         }
-        BacklogLayout::Workmesh | BacklogLayout::HiddenWorkmesh | BacklogLayout::Custom => {
+        BacklogLayout::Split
+        | BacklogLayout::Workmesh
+        | BacklogLayout::HiddenWorkmesh
+        | BacklogLayout::Custom => {
             return Err(MigrationError::UnsupportedLayout);
         }
     }
 
     Ok(MigrationResult {
-        from: resolution.backlog_dir.clone(),
+        from: resolution.state_root.clone(),
         to: target_dir,
+        tasks_to: repo_root.join(target_root).join("tasks"),
+    })
+}
+
+fn migrate_to_split(resolution: &BacklogResolution) -> Result<MigrationResult, MigrationError> {
+    let repo_root = &resolution.repo_root;
+    let target_state = repo_root.join(".workmesh");
+    let target_tasks = repo_root.join("tasks");
+    let target_state_conflicts = target_state.exists() && resolution.state_root != target_state;
+    let target_tasks_conflicts = target_tasks.exists() && resolution.tasks_root != target_tasks;
+    if target_state_conflicts || target_tasks_conflicts {
+        return Err(MigrationError::DestinationExists(if target_state.exists() {
+            target_state
+        } else {
+            target_tasks
+        }));
+    }
+
+    fs::create_dir_all(&target_state)?;
+    write_repo_root_metadata(&target_state, repo_root)?;
+    match resolution.layout {
+        BacklogLayout::Backlog
+        | BacklogLayout::Project
+        | BacklogLayout::Workmesh
+        | BacklogLayout::HiddenWorkmesh
+        | BacklogLayout::Custom
+        | BacklogLayout::RootTasks
+        | BacklogLayout::TasksDir => {
+            if resolution.tasks_root.is_dir() && resolution.tasks_root != target_tasks {
+                fs::rename(&resolution.tasks_root, &target_tasks)?;
+            }
+            if resolution.state_root != target_state {
+                move_if_exists(&resolution.state_root, &target_state, "context.json")?;
+                move_if_exists(&resolution.state_root, &target_state, ".audit.log")?;
+                move_if_exists(&resolution.state_root, &target_state, ".index")?;
+                move_if_exists(&resolution.state_root, &target_state, "truth")?;
+            }
+            let archive_root = archive_root_for_root(&resolution.state_root);
+            if archive_root.exists() {
+                fs::rename(&archive_root, repo_root.join("archive"))?;
+            }
+
+            let empty_legacy_root = resolution.state_root != *repo_root
+                && resolution.state_root != target_state
+                && resolution
+                    .state_root
+                    .read_dir()
+                    .map(|mut entries| entries.next().is_none())
+                    .unwrap_or(false);
+            if empty_legacy_root {
+                let _ = fs::remove_dir(&resolution.state_root);
+            }
+        }
+        BacklogLayout::Split => unreachable!("handled earlier"),
+    }
+
+    Ok(MigrationResult {
+        from: resolution.state_root.clone(),
+        to: target_state,
+        tasks_to: target_tasks,
     })
 }
 
@@ -151,6 +227,26 @@ mod tests {
         assert!(result.to.join(".audit.log").is_file());
         assert!(result.to.join(".index").is_dir());
         assert!(!tasks.exists());
+    }
+
+    #[test]
+    fn migrate_hidden_workmesh_single_root_to_split_moves_tasks_out() {
+        let temp = TempDir::new().expect("tempdir");
+        let state_root = temp.path().join(".workmesh");
+        fs::create_dir_all(state_root.join("tasks")).expect("tasks");
+        fs::write(state_root.join("tasks").join("task-001.md"), "---\nid: task-001\n---\n")
+            .expect("task");
+        fs::write(state_root.join("context.json"), "{}").expect("context");
+
+        let resolution = resolve_backlog(&state_root).expect("resolve");
+        assert_eq!(resolution.layout, BacklogLayout::HiddenWorkmesh);
+
+        let result = migrate_backlog(&resolution, "split").expect("migrate");
+        assert_eq!(result.to, temp.path().join(".workmesh"));
+        assert_eq!(result.tasks_to, temp.path().join("tasks"));
+        assert!(temp.path().join("tasks").join("task-001.md").is_file());
+        assert!(temp.path().join(".workmesh").join("context.json").is_file());
+        assert!(!temp.path().join(".workmesh").join("tasks").exists());
     }
 
     #[test]

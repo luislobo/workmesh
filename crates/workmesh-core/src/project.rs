@@ -3,6 +3,10 @@ use std::path::{Path, PathBuf};
 
 use thiserror::Error;
 
+use crate::config::find_config_root;
+
+const REPO_ROOT_MARKER: &str = ".repo-root";
+
 #[derive(Debug, Error)]
 pub enum ProjectError {
     #[error("Project id is required")]
@@ -13,16 +17,48 @@ pub enum ProjectError {
     Io(#[from] std::io::Error),
 }
 
-pub fn repo_root_from_backlog(backlog_dir: &Path) -> PathBuf {
-    let name = backlog_dir
+pub fn repo_root_from_state_root(state_root: &Path) -> PathBuf {
+    if let Some(repo_root) = find_config_root(state_root) {
+        return repo_root;
+    }
+    if let Some(repo_root) = read_repo_root_metadata(state_root) {
+        return repo_root;
+    }
+    let name = state_root
         .file_name()
         .and_then(|segment| segment.to_str())
         .unwrap_or("")
         .to_lowercase();
     if name == "backlog" || name == "project" || name == "workmesh" || name == ".workmesh" {
-        return backlog_dir.parent().unwrap_or(backlog_dir).to_path_buf();
+        return state_root.parent().unwrap_or(state_root).to_path_buf();
     }
-    backlog_dir.to_path_buf()
+    if name == "tasks" {
+        return state_root.parent().unwrap_or(state_root).to_path_buf();
+    }
+    state_root.to_path_buf()
+}
+
+pub fn repo_root_from_backlog(backlog_dir: &Path) -> PathBuf {
+    repo_root_from_state_root(backlog_dir)
+}
+
+pub fn repo_root_metadata_path(state_root: &Path) -> PathBuf {
+    state_root.join(REPO_ROOT_MARKER)
+}
+
+pub fn write_repo_root_metadata(state_root: &Path, repo_root: &Path) -> Result<(), std::io::Error> {
+    fs::create_dir_all(state_root)?;
+    fs::write(repo_root_metadata_path(state_root), repo_root.to_string_lossy().as_bytes())
+}
+
+pub fn read_repo_root_metadata(state_root: &Path) -> Option<PathBuf> {
+    let text = fs::read_to_string(repo_root_metadata_path(state_root)).ok()?;
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(PathBuf::from(trimmed))
+    }
 }
 
 pub fn project_docs_dir(repo_root: &Path, project_id: &str) -> PathBuf {
@@ -90,4 +126,20 @@ fn project_readme(project_id: &str, name: &str) -> String {
 
 fn section_readme(section: &str) -> String {
     format!("# {section}\n\n- Add entries here.\n", section = section)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::TempDir;
+
+    #[test]
+    fn repo_root_metadata_round_trip_is_used_for_external_state_roots() {
+        let repo = TempDir::new().expect("repo");
+        let state = TempDir::new().expect("state");
+
+        write_repo_root_metadata(state.path(), repo.path()).expect("write metadata");
+        assert_eq!(read_repo_root_metadata(state.path()).as_deref(), Some(repo.path()));
+        assert_eq!(repo_root_from_state_root(state.path()), repo.path().to_path_buf());
+    }
 }

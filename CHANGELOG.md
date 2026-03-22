@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.6] - 2026-03-22
+
+### Added
+- Explicit split-root configuration with `tasks_root` and `state_root` across config, CLI, and MCP bootstrap/quickstart flows.
+- Repo-root metadata persistence for external custom state roots so WorkMesh can recover the owning repository reliably.
+
+### Changed
+- New repositories now default to a split layout:
+  - `tasks/` for task files
+  - `.workmesh/` for repo-local state
+- Replaced the legacy single-root/backlog-centric storage model with explicit task-root and state-root resolution while keeping legacy layouts readable.
+- Updated migration behavior to normalize legacy single-root layouts into the split default instead of steering new setups toward `workmesh/tasks/`.
+
+### Fixed
+- Bootstrap and quickstart now honor configured custom roots even when they are not passed explicitly as command parameters.
+- `migrate --to split` now handles legacy `.workmesh/tasks` repositories correctly instead of rejecting them because `.workmesh/` already exists.
+- Repo-root recovery now remains correct when `state_root` is configured outside the repository tree.
+
+### Documentation
+- Updated the human and agent docs to describe `tasks/` plus `.workmesh/` as the default layout and to document the new root configuration options.
+
 ## [0.3.5] - 2026-03-22
 
 ### Changed
@@ -304,7 +325,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Gantt support and best-practices command.
   - Docs-first project model and initial PRDs.
 
-[Unreleased]: https://github.com/luislobo/workmesh/compare/v0.3.5...HEAD
+[Unreleased]: https://github.com/luislobo/workmesh/compare/v0.3.6...HEAD
+[0.3.6]: https://github.com/luislobo/workmesh/compare/v0.3.5...v0.3.6
 [0.3.5]: https://github.com/luislobo/workmesh/compare/v0.3.4...v0.3.5
 [0.3.4]: https://github.com/luislobo/workmesh/compare/v0.3.3...v0.3.4
 [0.3.3]: https://github.com/luislobo/workmesh/compare/v0.3.2...v0.3.3

@@ -6,6 +6,8 @@ use regex::Regex;
 use serde_yaml::Value;
 use thiserror::Error;
 
+use crate::backlog::resolve_tasks_dir;
+
 #[derive(Debug, Clone)]
 pub struct Task {
     pub id: String,
@@ -242,7 +244,7 @@ pub fn parse_task_file(path: &Path) -> Result<Task, TaskParseError> {
 }
 
 pub fn load_tasks(backlog_dir: &Path) -> Vec<Task> {
-    let tasks_dir = backlog_dir.join("tasks");
+    let tasks_dir = tasks_dir_for_root(backlog_dir);
     load_tasks_from_dir(&tasks_dir)
 }
 
@@ -252,11 +254,29 @@ pub fn load_tasks(backlog_dir: &Path) -> Vec<Task> {
 /// useful for listing historical Done work without unarchiving files.
 pub fn load_tasks_with_archive(backlog_dir: &Path) -> Vec<Task> {
     let mut tasks = load_tasks(backlog_dir);
-    let archive_root = backlog_dir.join("archive");
+    let archive_root = archive_root_for_root(backlog_dir);
     if archive_root.is_dir() {
         tasks.extend(load_tasks_from_dir_recursive(&archive_root));
     }
     tasks
+}
+
+pub fn tasks_dir_for_root(root: &Path) -> PathBuf {
+    resolve_tasks_dir(root).unwrap_or_else(|_| {
+        if root.file_name().map(|name| name == "tasks").unwrap_or(false) {
+            root.to_path_buf()
+        } else {
+            root.join("tasks")
+        }
+    })
+}
+
+pub fn archive_root_for_root(root: &Path) -> PathBuf {
+    let tasks_root = tasks_dir_for_root(root);
+    tasks_root
+        .parent()
+        .unwrap_or(tasks_root.as_path())
+        .join("archive")
 }
 
 fn load_tasks_from_dir(tasks_dir: &Path) -> Vec<Task> {

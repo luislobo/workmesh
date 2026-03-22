@@ -17,7 +17,12 @@ pub enum ConfigError {
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct WorkmeshConfig {
+    /// Deprecated single-root setting. Prefer `tasks_root` + `state_root`.
     pub root_dir: Option<String>,
+    /// Repo-relative or absolute path for task markdown files.
+    pub tasks_root: Option<String>,
+    /// Repo-relative or absolute path for repo-local WorkMesh state.
+    pub state_root: Option<String>,
     pub do_not_migrate: Option<bool>,
     /// Default behavior for promoting worktree-based parallel workflows.
     /// true = promote worktrees by default, false = suppress default worktree guidance.
@@ -212,6 +217,16 @@ pub fn update_do_not_migrate(
         .as_ref()
         .map(|value| !value.trim().is_empty())
         .unwrap_or(false)
+        || config
+            .tasks_root
+            .as_ref()
+            .map(|value| !value.trim().is_empty())
+            .unwrap_or(false)
+        || config
+            .state_root
+            .as_ref()
+            .map(|value| !value.trim().is_empty())
+            .unwrap_or(false)
         || config.worktrees_default.is_some()
         || config
             .worktrees_dir
@@ -293,6 +308,8 @@ mod tests {
         let temp = TempDir::new().expect("tempdir");
         let config = WorkmeshConfig {
             root_dir: Some("workmesh".to_string()),
+            tasks_root: None,
+            state_root: None,
             do_not_migrate: Some(true),
             worktrees_default: Some(true),
             worktrees_dir: None,
@@ -303,6 +320,8 @@ mod tests {
         write_config(temp.path(), &config).expect("write config");
         let loaded = load_config(temp.path()).expect("load config");
         assert_eq!(loaded.root_dir.as_deref(), Some("workmesh"));
+        assert_eq!(loaded.tasks_root, None);
+        assert_eq!(loaded.state_root, None);
         assert_eq!(loaded.do_not_migrate, Some(true));
         assert_eq!(loaded.worktrees_default, Some(true));
         assert_eq!(loaded.auto_session_default, Some(true));
@@ -313,6 +332,8 @@ mod tests {
         let temp = TempDir::new().expect("tempdir");
         let config = WorkmeshConfig {
             root_dir: None,
+            tasks_root: None,
+            state_root: None,
             do_not_migrate: Some(true),
             worktrees_default: None,
             worktrees_dir: None,
@@ -331,6 +352,8 @@ mod tests {
         let temp = TempDir::new().expect("tempdir");
         let config = WorkmeshConfig {
             root_dir: None,
+            tasks_root: None,
+            state_root: None,
             do_not_migrate: Some(true),
             worktrees_default: Some(false),
             worktrees_dir: None,

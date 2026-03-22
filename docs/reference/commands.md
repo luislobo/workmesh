@@ -32,9 +32,12 @@ Project config:
 - `.workmesh.toml` (preferred)
 
 Keys:
+- `tasks_root = "<path>"` (repo-relative or absolute; default for new repos: `tasks/`)
+- `state_root = "<path>"` (repo-relative or absolute; default for new repos: `.workmesh/`)
 - `worktrees_default = true|false`
 - `worktrees_dir = "<path>"` (absolute or repo-relative; used for auto-provisioned worktrees; default: `<repo_parent>/<repo_name>.worktrees/`)
 - `auto_session_default = true|false`
+- `root_dir = "<path>"` (deprecated single-root compatibility alias)
 
 Precedence:
 1. CLI flags
@@ -50,8 +53,8 @@ Environment overrides:
 ## Config
 CLI:
 - `config show [--json]`
-- `config set --scope project|global --key worktrees_default|worktrees_dir|auto_session_default|root_dir|do_not_migrate --value <value> [--json]`
-- `config unset --scope project|global --key worktrees_default|worktrees_dir|auto_session_default|root_dir|do_not_migrate [--json]`
+- `config set --scope project|global --key tasks_root|state_root|worktrees_default|worktrees_dir|auto_session_default|root_dir|do_not_migrate --value <value> [--json]`
+- `config unset --scope project|global --key tasks_root|state_root|worktrees_default|worktrees_dir|auto_session_default|root_dir|do_not_migrate [--json]`
 
 MCP:
 - `config_show`
@@ -64,8 +67,8 @@ CLI:
 - `tool-info <tool-name> [--json]`
 - `skill-content [--name <skill>] [--json]`
 - `project-management-skill [--name <skill>] [--json]`
-- `bootstrap [--project-id <id>] [--feature "..."] [--objective "..."] [--json]`
-- `quickstart <project-id> [--name "..."] [--feature "..."] [--agents-snippet]`
+- `bootstrap [--project-id <id>] [--feature "..."] [--objective "..."] [--tasks-root <path>] [--state-root <path>] [--json]`
+- `quickstart <project-id> [--name "..."] [--feature "..."] [--tasks-root <path>] [--state-root <path>] [--agents-snippet]`
 - `project-init <project-id> [--name "..."]`
 - `doctor [--fix-storage] [--json]`
 - `validate [--json]`
@@ -342,7 +345,7 @@ MCP mutation response contract:
 
 ## Migration actions
 `migrate audit|plan|apply` may produce the following action ids:
-- `layout_backlog_to_workmesh`
+- `layout_to_split`
 - `focus_to_context`
 - `task_section_normalization`
 - `truth_backfill`

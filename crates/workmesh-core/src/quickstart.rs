@@ -4,12 +4,12 @@ use std::path::{Path, PathBuf};
 use serde::Serialize;
 use thiserror::Error;
 
-use crate::config::resolve_worktrees_default_with_source;
+use crate::config::{load_config, resolve_worktrees_default_with_source};
 use crate::initiative::{
     best_effort_git_branch, ensure_branch_initiative_with_hint, initiative_key_from_hint,
     next_namespaced_task_id,
 };
-use crate::project::ensure_project_docs;
+use crate::project::{ensure_project_docs, write_repo_root_metadata};
 use crate::task::load_tasks;
 use crate::task_ops::create_task_file;
 
@@ -26,8 +26,8 @@ pub enum QuickstartError {
 #[derive(Debug, Serialize)]
 pub struct QuickstartResult {
     pub project_dir: PathBuf,
-    pub backlog_dir: PathBuf,
-    pub tasks_dir: PathBuf,
+    pub state_root: PathBuf,
+    pub tasks_root: PathBuf,
     pub created_task: Option<PathBuf>,
     pub agents_snippet_written: bool,
     pub worktrees_default: bool,
@@ -35,24 +35,46 @@ pub struct QuickstartResult {
     pub worktree_hint: Option<String>,
 }
 
+#[derive(Debug, Clone, Default)]
+pub struct QuickstartOptions {
+    pub agents_snippet: bool,
+    pub tasks_root: Option<String>,
+    pub state_root: Option<String>,
+}
+
 pub fn quickstart(
     repo_root: &Path,
     project_id: &str,
     name: Option<&str>,
     initiative_hint: Option<&str>,
-    agents_snippet: bool,
+    options: &QuickstartOptions,
 ) -> Result<QuickstartResult, QuickstartError> {
-    let backlog_dir = repo_root.join("workmesh");
-    let tasks_dir = backlog_dir.join("tasks");
-    fs::create_dir_all(&tasks_dir)?;
+    let config = load_config(repo_root);
+    let tasks_root = resolve_scaffold_root(
+        repo_root,
+        options.tasks_root.as_deref(),
+        config.as_ref().and_then(|cfg| cfg.tasks_root.as_deref()),
+        config.as_ref().and_then(|cfg| cfg.root_dir.as_deref()),
+        "tasks",
+    );
+    let state_root = resolve_scaffold_root(
+        repo_root,
+        options.state_root.as_deref(),
+        config.as_ref().and_then(|cfg| cfg.state_root.as_deref()),
+        config.as_ref().and_then(|cfg| cfg.root_dir.as_deref()),
+        ".workmesh",
+    );
+    fs::create_dir_all(&tasks_root)?;
+    fs::create_dir_all(&state_root)?;
+    write_repo_root_metadata(&state_root, repo_root)?;
 
     let project_dir = ensure_project_docs(repo_root, project_id, name)?;
-    let tasks = load_tasks(&backlog_dir);
+    let tasks = load_tasks(&state_root);
     let hint = initiative_hint.or(name).unwrap_or(project_id);
     let seed_task_id = resolve_seed_task_id(repo_root, &tasks, hint);
-    let created_task = create_sample_task_if_missing(&tasks_dir, &seed_task_id)?;
-    let agents_snippet_written = if agents_snippet {
-        write_agents_snippet(repo_root)?
+    let created_task = create_sample_task_if_missing(&tasks_root, &seed_task_id)?;
+    let agents_snippet_written = if options.agents_snippet {
+        write_agents_snippet(repo_root, &tasks_root, &state_root)?
     } else {
         false
     };
@@ -66,14 +88,56 @@ pub fn quickstart(
 
     Ok(QuickstartResult {
         project_dir,
-        backlog_dir,
-        tasks_dir,
+        state_root,
+        tasks_root,
         created_task,
         agents_snippet_written,
         worktrees_default,
         worktrees_default_source: worktrees_default_source.to_string(),
         worktree_hint,
     })
+}
+
+fn resolve_scaffold_root(
+    repo_root: &Path,
+    configured: Option<&str>,
+    config_value: Option<&str>,
+    legacy_root_dir: Option<&str>,
+    default_name: &str,
+) -> PathBuf {
+    let selected = configured
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToString::to_string)
+        .or_else(|| {
+            config_value
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(ToString::to_string)
+        })
+        .or_else(|| {
+            let legacy = legacy_root_dir?.trim();
+            if legacy.is_empty() {
+                return None;
+            }
+            if default_name == "tasks" {
+                Some(format!("{legacy}/tasks"))
+            } else {
+                Some(legacy.to_string())
+            }
+        });
+    selected
+        .as_deref()
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
+        .map(|path| {
+            if path.is_absolute() {
+                path
+            } else {
+                repo_root.join(path)
+            }
+        })
+        .unwrap_or_else(|| repo_root.join(default_name))
 }
 
 fn resolve_seed_task_id(repo_root: &Path, tasks: &[crate::task::Task], hint: &str) -> String {
@@ -118,9 +182,13 @@ fn create_sample_task_if_missing(
     Ok(Some(path))
 }
 
-fn write_agents_snippet(repo_root: &Path) -> Result<bool, QuickstartError> {
+fn write_agents_snippet(
+    repo_root: &Path,
+    tasks_root: &Path,
+    state_root: &Path,
+) -> Result<bool, QuickstartError> {
     let path = repo_root.join("AGENTS.md");
-    let snippet = agents_snippet();
+    let snippet = agents_snippet(repo_root, tasks_root, state_root);
     if path.exists() {
         let content = fs::read_to_string(&path)?;
         if content.contains(snippet_marker()) {
@@ -130,7 +198,7 @@ fn write_agents_snippet(repo_root: &Path) -> Result<bool, QuickstartError> {
         if !updated.ends_with('\n') {
             updated.push('\n');
         }
-        updated.push_str(snippet);
+        updated.push_str(&snippet);
         fs::write(&path, updated)?;
         return Ok(true);
     }
@@ -142,8 +210,20 @@ fn snippet_marker() -> &'static str {
     "WorkMesh Quickstart"
 }
 
-fn agents_snippet() -> &'static str {
-    "# WorkMesh Quickstart\n\n- Tasks live in `workmesh/tasks/`.\n- Run `workmesh --root . next` to find the next task.\n- Run `workmesh --root . ready --json` for ready work.\n- Derived files (`workmesh/.index/`, `workmesh/.audit.log`) should not be committed.\n"
+fn agents_snippet(repo_root: &Path, tasks_root: &Path, state_root: &Path) -> String {
+    let tasks = relative_display(repo_root, tasks_root);
+    let state = relative_display(repo_root, state_root);
+    format!(
+        "# WorkMesh Quickstart\n\n- Tasks live in `{tasks}`.\n- Run `workmesh --root . next` to find the next task.\n- Run `workmesh --root . ready --json` for ready work.\n- Derived files (`{state}/.index/`, `{state}/.audit.log`) should not be committed.\n"
+    )
+}
+
+fn relative_display(repo_root: &Path, path: &Path) -> String {
+    path.strip_prefix(repo_root)
+        .ok()
+        .map(|value| value.to_string_lossy().trim_start_matches('/').to_string())
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| path.to_string_lossy().to_string())
 }
 
 fn default_worktree_hint(project_id: &str) -> String {
@@ -191,20 +271,44 @@ mod tests {
         let repo = temp.path();
 
         // When missing, it writes a new file.
-        assert!(write_agents_snippet(repo).expect("write"));
+        assert!(write_agents_snippet(repo, &repo.join("tasks"), &repo.join(".workmesh")).expect("write"));
         let content = fs::read_to_string(repo.join("AGENTS.md")).expect("read");
         assert!(content.contains(snippet_marker()));
 
         // When marker already present, it does not modify.
-        assert!(!write_agents_snippet(repo).expect("idempotent"));
+        assert!(!write_agents_snippet(repo, &repo.join("tasks"), &repo.join(".workmesh")).expect("idempotent"));
 
         // When file exists without marker, it appends.
         let temp2 = TempDir::new().expect("tempdir");
         let repo2 = temp2.path();
         fs::write(repo2.join("AGENTS.md"), "existing\n").expect("write");
-        assert!(write_agents_snippet(repo2).expect("append"));
+        assert!(write_agents_snippet(repo2, &repo2.join("tasks"), &repo2.join(".workmesh")).expect("append"));
         let content2 = fs::read_to_string(repo2.join("AGENTS.md")).expect("read");
         assert!(content2.starts_with("existing\n"));
         assert!(content2.contains(snippet_marker()));
+    }
+
+    #[test]
+    fn quickstart_uses_configured_roots_when_options_omit_them() {
+        let temp = TempDir::new().expect("tempdir");
+        fs::write(
+            temp.path().join(".workmesh.toml"),
+            "tasks_root = \"planning/tasks\"\nstate_root = \"planning/state\"\n",
+        )
+        .expect("config");
+
+        let result = quickstart(
+            temp.path(),
+            "demo",
+            None,
+            None,
+            &QuickstartOptions::default(),
+        )
+        .expect("quickstart");
+
+        assert_eq!(result.tasks_root, temp.path().join("planning").join("tasks"));
+        assert_eq!(result.state_root, temp.path().join("planning").join("state"));
+        assert!(result.tasks_root.is_dir());
+        assert!(result.state_root.is_dir());
     }
 }

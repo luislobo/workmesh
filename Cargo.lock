@@ -2867,7 +2867,7 @@ dependencies = [
 
 [[package]]
 name = "workmesh"
-version = "0.3.5"
+version = "0.3.6"
 dependencies = [
  "anyhow",
  "chrono",
@@ -2883,7 +2883,7 @@ dependencies = [
 
 [[package]]
 name = "workmesh-core"
-version = "0.3.5"
+version = "0.3.6"
 dependencies = [
  "anyhow",
  "chrono",
@@ -2904,7 +2904,7 @@ dependencies = [
 
 [[package]]
 name = "workmesh-mcp"
-version = "0.3.5"
+version = "0.3.6"
 dependencies = [
  "async-trait",
  "chrono",
@@ -2920,7 +2920,7 @@ dependencies = [
 
 [[package]]
 name = "workmesh-mcp-server"
-version = "0.3.5"
+version = "0.3.6"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2937,7 +2937,7 @@ dependencies = [
 
 [[package]]
 name = "workmesh-render"
-version = "0.3.5"
+version = "0.3.6"
 dependencies = [
  "chrono",
  "csv",
@@ -2948,7 +2948,7 @@ dependencies = [
 
 [[package]]
 name = "workmesh-tools"
-version = "0.3.5"
+version = "0.3.6"
 dependencies = [
  "pretty_assertions",
  "serde",

@@ -22,9 +22,9 @@ It is not built to be:
 ## 2. How State Is Stored
 
 WorkMesh keeps operational state close to the repo:
-- `workmesh/tasks/`: Markdown task files
-- `workmesh/context.json`: repo-local working scope
-- `workmesh/truth/`: durable decisions
+- `tasks/`: Markdown task files
+- `.workmesh/context.json`: repo-local working scope
+- `.workmesh/truth/`: durable decisions
 - `docs/projects/<project-id>/`: PRDs, decisions, updates
 
 Global continuity lives under `~/.workmesh/`:
@@ -106,7 +106,13 @@ Expected behavior:
 
 ### Tasks
 
-Task files live under `workmesh/tasks/` or `.workmesh/tasks/`.
+Task files live under `tasks/` by default.
+
+Legacy layouts remain readable:
+- `workmesh/tasks/`
+- `.workmesh/tasks/`
+- `backlog/tasks/`
+- `project/tasks/`
 
 Required task sections:
 - `Description`
@@ -117,7 +123,7 @@ Required task sections:
 
 ### Context
 
-`workmesh/context.json` stores the current repo-local scope:
+`.workmesh/context.json` stores the current repo-local scope:
 - project
 - epic
 - objective
@@ -126,7 +132,7 @@ Required task sections:
 
 ### Truth Ledger
 
-Truth records live under `workmesh/truth/`.
+Truth records live under `.workmesh/truth/`.
 
 Use them for decisions that must survive:
 - restarts

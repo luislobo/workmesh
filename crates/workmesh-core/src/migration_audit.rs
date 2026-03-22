@@ -37,7 +37,7 @@ pub enum MigrationAuditError {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum MigrationActionKind {
-    LayoutBacklogToWorkmesh,
+    LayoutToSplit,
     FocusToContext,
     TaskSectionNormalization,
     TruthBackfill,
@@ -48,7 +48,7 @@ pub enum MigrationActionKind {
 impl MigrationActionKind {
     pub fn as_str(self) -> &'static str {
         match self {
-            Self::LayoutBacklogToWorkmesh => "layout_backlog_to_workmesh",
+            Self::LayoutToSplit => "layout_to_split",
             Self::FocusToContext => "focus_to_context",
             Self::TaskSectionNormalization => "task_section_normalization",
             Self::TruthBackfill => "truth_backfill",
@@ -59,7 +59,7 @@ impl MigrationActionKind {
 
     fn from_str(value: &str) -> Option<Self> {
         match value.trim().to_lowercase().as_str() {
-            "layout_backlog_to_workmesh" => Some(Self::LayoutBacklogToWorkmesh),
+            "layout_to_split" | "layout_backlog_to_workmesh" => Some(Self::LayoutToSplit),
             "focus_to_context" => Some(Self::FocusToContext),
             "task_section_normalization" => Some(Self::TaskSectionNormalization),
             "truth_backfill" => Some(Self::TruthBackfill),
@@ -141,6 +141,7 @@ pub struct MigrationApplyResult {
 
 pub fn layout_name(layout: BacklogLayout) -> &'static str {
     match layout {
+        BacklogLayout::Split => "split",
         BacklogLayout::Workmesh => "workmesh",
         BacklogLayout::HiddenWorkmesh => ".workmesh",
         BacklogLayout::Backlog => "backlog",
@@ -162,16 +163,17 @@ pub fn audit_deprecations(root: &Path) -> Result<MigrationAuditReport, Migration
             severity: "required".to_string(),
             details: serde_json::json!({
                 "layout": layout_name(resolution.layout),
-                "from": resolution.backlog_dir,
-                "target": resolution.repo_root.join("workmesh"),
+                "from": resolution.state_root,
+                "target_state_root": resolution.repo_root.join(".workmesh"),
+                "target_tasks_root": resolution.repo_root.join("tasks"),
             }),
-            suggested_action: Some(MigrationActionKind::LayoutBacklogToWorkmesh.as_str().into()),
+            suggested_action: Some(MigrationActionKind::LayoutToSplit.as_str().into()),
         });
     }
 
-    let legacy_focus_path = focus_path(&resolution.backlog_dir);
+    let legacy_focus_path = focus_path(&resolution.state_root);
     let has_legacy_focus = legacy_focus_path.exists();
-    let has_context = context_path(&resolution.backlog_dir).exists();
+    let has_context = context_path(&resolution.state_root).exists();
     if has_legacy_focus {
         findings.push(MigrationFinding {
             id: "legacy_focus".to_string(),
@@ -179,7 +181,7 @@ pub fn audit_deprecations(root: &Path) -> Result<MigrationAuditReport, Migration
             severity: "required".to_string(),
             details: serde_json::json!({
                 "path": legacy_focus_path,
-                "replacement": context_path(&resolution.backlog_dir),
+                "replacement": context_path(&resolution.state_root),
             }),
             suggested_action: Some(MigrationActionKind::FocusToContext.as_str().into()),
         });
@@ -189,7 +191,8 @@ pub fn audit_deprecations(root: &Path) -> Result<MigrationAuditReport, Migration
             title: "No context.json found".to_string(),
             severity: "recommended".to_string(),
             details: serde_json::json!({
-                "path": context_path(&resolution.backlog_dir),
+                "path": context_path(&resolution.state_root),
+                "state_root": resolution.state_root.to_string_lossy().to_string(),
             }),
             suggested_action: Some(MigrationActionKind::FocusToContext.as_str().into()),
         });
@@ -209,7 +212,7 @@ pub fn audit_deprecations(root: &Path) -> Result<MigrationAuditReport, Migration
         }
     }
 
-    if let Ok(truth_audit) = truth_migration_audit(&resolution.backlog_dir) {
+    if let Ok(truth_audit) = truth_migration_audit(&resolution.state_root) {
         if !truth_audit.candidates.is_empty() {
             findings.push(MigrationFinding {
                 id: "legacy_truth_candidates".to_string(),
@@ -223,7 +226,7 @@ pub fn audit_deprecations(root: &Path) -> Result<MigrationAuditReport, Migration
         }
     }
 
-    let tasks = load_tasks(&resolution.backlog_dir);
+    let tasks = load_tasks(&resolution.state_root);
     let mut section_candidates = Vec::new();
     for task in tasks {
         let quality = evaluate_task_quality(&task);
@@ -276,7 +279,7 @@ pub fn audit_deprecations(root: &Path) -> Result<MigrationAuditReport, Migration
 
     Ok(MigrationAuditReport {
         repo_root: resolution.repo_root.to_string_lossy().to_string(),
-        backlog_dir: resolution.backlog_dir.to_string_lossy().to_string(),
+        backlog_dir: resolution.state_root.to_string_lossy().to_string(),
         layout: layout_name(resolution.layout).to_string(),
         findings,
     })
@@ -311,7 +314,7 @@ pub fn plan_migrations(
     }
 
     let order = [
-        MigrationActionKind::LayoutBacklogToWorkmesh,
+        MigrationActionKind::LayoutToSplit,
         MigrationActionKind::FocusToContext,
         MigrationActionKind::TaskSectionNormalization,
         MigrationActionKind::TruthBackfill,
@@ -334,7 +337,7 @@ pub fn plan_migrations(
         }
         let required = matches!(
             action,
-            MigrationActionKind::LayoutBacklogToWorkmesh | MigrationActionKind::FocusToContext
+            MigrationActionKind::LayoutToSplit | MigrationActionKind::FocusToContext
         );
         steps.push(MigrationPlanStep {
             action: action.as_str().to_string(),
@@ -352,7 +355,7 @@ pub fn plan_migrations(
 
 fn reason_for_action(action: MigrationActionKind) -> &'static str {
     match action {
-        MigrationActionKind::LayoutBacklogToWorkmesh => "normalize legacy backlog layout",
+        MigrationActionKind::LayoutToSplit => "normalize repo layout to tasks/ + .workmesh/",
         MigrationActionKind::FocusToContext => {
             "replace deprecated focus orchestration with context.json"
         }
@@ -390,13 +393,13 @@ pub fn apply_migration_plan(
             continue;
         };
         match kind {
-            MigrationActionKind::LayoutBacklogToWorkmesh => {
+            MigrationActionKind::LayoutToSplit => {
                 if opts.dry_run {
                     result.applied.push(format!("{} (dry-run)", kind.as_str()));
                 } else {
                     let resolution = resolve_backlog(root)?;
                     if resolution.layout.is_legacy() {
-                        let _ = migrate_backlog(&resolution, "workmesh")?;
+                        let _ = migrate_backlog(&resolution, "split")?;
                     }
                     result.applied.push(kind.as_str().to_string());
                 }
@@ -415,7 +418,7 @@ pub fn apply_migration_plan(
                     result.applied.push(format!("{} (dry-run)", kind.as_str()));
                 } else {
                     let res = resolve_backlog(root)?;
-                    let tasks = load_tasks(&res.backlog_dir);
+                    let tasks = load_tasks(&res.state_root);
                     let mut changed = Vec::new();
                     for task in tasks {
                         let quality = evaluate_task_quality(&task);
@@ -452,10 +455,10 @@ pub fn apply_migration_plan(
                 } else {
                     let res = resolve_backlog(root)?;
                     let audit =
-                        truth_migration_audit(&res.backlog_dir).map_err(std::io::Error::other)?;
-                    let plan = truth_migration_plan(&res.backlog_dir, &audit)
+                        truth_migration_audit(&res.state_root).map_err(std::io::Error::other)?;
+                    let plan = truth_migration_plan(&res.state_root, &audit)
                         .map_err(std::io::Error::other)?;
-                    let migration = apply_truth_migration(&res.backlog_dir, &plan, false)
+                    let migration = apply_truth_migration(&res.state_root, &plan, false)
                         .map_err(std::io::Error::other)?;
                     if migration.created_ids.is_empty() {
                         result
@@ -491,9 +494,9 @@ fn apply_focus_to_context(
     opts: &MigrationApplyOptions,
     result: &mut MigrationApplyResult,
 ) -> Result<(), MigrationAuditError> {
-    let focus_file = focus_path(&resolution.backlog_dir);
+    let focus_file = focus_path(&resolution.state_root);
     let has_focus = focus_file.exists();
-    let existing_context = load_context(&resolution.backlog_dir)?;
+    let existing_context = load_context(&resolution.state_root)?;
     if existing_context.is_some() && !has_focus {
         result
             .skipped
@@ -503,7 +506,7 @@ fn apply_focus_to_context(
 
     if has_focus && opts.backup {
         let backup_dir = resolution
-            .backlog_dir
+            .state_root
             .join("migrations")
             .join(now_compact_timestamp());
         fs::create_dir_all(&backup_dir)?;
@@ -515,7 +518,7 @@ fn apply_focus_to_context(
     }
 
     let context = if has_focus {
-        let legacy = load_focus(&resolution.backlog_dir)?;
+        let legacy = load_focus(&resolution.state_root)?;
         if let Some(state) = legacy {
             context_from_legacy_focus(
                 state.project_id,
@@ -529,7 +532,7 @@ fn apply_focus_to_context(
     } else {
         context_from_legacy_focus(None, None, None, Vec::new())
     };
-    let _ = save_context(&resolution.backlog_dir, context)?;
+    let _ = save_context(&resolution.state_root, context)?;
     if has_focus {
         fs::remove_file(&focus_file)?;
     }

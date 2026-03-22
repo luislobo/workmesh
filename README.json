@@ -16,9 +16,9 @@
   },
   "storage": {
     "repo_local": [
-      "workmesh/tasks/",
-      "workmesh/context.json",
-      "workmesh/truth/",
+      "tasks/",
+      ".workmesh/context.json",
+      ".workmesh/truth/",
       "docs/projects/<project-id>/"
     ],
     "global": [

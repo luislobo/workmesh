@@ -22,7 +22,7 @@ component "workmesh-tools\nshared tool contract" as TOOLS
 component "workmesh-core\ndomain + storage logic" as CORE
 component "workmesh-render\nrender providers" as RENDER
 
-database "Repo-local state\nworkmesh/tasks\nworkmesh/context.json\nworkmesh/truth/" as REPO
+database "Repo-local state\ntasks/\n.workmesh/context.json\n.workmesh/truth/" as REPO
 database "Global state\n~/.workmesh/sessions\n~/.workmesh/worktrees" as GLOBAL
 
 User --> CLI : local commands
