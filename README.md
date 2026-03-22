@@ -34,6 +34,16 @@ command = "/usr/local/bin/workmesh-mcp"
 args = []
 ```
 
+## Skills
+
+Canonical WorkMesh skills live under `skills/`.
+
+Installed agent paths follow the shared Agent Skills layout:
+- project scope: `.agents/skills/` for Codex and Cursor, `.claude/skills/` for Claude
+- user scope: `~/.codex/skills/`, `~/.cursor/skills/`, and `~/.claude/skills/`
+
+Each skill is self-contained and includes its referenced doctrine files inside its own skill root.
+
 ## Documentation
 
 Primary documentation:

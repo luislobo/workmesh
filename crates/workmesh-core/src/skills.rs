@@ -49,18 +49,78 @@ pub enum SkillAgent {
 const WORKMESH_SKILL_ID: &str = "workmesh";
 const WORKMESH_CLI_SKILL_ID: &str = "workmesh-cli";
 const WORKMESH_MCP_SKILL_ID: &str = "workmesh-mcp";
+
+#[derive(Debug, Copy, Clone)]
+struct EmbeddedSkillFile {
+    relative_path: &'static str,
+    content: &'static str,
+}
+
+#[derive(Debug, Copy, Clone)]
+struct EmbeddedSkill {
+    name: &'static str,
+    id: &'static str,
+    markdown: &'static str,
+    files: &'static [EmbeddedSkillFile],
+}
+
 const WORKMESH_SKILL_MARKDOWN: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/../../skills/workmesh/SKILL.md"
+));
+const WORKMESH_SKILL_OPERATING_MODEL: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../skills/workmesh/references/OPERATING_MODEL.md"
 ));
 const WORKMESH_CLI_SKILL_MARKDOWN: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/../../skills/workmesh-cli/SKILL.md"
 ));
+const WORKMESH_CLI_SKILL_OPERATING_MODEL: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../skills/workmesh-cli/references/OPERATING_MODEL.md"
+));
 const WORKMESH_MCP_SKILL_MARKDOWN: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/../../skills/workmesh-mcp/SKILL.md"
 ));
+const WORKMESH_MCP_SKILL_OPERATING_MODEL: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../skills/workmesh-mcp/references/OPERATING_MODEL.md"
+));
+
+const WORKMESH_SKILL_FILES: &[EmbeddedSkillFile] = &[
+    EmbeddedSkillFile {
+        relative_path: "SKILL.md",
+        content: WORKMESH_SKILL_MARKDOWN,
+    },
+    EmbeddedSkillFile {
+        relative_path: "references/OPERATING_MODEL.md",
+        content: WORKMESH_SKILL_OPERATING_MODEL,
+    },
+];
+
+const WORKMESH_CLI_SKILL_FILES: &[EmbeddedSkillFile] = &[
+    EmbeddedSkillFile {
+        relative_path: "SKILL.md",
+        content: WORKMESH_CLI_SKILL_MARKDOWN,
+    },
+    EmbeddedSkillFile {
+        relative_path: "references/OPERATING_MODEL.md",
+        content: WORKMESH_CLI_SKILL_OPERATING_MODEL,
+    },
+];
+
+const WORKMESH_MCP_SKILL_FILES: &[EmbeddedSkillFile] = &[
+    EmbeddedSkillFile {
+        relative_path: "SKILL.md",
+        content: WORKMESH_MCP_SKILL_MARKDOWN,
+    },
+    EmbeddedSkillFile {
+        relative_path: "references/OPERATING_MODEL.md",
+        content: WORKMESH_MCP_SKILL_OPERATING_MODEL,
+    },
+];
 
 pub fn embedded_skill_ids() -> Vec<&'static str> {
     vec![
@@ -84,46 +144,61 @@ pub fn load_skill_content(repo_root: Option<&Path>, name: &str) -> Option<SkillC
 }
 
 fn embedded_skill_content(name: &str) -> Option<SkillContent> {
+    let skill = embedded_skill(name)?;
+    Some(SkillContent {
+        name: skill.name.to_string(),
+        source: SkillSource::Embedded {
+            id: skill.id.to_string(),
+        },
+        content: skill.markdown.to_string(),
+    })
+}
+
+fn embedded_skill(name: &str) -> Option<EmbeddedSkill> {
     if name.eq_ignore_ascii_case(WORKMESH_SKILL_ID) {
-        return Some(SkillContent {
-            name: WORKMESH_SKILL_ID.to_string(),
-            source: SkillSource::Embedded {
-                id: "skills/workmesh/SKILL.md".to_string(),
-            },
-            content: WORKMESH_SKILL_MARKDOWN.to_string(),
+        return Some(EmbeddedSkill {
+            name: WORKMESH_SKILL_ID,
+            id: "skills/workmesh/SKILL.md",
+            markdown: WORKMESH_SKILL_MARKDOWN,
+            files: WORKMESH_SKILL_FILES,
         });
     }
     if name.eq_ignore_ascii_case(WORKMESH_CLI_SKILL_ID) {
-        return Some(SkillContent {
-            name: WORKMESH_CLI_SKILL_ID.to_string(),
-            source: SkillSource::Embedded {
-                id: "skills/workmesh-cli/SKILL.md".to_string(),
-            },
-            content: WORKMESH_CLI_SKILL_MARKDOWN.to_string(),
+        return Some(EmbeddedSkill {
+            name: WORKMESH_CLI_SKILL_ID,
+            id: "skills/workmesh-cli/SKILL.md",
+            markdown: WORKMESH_CLI_SKILL_MARKDOWN,
+            files: WORKMESH_CLI_SKILL_FILES,
         });
     }
     if name.eq_ignore_ascii_case(WORKMESH_MCP_SKILL_ID) {
-        return Some(SkillContent {
-            name: WORKMESH_MCP_SKILL_ID.to_string(),
-            source: SkillSource::Embedded {
-                id: "skills/workmesh-mcp/SKILL.md".to_string(),
-            },
-            content: WORKMESH_MCP_SKILL_MARKDOWN.to_string(),
+        return Some(EmbeddedSkill {
+            name: WORKMESH_MCP_SKILL_ID,
+            id: "skills/workmesh-mcp/SKILL.md",
+            markdown: WORKMESH_MCP_SKILL_MARKDOWN,
+            files: WORKMESH_MCP_SKILL_FILES,
         });
     }
     None
 }
 
 fn find_skill_content_on_disk(repo_root: &Path, name: &str) -> Option<SkillContent> {
-    // Prefer agent-standard locations first (project-level), then fall back to `skills/` at repo root.
+    // Prefer agent-standard locations first (project-level), then fall back to `skills/` at repo
+    // root. Legacy `.codex/skills` and `.cursor/skills` remain as read-only fallbacks for older
+    // repos.
     let candidates = [
         repo_root
-            .join(".codex")
+            .join(".agents")
             .join("skills")
             .join(name)
             .join("SKILL.md"),
         repo_root
             .join(".claude")
+            .join("skills")
+            .join(name)
+            .join("SKILL.md"),
+        repo_root
+            .join(".codex")
             .join("skills")
             .join(name)
             .join("SKILL.md"),
@@ -165,22 +240,25 @@ pub fn install_embedded_skill_report(
     name: &str,
     force: bool,
 ) -> Result<SkillInstallReport> {
-    let skill = embedded_skill_content(name)
+    let skill = embedded_skill(name)
         .ok_or_else(|| anyhow!("No embedded skill found with name: {}", name))?;
 
     let targets = install_targets(repo_root, scope, agent)?;
     let mut report = SkillInstallReport::default();
     for dir in targets {
-        let path = dir.join(&skill.name).join("SKILL.md");
-        if path.exists() && !force {
-            report.skipped.push(path);
-            continue;
+        let skill_root = dir.join(skill.name);
+        for file in skill.files {
+            let path = skill_root.join(file.relative_path);
+            if path.exists() && !force {
+                report.skipped.push(path);
+                continue;
+            }
+            if let Some(parent) = path.parent() {
+                fs::create_dir_all(parent)?;
+            }
+            fs::write(&path, file.content)?;
+            report.written.push(path);
         }
-        if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent)?;
-        }
-        fs::write(&path, &skill.content)?;
-        report.written.push(path);
     }
     Ok(report)
 }
@@ -246,24 +324,23 @@ pub fn uninstall_embedded_skill_report(
     agent: SkillAgent,
     name: &str,
 ) -> Result<SkillUninstallReport> {
-    let skill = embedded_skill_content(name)
+    let skill = embedded_skill(name)
         .ok_or_else(|| anyhow!("No embedded skill found with name: {}", name))?;
 
     let targets = install_targets(repo_root, scope, agent)?;
     let mut report = SkillUninstallReport::default();
     for dir in targets {
-        let path = dir.join(&skill.name).join("SKILL.md");
-        if path.exists() {
-            fs::remove_file(&path)?;
-            if let Some(skill_dir) = path.parent() {
-                if skill_dir.read_dir()?.next().is_none() {
-                    let _ = fs::remove_dir(skill_dir);
-                }
+        let skill_root = dir.join(skill.name);
+        for file in skill.files {
+            let path = skill_root.join(file.relative_path);
+            if path.exists() {
+                fs::remove_file(&path)?;
+                report.removed.push(path);
+            } else {
+                report.missing.push(path);
             }
-            report.removed.push(path);
-        } else {
-            report.missing.push(path);
         }
+        cleanup_empty_skill_dirs(&skill_root);
     }
     Ok(report)
 }
@@ -307,13 +384,19 @@ fn install_targets(
             let home = home_dir()
                 .ok_or_else(|| anyhow!("Unable to resolve home dir; set HOME/USERPROFILE"))?;
             for a in agents {
-                roots.push(user_skill_root(&home, a));
+                let root = user_skill_root(&home, a);
+                if !roots.contains(&root) {
+                    roots.push(root);
+                }
             }
         }
         SkillScope::Project => {
             let root = repo_root.ok_or_else(|| anyhow!("Project scope requires a repo root"))?;
             for a in agents {
-                roots.push(project_skill_root(root, a));
+                let project_root = project_skill_root(root, a);
+                if !roots.contains(&project_root) {
+                    roots.push(project_root);
+                }
             }
         }
     }
@@ -331,11 +414,29 @@ fn user_skill_root(home: &Path, agent: SkillAgent) -> PathBuf {
 
 fn project_skill_root(repo_root: &Path, agent: SkillAgent) -> PathBuf {
     match agent {
-        SkillAgent::Codex => repo_root.join(".codex").join("skills"),
+        SkillAgent::Codex => repo_root.join(".agents").join("skills"),
         SkillAgent::Claude => repo_root.join(".claude").join("skills"),
-        SkillAgent::Cursor => repo_root.join(".cursor").join("skills"),
-        SkillAgent::All => repo_root.join(".codex").join("skills"),
+        SkillAgent::Cursor => repo_root.join(".agents").join("skills"),
+        SkillAgent::All => repo_root.join(".agents").join("skills"),
     }
+}
+
+fn cleanup_empty_skill_dirs(skill_root: &Path) {
+    let references_dir = skill_root.join("references");
+    if is_empty_dir(&references_dir) {
+        let _ = fs::remove_dir(&references_dir);
+    }
+    if is_empty_dir(skill_root) {
+        let _ = fs::remove_dir(skill_root);
+    }
+}
+
+fn is_empty_dir(path: &Path) -> bool {
+    path.is_dir()
+        && path
+            .read_dir()
+            .map(|mut entries| entries.next().is_none())
+            .unwrap_or(false)
 }
 
 fn home_dir() -> Option<PathBuf> {
@@ -432,7 +533,7 @@ mod tests {
         let temp = TempDir::new().expect("tempdir");
         let repo = temp.path();
         let path = repo
-            .join(".codex")
+            .join(".agents")
             .join("skills")
             .join("workmesh")
             .join("SKILL.md");
@@ -455,13 +556,23 @@ mod tests {
             let written =
                 install_embedded_skill(None, SkillScope::User, SkillAgent::Codex, "workmesh", true)
                     .expect("install");
-            assert_eq!(written.len(), 1);
+            assert_eq!(written.len(), 2);
             let suffix = Path::new(".codex")
                 .join("skills")
                 .join("workmesh")
                 .join("SKILL.md");
-            assert!(written[0].ends_with(&suffix));
-            assert!(fs::read_to_string(&written[0])
+            let reference_suffix = Path::new(".codex")
+                .join("skills")
+                .join("workmesh")
+                .join("references")
+                .join("OPERATING_MODEL.md");
+            assert!(written.iter().any(|path| path.ends_with(&suffix)));
+            assert!(written.iter().any(|path| path.ends_with(&reference_suffix)));
+            let installed_path = written
+                .iter()
+                .find(|path| path.ends_with(&suffix))
+                .expect("skill path");
+            assert!(fs::read_to_string(installed_path)
                 .unwrap()
                 .contains("# WorkMesh Router Skill"));
         });
@@ -479,13 +590,16 @@ mod tests {
                 true,
             )
             .expect("install");
-            assert_eq!(written.len(), 1);
+            assert_eq!(written.len(), 2);
             let suffix = Path::new(".codex")
                 .join("skills")
                 .join("workmesh-cli")
                 .join("SKILL.md");
-            assert!(written[0].ends_with(&suffix));
-            assert!(fs::read_to_string(&written[0])
+            let installed_path = written
+                .iter()
+                .find(|path| path.ends_with(&suffix))
+                .expect("skill path");
+            assert!(fs::read_to_string(installed_path)
                 .unwrap()
                 .contains("# WorkMesh CLI Skill"));
         });
@@ -503,13 +617,16 @@ mod tests {
                 true,
             )
             .expect("install");
-            assert_eq!(written.len(), 1);
+            assert_eq!(written.len(), 2);
             let suffix = Path::new(".codex")
                 .join("skills")
                 .join("workmesh-mcp")
                 .join("SKILL.md");
-            assert!(written[0].ends_with(&suffix));
-            assert!(fs::read_to_string(&written[0])
+            let installed_path = written
+                .iter()
+                .find(|path| path.ends_with(&suffix))
+                .expect("skill path");
+            assert!(fs::read_to_string(installed_path)
                 .unwrap()
                 .contains("# WorkMesh MCP Skill"));
         });
@@ -534,12 +651,12 @@ mod tests {
             fs::create_dir_all(temp.path().join(".codex")).expect("codex dir");
 
             let written = install_embedded_skill_global_auto("workmesh", true).expect("install");
-            assert_eq!(written.len(), 1);
+            assert_eq!(written.len(), 2);
             let suffix = Path::new(".codex")
                 .join("skills")
                 .join("workmesh")
                 .join("SKILL.md");
-            assert!(written[0].ends_with(&suffix));
+            assert!(written.iter().any(|path| path.ends_with(&suffix)));
             assert!(!temp.path().join(".claude").exists());
             assert!(!temp.path().join(".cursor").exists());
         });
@@ -586,6 +703,47 @@ mod tests {
     }
 
     #[test]
+    fn install_embedded_skill_project_scope_uses_agent_standard_path() {
+        let temp = TempDir::new().expect("tempdir");
+        let repo = temp.path();
+
+        let written = install_embedded_skill(
+            Some(repo),
+            SkillScope::Project,
+            SkillAgent::Codex,
+            "workmesh",
+            true,
+        )
+        .expect("install");
+
+        let suffix = Path::new(".agents")
+            .join("skills")
+            .join("workmesh")
+            .join("SKILL.md");
+        assert!(written.iter().any(|path| path.ends_with(&suffix)));
+    }
+
+    #[test]
+    fn legacy_project_skill_path_remains_loadable() {
+        let temp = TempDir::new().expect("tempdir");
+        let repo = temp.path();
+        let path = repo
+            .join(".codex")
+            .join("skills")
+            .join("workmesh")
+            .join("SKILL.md");
+        fs::create_dir_all(path.parent().unwrap()).expect("mkdir");
+        fs::write(
+            &path,
+            "---\nname: workmesh\ndescription: test\n---\n# legacy disk skill\n",
+        )
+        .expect("write");
+
+        let skill = load_skill_content(Some(repo), "workmesh").expect("skill");
+        assert!(skill.content.contains("# legacy disk skill"));
+    }
+
+    #[test]
     fn install_embedded_skill_force_false_skips_existing_file() {
         let temp = TempDir::new().expect("tempdir");
         with_home(temp.path(), || {
@@ -593,8 +751,12 @@ mod tests {
             let written1 =
                 install_embedded_skill(None, SkillScope::User, SkillAgent::Codex, "workmesh", true)
                     .expect("install 1");
-            assert_eq!(written1.len(), 1);
-            let path = written1[0].clone();
+            assert_eq!(written1.len(), 2);
+            let path = written1
+                .iter()
+                .find(|path| path.ends_with(Path::new("SKILL.md")))
+                .expect("skill path")
+                .clone();
             fs::write(&path, "do not overwrite").expect("overwrite with sentinel");
 
             let report = install_embedded_skill_report(
@@ -606,7 +768,7 @@ mod tests {
             )
             .expect("install 2");
             assert!(report.written.is_empty());
-            assert_eq!(report.skipped, vec![path.clone()]);
+            assert!(report.skipped.contains(&path));
             assert_eq!(fs::read_to_string(&path).expect("read"), "do not overwrite");
         });
     }
@@ -627,9 +789,10 @@ mod tests {
             let written =
                 install_embedded_skill(None, SkillScope::User, SkillAgent::Codex, "workmesh", true)
                     .expect("install");
-            assert_eq!(written.len(), 1);
-            let path = &written[0];
-            assert!(path.exists());
+            assert_eq!(written.len(), 2);
+            for path in &written {
+                assert!(path.exists());
+            }
 
             let report = uninstall_embedded_skill_report(
                 None,
@@ -638,9 +801,11 @@ mod tests {
                 "workmesh",
             )
             .expect("uninstall");
-            assert_eq!(report.removed, vec![path.clone()]);
+            assert_eq!(report.removed.len(), 2);
             assert!(report.missing.is_empty());
-            assert!(!path.exists());
+            for path in &written {
+                assert!(!path.exists());
+            }
         });
     }
 
@@ -656,12 +821,12 @@ mod tests {
             )
             .expect("uninstall");
             assert!(report.removed.is_empty());
-            assert_eq!(report.missing.len(), 1);
+            assert_eq!(report.missing.len(), 2);
             let suffix = Path::new(".codex")
                 .join("skills")
                 .join("workmesh")
                 .join("SKILL.md");
-            assert!(report.missing[0].ends_with(&suffix));
+            assert!(report.missing.iter().any(|path| path.ends_with(&suffix)));
         });
     }
 
@@ -673,11 +838,11 @@ mod tests {
             let written =
                 install_embedded_skill(None, SkillScope::User, SkillAgent::Codex, "workmesh", true)
                     .expect("install");
-            assert_eq!(written.len(), 1);
+            assert_eq!(written.len(), 2);
 
             let report =
                 uninstall_embedded_skill_global_auto_report("workmesh").expect("uninstall");
-            assert_eq!(report.removed.len(), 1);
+            assert_eq!(report.removed.len(), 2);
             assert!(report.missing.is_empty());
         });
     }

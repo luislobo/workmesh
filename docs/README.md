@@ -359,7 +359,12 @@ The skills are:
 - `workmesh-cli`: CLI adapter skill
 - `workmesh-mcp`: MCP adapter skill
 
-These skills now share one operating doctrine instead of duplicating policy independently.
+Canonical skill sources live under `skills/`. Installed project-local agent paths follow the
+standard layout:
+- `.agents/skills/` for Codex and Cursor
+- `.claude/skills/` for Claude
+
+Each skill is self-contained and carries its doctrine reference inside its own directory.
 
 The shared doctrine covers:
 - task quality rules

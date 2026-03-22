@@ -7,12 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.5] - 2026-03-22
+
+### Changed
+- Aligned WorkMesh project-local skill installation with the shared Agent Skills layout:
+  - `.agents/skills/` for Codex and Cursor
+  - `.claude/skills/` for Claude
+- Updated embedded skill installation and removal so the full skill contents are materialized, including referenced doctrine files under each skill root.
+- Kept legacy repo-local `.codex/skills` and `.cursor/skills` locations as read-only fallbacks when loading skills from older repositories.
+
 ### Documentation
 - Promoted `docs/README.md` to the canonical human manual and consolidated the main usage guidance there in one sectioned document.
 - Reduced `README.md` to a short landing page with install instructions and links to the canonical documentation.
 - Simplified `README.json` so the agent-readable mirror points directly to the canonical documentation structure.
 - Documented the WorkMesh skill model and compaction-safe agent operating procedure in the canonical manual.
-- Refactored WorkMesh skills to use one shared operating doctrine with thin CLI and MCP adapter skill layers.
+- Made each canonical WorkMesh skill self-contained by moving the operating doctrine into per-skill `references/OPERATING_MODEL.md` files.
+- Removed checked-in repo-local `.codex`/`.claude` skill copies so `skills/` is the single source of truth.
 - Added a standard agent resume prompt and resume checklist to the canonical manual and agent-readable mirror.
 
 ## [0.3.4] - 2026-03-21
@@ -294,7 +304,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Gantt support and best-practices command.
   - Docs-first project model and initial PRDs.
 
-[Unreleased]: https://github.com/luislobo/workmesh/compare/v0.3.4...HEAD
+[Unreleased]: https://github.com/luislobo/workmesh/compare/v0.3.5...HEAD
+[0.3.5]: https://github.com/luislobo/workmesh/compare/v0.3.4...v0.3.5
 [0.3.4]: https://github.com/luislobo/workmesh/compare/v0.3.3...v0.3.4
 [0.3.3]: https://github.com/luislobo/workmesh/compare/v0.3.2...v0.3.3
 [0.3.2]: https://github.com/luislobo/workmesh/compare/v0.3.1...v0.3.2

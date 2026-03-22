@@ -9,6 +9,11 @@ This guide is Codex-first. It assumes your normal workflow is chat-driven, not c
 4. For complete run-mode and agent setup (CLI, MCP stdio), see:
    - [`docs/setup/run-modes-and-agent-mcp.md`](setup/run-modes-and-agent-mcp.md)
 
+Skill layout:
+- canonical source skills live in `skills/`
+- project-local installs use `.agents/skills/` for Codex and Cursor, `.claude/skills/` for Claude
+- user installs use `~/.codex/skills/`, `~/.cursor/skills/`, and `~/.claude/skills/`
+
 After this, your day-to-day entry flow is one prompt.
 
 ## Daily Entry Flow (Any Repo State)

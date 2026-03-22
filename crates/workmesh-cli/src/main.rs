@@ -821,7 +821,9 @@ enum SkillCommand {
         /// Skill name (defaults to workmesh)
         #[arg(long)]
         name: Option<String>,
-        /// Install to user-level (~/.codex/skills, ~/.claude/skills, ~/.cursor/skills) or project-level (<repo>/.codex/skills, etc.)
+        /// Install to user-level (~/.codex/skills, ~/.claude/skills, ~/.cursor/skills) or
+        /// project-level (<repo>/.agents/skills for Codex/Cursor, <repo>/.claude/skills for
+        /// Claude)
         #[arg(long, value_enum, default_value_t = SkillScopeArg::User)]
         scope: SkillScopeArg,
         /// Which agent(s) to install for
@@ -838,7 +840,9 @@ enum SkillCommand {
         /// Skill name (defaults to workmesh)
         #[arg(long)]
         name: Option<String>,
-        /// Uninstall from user-level (~/.codex/skills, ~/.claude/skills, ~/.cursor/skills) or project-level (<repo>/.codex/skills, etc.)
+        /// Uninstall from user-level (~/.codex/skills, ~/.claude/skills, ~/.cursor/skills) or
+        /// project-level (<repo>/.agents/skills for Codex/Cursor, <repo>/.claude/skills for
+        /// Claude)
         #[arg(long, value_enum, default_value_t = SkillScopeArg::User)]
         scope: SkillScopeArg,
         /// Which agent(s) to uninstall for
