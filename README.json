@@ -53,7 +53,8 @@
     "entry_prompts": [
       "Bootstrap WorkMesh in this repo. Use MCP if available, otherwise CLI.",
       "Use WorkMesh for this feature end to end. Create/update PRD, create and maintain tasks with acceptance criteria and definition of done, keep context current, and track stable decisions in Truth Ledger."
-    ]
+    ],
+    "resume_prompt": "Rehydrate this session with WorkMesh. Read current context, accepted truths, active workstream state, and next actionable tasks. Then summarize what I was doing, what constraints still apply, and the next concrete step."
   },
   "skills": {
     "router": "workmesh",
@@ -68,7 +69,14 @@
       "Definition of Done"
     ],
     "definition_of_done": "Outcome-based, not hygiene-only.",
-    "mutation_responses": "Compact by default; use verbose=true only when richer post-write state is required."
+    "mutation_responses": "Compact by default; use verbose=true only when richer post-write state is required.",
+    "resume_checklist": [
+      "restore current context",
+      "read accepted truths for current scope",
+      "inspect workstream restore state if parallel work exists",
+      "identify the active task or smallest valid working set",
+      "summarize current objective, constraints, and next step before new implementation work"
+    ]
   },
   "architecture": {
     "workmesh-core": "domain logic, storage, state",

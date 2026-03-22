@@ -169,6 +169,12 @@ Single repo/worktree:
 2. `codex resume`
 3. ask Codex to restore context, truths, and next tasks
 
+Recommended resume prompt:
+
+```text
+Rehydrate this session with WorkMesh. Read current context, accepted truths, active workstream state, and next actionable tasks. Then summarize what I was doing, what constraints still apply, and the next concrete step.
+```
+
 Multiple active workstreams:
 
 ```bash
@@ -183,6 +189,13 @@ The restore output gives you:
 - `resume_script`
 
 That is the deterministic recovery path after losing terminals or rebooting.
+
+Resume checklist for agents:
+1. restore current context
+2. read accepted truths for the current scope
+3. inspect workstream restore state if parallel work exists
+4. identify the active task or smallest valid working set
+5. summarize current objective, constraints, and next step before new implementation work
 
 ## 10. CLI Fallback
 

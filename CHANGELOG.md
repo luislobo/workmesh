@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Simplified `README.json` so the agent-readable mirror points directly to the canonical documentation structure.
 - Documented the WorkMesh skill model and compaction-safe agent operating procedure in the canonical manual.
 - Refactored WorkMesh skills to use one shared operating doctrine with thin CLI and MCP adapter skill layers.
+- Added a standard agent resume prompt and resume checklist to the canonical manual and agent-readable mirror.
 
 ## [0.3.4] - 2026-03-21
 
