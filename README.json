@@ -1,44 +1,32 @@
 {
   "name": "WorkMesh",
   "tagline": "Docs-first project and task orchestration for developers and coding agents.",
+  "summary": [
+    "WorkMesh keeps repo-local planning state next to code.",
+    "Primary human documentation lives in docs/README.md.",
+    "README.md is a short landing page with install and links."
+  ],
   "artifacts": {
     "cli": "workmesh",
+    "mcp": "workmesh-mcp",
     "core": "workmesh-core",
     "render": "workmesh-render",
     "tools": "workmesh-tools",
-    "mcp_server": "workmesh-mcp-server",
-    "mcp": "workmesh-mcp"
+    "mcp_server": "workmesh-mcp-server"
   },
-  "purpose": {
-    "use_for": [
-      "repo-local task tracking",
-      "chat-driven development with durable context",
-      "decision tracking through Truth Ledger",
-      "parallel work across git worktrees",
-      "shared CLI and MCP workflow surface"
+  "storage": {
+    "repo_local": [
+      "workmesh/tasks/",
+      "workmesh/context.json",
+      "workmesh/truth/",
+      "docs/projects/<project-id>/"
     ],
-    "not_for": [
-      "generic ticketing SaaS",
-      "remote hosted project management"
+    "global": [
+      "~/.workmesh/"
     ]
   },
-  "recommended_workflow": {
-    "mode": "codex-first",
-    "steps": [
-      "cd into a repo",
-      "run codex or codex resume",
-      "say: Bootstrap WorkMesh in this repo. Use MCP if available, otherwise CLI.",
-      "say: Use WorkMesh for this feature end to end. Create/update PRD, create and maintain tasks with acceptance criteria and definition of done, keep context current, and track stable decisions in Truth Ledger."
-    ]
-  },
-  "bootstrap_behavior": {
-    "no_workmesh_data": "initialize docs, tasks, and context",
-    "modern_workmesh_layout": "validate health, show context, and suggest next work",
-    "legacy_layout": "migrate to modern layout and continue",
-    "clone_based_workflow": "keep work moving and recommend worktree consolidation"
-  },
-  "quick_start": {
-    "verify_install": [
+  "install": {
+    "verify": [
       "workmesh --version",
       "workmesh-mcp --version"
     ],
@@ -48,147 +36,40 @@
       "cargo build -p workmesh",
       "cargo build -p workmesh-mcp"
     ],
-    "mcp_stdio_config": {
+    "codex_mcp_example": {
       "command": "/usr/local/bin/workmesh-mcp",
       "args": []
-    },
-    "full_setup_doc": "docs/setup/run-modes-and-agent-mcp.md"
-  },
-  "cli_usage": {
-    "bootstrap_command": "workmesh --root . bootstrap --project-id <project-id> --feature \"<feature-name>\" --json",
-    "common_commands": [
-      "workmesh --root . context show --json",
-      "workmesh --root . next --json",
-      "workmesh --root . list --json",
-      "workmesh --root . workstream restore --json"
-    ],
-    "render_fallback": "workmesh --root . render table --data '[{\"task\":\"task-001\",\"status\":\"Done\"}]'",
-    "parity_helpers": [
-      "workmesh --root . readme --json",
-      "workmesh --root . tool-info render_table --json",
-      "workmesh --root . skill-content --json",
-      "workmesh --root . project-management-skill --json",
-      "workmesh --root . next-tasks --json"
-    ],
-    "tool_info_note": "Shared metadata, examples, and response-contract guidance come from workmesh-tools. The MCP registry is still the canonical source for full MCP input schemas.",
-    "mcp_style_aliases": [
-      "list_tasks",
-      "show_task",
-      "truth_list",
-      "workstream_list",
-      "render_table"
-    ]
-  },
-  "core_concepts": {
-    "tasks": {
-      "path": "workmesh/tasks/ or .workmesh/tasks/",
-      "required_sections": [
-        "Description",
-        "Acceptance Criteria",
-        "Definition of Done"
-      ],
-      "definition_of_done_rule": "Definition of Done must be outcome-based, not just hygiene items."
-    },
-    "context": {
-      "path": "workmesh/context.json",
-      "fields": [
-        "project",
-        "epic",
-        "objective",
-        "tasks",
-        "workstream_id"
-      ]
-    },
-    "truth_ledger": {
-      "path": "workmesh/truth/",
-      "purpose": "durable decisions for humans and agents"
-    },
-    "workstreams": {
-      "summary": "parallel work model, usually one active workstream per git worktree",
-      "create": "workmesh --root . workstream create --name \"OCA integration\" --project <project-id> --objective \"...\" --json",
-      "restore": "workmesh --root . workstream restore --json",
-      "adopt_clone": "workmesh --root . worktree adopt-clone --from <path-to-clone> --apply --json"
     }
   },
+  "canonical_docs": {
+    "manual": "docs/README.md",
+    "architecture": "docs/architecture.md",
+    "commands": "docs/reference/commands.md",
+    "setup": "docs/setup/run-modes-and-agent-mcp.md",
+    "changelog": "CHANGELOG.md"
+  },
+  "workflow": {
+    "mode": "codex-first",
+    "entry_prompts": [
+      "Bootstrap WorkMesh in this repo. Use MCP if available, otherwise CLI.",
+      "Use WorkMesh for this feature end to end. Create/update PRD, create and maintain tasks with acceptance criteria and definition of done, keep context current, and track stable decisions in Truth Ledger."
+    ]
+  },
+  "rules": {
+    "task_sections": [
+      "Description",
+      "Acceptance Criteria",
+      "Definition of Done"
+    ],
+    "definition_of_done": "Outcome-based, not hygiene-only.",
+    "mutation_responses": "Compact by default; use verbose=true only when richer post-write state is required."
+  },
   "architecture": {
-    "workmesh-core": "domain logic, storage safety, repo/global state",
-    "workmesh-render": "generic human-facing renderers",
-    "workmesh-tools": "shared tool metadata, response-policy helpers, and adapter-neutral tooling helpers",
+    "workmesh-core": "domain logic, storage, state",
+    "workmesh-render": "renderers",
+    "workmesh-tools": "shared tool contract",
     "workmesh": "CLI adapter",
     "workmesh-mcp-server": "MCP adapter",
-    "workmesh-mcp": "stdio wrapper around the MCP adapter",
-    "documentation": "docs/architecture.md"
-  },
-  "contributor_rules": [
-    "start shared tool metadata, response-policy, and adapter-neutral tooling changes in workmesh-tools",
-    "put CLI-only parsing or presentation changes in workmesh",
-    "put MCP transport-only changes in workmesh-mcp-server",
-    "do not make the CLI depend on workmesh-mcp-server"
-  ],
-  "mutation_response_contract": {
-    "goal": "save tokens by keeping write responses compact",
-    "default_examples": [
-      {
-        "ok": true,
-        "id": "task-001",
-        "status": "Done"
-      },
-      {
-        "ok": false,
-        "updated_count": 7,
-        "failed_count": 2,
-        "failed_ids": [
-          "task-003",
-          "task-009"
-        ]
-      }
-    ],
-    "verbose_opt_in": "pass verbose=true for richer post-write state",
-    "read_tools_for_full_state": [
-      "show_task",
-      "context_show",
-      "truth_show",
-      "session_show",
-      "workstream_show"
-    ]
-  },
-  "safety_and_storage": {
-    "guarantees": [
-      "lock-safe and atomic writes for critical tracking files",
-      "versioned mutable snapshots",
-      "CAS-based updates",
-      "append-safe JSONL event streams",
-      "doctor-based recovery"
-    ],
-    "recovery_command": "workmesh --root . doctor --fix-storage --json",
-    "archive_defaults": [
-      "Done",
-      "Cancelled",
-      "Canceled",
-      "Won't Do",
-      "Wont Do"
-    ]
-  },
-  "docs": {
-    "architecture": "docs/architecture.md",
-    "getting_started": "docs/getting-started.md",
-    "run_modes_and_mcp_setup": "docs/setup/run-modes-and-agent-mcp.md",
-    "command_reference": "docs/reference/commands.md",
-    "docs_index": "docs/README.md",
-    "sample_project": "docs/samples/workmesh-demo/README.md"
-  },
-  "maintainers": {
-    "changelog_discipline": [
-      "move relevant Unreleased items into a new versioned CHANGELOG section",
-      "update compare links at the bottom of CHANGELOG.md",
-      "bump Cargo.toml",
-      "tag the release"
-    ],
-    "docs_sync_rule": [
-      "update README.md",
-      "update README.json",
-      "keep both changes in the same commit when install, setup, commands, layout, or roadmap changes"
-    ],
-    "version_metadata": "X.Y.Z+git.<commit_count>.<sha>[.dirty]"
+    "workmesh-mcp": "stdio wrapper"
   }
 }
