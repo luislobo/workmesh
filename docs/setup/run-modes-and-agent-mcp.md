@@ -57,7 +57,12 @@ Render tools (MCP stdio):
 - `render_tree`, `render_diff`, `render_logs`, `render_alerts`
 - `render_chart_bar`, `render_sparkline`, `render_timeline`
 
-Each render tool accepts `data` plus optional `format` and `configuration`, and returns rendered text.
+Each render tool accepts:
+- `data`: required JSON-encoded string payload
+- `configuration`: optional typed object
+- `format`: optional, used by `render_table`
+
+For backward compatibility, MCP still accepts native JSON values for `data`, but agent/tool integrations should send the explicit JSON string form.
 
 Mutation response policy (MCP stdio):
 - mutation tools return minimal acknowledgements by default to save tokens

@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.7] - 2026-03-24
+
+### Changed
+- MCP render tools now publish an agent-compatible input schema:
+  - `data` is an explicit JSON-encoded string
+  - `configuration` is an optional typed object
+- Render-tool metadata, command docs, and skill doctrine now consistently describe the explicit MCP render contract so agents stop relying on unconstrained JSON inputs.
+
+### Deprecated
+- Native JSON values passed directly to MCP render-tool `data` are now a compatibility-only path and emit a deprecation warning.
+- That compatibility path is scheduled for removal after the next two releases (`v0.3.7` and `v0.3.8` deprecation window).
+
+### Fixed
+- WorkMesh MCP render tools now convert cleanly through strict agent/OpenAI-style tool-schema adapters instead of failing on unconstrained `serde_json::Value` inputs.
+- The published MCP tool schema now matches the actual accepted wire shape for the full render-tool family.
+
 ## [0.3.6] - 2026-03-22
 
 ### Added
@@ -325,7 +341,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Gantt support and best-practices command.
   - Docs-first project model and initial PRDs.
 
-[Unreleased]: https://github.com/luislobo/workmesh/compare/v0.3.6...HEAD
+[Unreleased]: https://github.com/luislobo/workmesh/compare/v0.3.7...HEAD
+[0.3.7]: https://github.com/luislobo/workmesh/compare/v0.3.6...v0.3.7
 [0.3.6]: https://github.com/luislobo/workmesh/compare/v0.3.5...v0.3.6
 [0.3.5]: https://github.com/luislobo/workmesh/compare/v0.3.4...v0.3.5
 [0.3.4]: https://github.com/luislobo/workmesh/compare/v0.3.3...v0.3.4

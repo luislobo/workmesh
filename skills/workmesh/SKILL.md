@@ -26,3 +26,4 @@ When the user says `bootstrap workmesh` or equivalent:
 - Discover the repo's effective task-quality policy with `config show` / `config_show` before assuming which task fields are required.
 - Use workstream restore for deterministic reboot recovery.
 - Use render tools for structured output.
+- For MCP render tools, send `data` as a JSON-encoded string and use the typed `configuration` object when needed.

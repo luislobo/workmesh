@@ -407,6 +407,16 @@ pub fn build_tool_info_payload(name: &str, tool_def: Value) -> Option<Value> {
                 .to_string(),
         );
     }
+    if name.starts_with("render_") {
+        notes.push(
+            "Render MCP tools take `data` as a JSON-encoded string. Native JSON objects/arrays are still accepted for backward compatibility, but agents should prefer the explicit string form."
+                .to_string(),
+        );
+        notes.push(
+            "Render `configuration` is an optional typed object. `format` is only used by `render_table`."
+                .to_string(),
+        );
+    }
     if supports_verbose_response(name) {
         notes.push(
             "Mutation tools return a minimal acknowledgement by default to save tokens. Pass verbose=true to include richer post-write state."

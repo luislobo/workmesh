@@ -397,9 +397,11 @@ Available over MCP stdio:
 - `render_chart_bar`, `render_sparkline`, `render_timeline`
 
 All render tools accept:
-- `data` (required)
-- `format` (optional)
-- `configuration` (optional)
+- `data` (required JSON-encoded string)
+- `configuration` (optional typed object)
+- `format` (optional, only used by `render_table`)
+
+For backward compatibility, native JSON values for `data` are still accepted by the MCP server, but agent/tool integrations should send the explicit JSON string form.
 
 They return rendered text content.
 

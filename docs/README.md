@@ -291,6 +291,8 @@ WorkMesh has native renderers for human-friendly output:
 
 Use MCP render tools first when available.
 Use CLI `render ...` as the local fallback.
+For MCP render tools, send `data` as a JSON-encoded string and `configuration` as an optional typed object.
+Native JSON values for `data` still work as a deprecated compatibility path, but agents should not rely on that form.
 
 ## 13. Mutation Response Contract
 

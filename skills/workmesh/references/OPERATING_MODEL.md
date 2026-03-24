@@ -128,6 +128,7 @@ Use renderers for human presentation.
 Use Markdown only for reusable narrative content such as docs, PR comments, or decision records.
 
 Renderer selection guidance:
+- MCP render tools take `data` as a JSON-encoded string. Use typed `configuration` objects when the tool exposes them.
 - `render_table`: multi-row lists, boards, session lists, worktree lists
 - `render_kv`: one record with many fields
 - `render_stats`: counts and summaries

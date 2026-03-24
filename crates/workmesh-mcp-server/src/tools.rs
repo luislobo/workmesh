@@ -1,6 +1,7 @@
 use std::collections::HashSet;
 use std::io::IsTerminal;
 use std::path::{Path, PathBuf};
+use std::sync::Once;
 
 use async_trait::async_trait;
 use chrono::{Duration, Local, NaiveDate};
@@ -13,7 +14,8 @@ use rust_mcp_sdk::schema::{
 };
 use rust_mcp_sdk::tool_box;
 use rust_mcp_sdk::{mcp_server::ServerHandler, McpServer};
-use serde::{Deserialize, Serialize};
+use serde::de::Error as _;
+use serde::{Deserialize, Deserializer, Serialize};
 
 use workmesh_core::archive::{archive_tasks, ArchiveOptions};
 use workmesh_core::audit::{append_audit_event, AuditEvent};
@@ -131,13 +133,184 @@ pub enum ListInput {
     List(Vec<String>),
 }
 
-#[derive(Debug, Deserialize, Serialize, JsonSchema)]
-pub struct RenderToolInput {
-    pub data: serde_json::Value,
-    #[serde(default)]
-    pub format: Option<String>,
-    #[serde(default)]
-    pub configuration: Option<serde_json::Value>,
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, JsonSchema, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum AlignmentInput {
+    Left,
+    Center,
+    Right,
+}
+
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, JsonSchema, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum TableModeInput {
+    Minimal,
+    Box,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct TableColumnInput {
+    pub key: String,
+    pub header: Option<String>,
+    pub align: Option<AlignmentInput>,
+    pub width: Option<u64>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct TableStyleInput {
+    pub head: Option<Vec<String>>,
+    pub border: Option<Vec<String>>,
+    pub compact: Option<bool>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct TableConfigurationInput {
+    pub mode: Option<TableModeInput>,
+    pub columns: Option<Vec<TableColumnInput>>,
+    pub show_index: Option<bool>,
+    pub null_display: Option<String>,
+    pub truncate_to: Option<u64>,
+    pub max_width: Option<u64>,
+    pub fit_to_terminal: Option<bool>,
+    pub wrap: Option<bool>,
+    pub style: Option<TableStyleInput>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct KvConfigurationInput {
+    pub title: Option<String>,
+    pub key_order: Option<Vec<String>>,
+    pub max_width: Option<u64>,
+    pub wrap: Option<bool>,
+    pub key_min_width: Option<u64>,
+    pub separator: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct StatsConfigurationInput {
+    pub compact: Option<bool>,
+    pub max_width: Option<u64>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ProgressConfigurationInput {
+    pub bar_width: Option<u64>,
+    pub show_percent: Option<bool>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct TreeConfigurationInput {
+    pub max_depth: Option<u64>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct DiffConfigurationInput {
+    pub context: Option<u64>,
+    pub show_header: Option<bool>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct LogsConfigurationInput {
+    pub columns: Option<Vec<String>>,
+    pub uppercase_level: Option<bool>,
+    pub max_width: Option<u64>,
+    pub mode: Option<TableModeInput>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct AlertsConfigurationInput {
+    pub include_level: Option<bool>,
+    pub include_timestamp: Option<bool>,
+    pub compact: Option<bool>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ListConfigurationInput {
+    pub ordered: Option<bool>,
+    pub checkbox: Option<bool>,
+    pub start: Option<i64>,
+    pub bullet: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ChartBarConfigurationInput {
+    pub width: Option<u64>,
+    pub bar_char: Option<String>,
+    pub show_values: Option<bool>,
+    pub max_label_width: Option<u64>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct SparklineConfigurationInput {
+    pub label: Option<String>,
+    pub min: Option<f64>,
+    pub max: Option<f64>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct TimelineConfigurationInput {
+    pub sort: Option<bool>,
+    pub show_status: Option<bool>,
+    pub max_width: Option<u64>,
+    pub wrap: Option<bool>,
+}
+
+fn deserialize_json_string<'de, D>(deserializer: D) -> Result<String, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let value = serde_json::Value::deserialize(deserializer)?;
+    match value {
+        serde_json::Value::String(raw) => {
+            if serde_json::from_str::<serde_json::Value>(&raw).is_ok() {
+                Ok(raw)
+            } else {
+                serde_json::to_string(&serde_json::Value::String(raw)).map_err(D::Error::custom)
+            }
+        }
+        other => {
+            warn_legacy_render_data_payload();
+            serde_json::to_string(&other).map_err(D::Error::custom)
+        }
+    }
+}
+
+fn warn_legacy_render_data_payload() {
+    static WARN_ONCE: Once = Once::new();
+    WARN_ONCE.call_once(|| {
+        eprintln!(
+            "DEPRECATION: MCP render tools accepting native JSON values for `data` is deprecated for the next two releases (v0.3.7 and v0.3.8). Send `data` as a JSON-encoded string instead."
+        );
+    });
+}
+
+fn deserialize_optional_json<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
+where
+    D: Deserializer<'de>,
+    T: serde::de::DeserializeOwned,
+{
+    let value = Option::<serde_json::Value>::deserialize(deserializer)?;
+    match value {
+        None => Ok(None),
+        Some(serde_json::Value::String(raw)) => {
+            serde_json::from_str(&raw).map(Some).map_err(D::Error::custom)
+        }
+        Some(other) => serde_json::from_value(other).map(Some).map_err(D::Error::custom),
+    }
 }
 
 fn parse_list_input(value: Option<ListInput>) -> Vec<String> {
@@ -303,8 +476,30 @@ fn ok_json(value: serde_json::Value) -> Result<CallToolResult, CallToolError> {
     ok_text(text)
 }
 
-fn call_render_tool(tool: &str, input: &RenderToolInput) -> Result<CallToolResult, CallToolError> {
-    let args = serde_json::to_value(input).map_err(CallToolError::new)?;
+fn call_render_tool<C: Serialize>(
+    tool: &str,
+    data_json: &str,
+    format: Option<&str>,
+    configuration: Option<&C>,
+) -> Result<CallToolResult, CallToolError> {
+    let data = serde_json::from_str(data_json).map_err(|error| {
+        CallToolError::from_message(format!("Invalid JSON for data: {}", error))
+    })?;
+    let mut args = serde_json::Map::new();
+    args.insert("data".to_string(), data);
+    if let Some(value) = format {
+        args.insert(
+            "format".to_string(),
+            serde_json::Value::String(value.to_string()),
+        );
+    }
+    if let Some(value) = configuration {
+        args.insert(
+            "configuration".to_string(),
+            serde_json::to_value(value).map_err(CallToolError::new)?,
+        );
+    }
+    let args = serde_json::Value::Object(args);
     let rendered = render_dispatch_tool(tool, &args).map_err(CallToolError::new)?;
     if let Some(text) = rendered.get("text").and_then(|value| value.as_str()) {
         ok_text(text.to_string())
@@ -1802,29 +1997,39 @@ pub struct ProjectManagementSkillTool {
 )]
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct RenderTableTool {
-    #[serde(flatten)]
-    pub input: RenderToolInput,
+    #[serde(deserialize_with = "deserialize_json_string")]
+    pub data: String,
+    #[serde(default)]
+    pub format: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_optional_json")]
+    pub configuration: Option<TableConfigurationInput>,
 }
 
 #[mcp_tool(name = "render_kv", description = "Render a key/value list.")]
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct RenderKvTool {
-    #[serde(flatten)]
-    pub input: RenderToolInput,
+    #[serde(deserialize_with = "deserialize_json_string")]
+    pub data: String,
+    #[serde(default, deserialize_with = "deserialize_optional_json")]
+    pub configuration: Option<KvConfigurationInput>,
 }
 
 #[mcp_tool(name = "render_stats", description = "Render a compact stats block.")]
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct RenderStatsTool {
-    #[serde(flatten)]
-    pub input: RenderToolInput,
+    #[serde(deserialize_with = "deserialize_json_string")]
+    pub data: String,
+    #[serde(default, deserialize_with = "deserialize_optional_json")]
+    pub configuration: Option<StatsConfigurationInput>,
 }
 
 #[mcp_tool(name = "render_list", description = "Render a list view.")]
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct RenderListTool {
-    #[serde(flatten)]
-    pub input: RenderToolInput,
+    #[serde(deserialize_with = "deserialize_json_string")]
+    pub data: String,
+    #[serde(default, deserialize_with = "deserialize_optional_json")]
+    pub configuration: Option<ListConfigurationInput>,
 }
 
 #[mcp_tool(
@@ -1833,8 +2038,10 @@ pub struct RenderListTool {
 )]
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct RenderProgressTool {
-    #[serde(flatten)]
-    pub input: RenderToolInput,
+    #[serde(deserialize_with = "deserialize_json_string")]
+    pub data: String,
+    #[serde(default, deserialize_with = "deserialize_optional_json")]
+    pub configuration: Option<ProgressConfigurationInput>,
 }
 
 #[mcp_tool(
@@ -1843,8 +2050,10 @@ pub struct RenderProgressTool {
 )]
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct RenderTreeTool {
-    #[serde(flatten)]
-    pub input: RenderToolInput,
+    #[serde(deserialize_with = "deserialize_json_string")]
+    pub data: String,
+    #[serde(default, deserialize_with = "deserialize_optional_json")]
+    pub configuration: Option<TreeConfigurationInput>,
 }
 
 #[mcp_tool(
@@ -1853,8 +2062,10 @@ pub struct RenderTreeTool {
 )]
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct RenderDiffTool {
-    #[serde(flatten)]
-    pub input: RenderToolInput,
+    #[serde(deserialize_with = "deserialize_json_string")]
+    pub data: String,
+    #[serde(default, deserialize_with = "deserialize_optional_json")]
+    pub configuration: Option<DiffConfigurationInput>,
 }
 
 #[mcp_tool(
@@ -1863,36 +2074,46 @@ pub struct RenderDiffTool {
 )]
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct RenderLogsTool {
-    #[serde(flatten)]
-    pub input: RenderToolInput,
+    #[serde(deserialize_with = "deserialize_json_string")]
+    pub data: String,
+    #[serde(default, deserialize_with = "deserialize_optional_json")]
+    pub configuration: Option<LogsConfigurationInput>,
 }
 
 #[mcp_tool(name = "render_alerts", description = "Render alert summaries.")]
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct RenderAlertsTool {
-    #[serde(flatten)]
-    pub input: RenderToolInput,
+    #[serde(deserialize_with = "deserialize_json_string")]
+    pub data: String,
+    #[serde(default, deserialize_with = "deserialize_optional_json")]
+    pub configuration: Option<AlertsConfigurationInput>,
 }
 
 #[mcp_tool(name = "render_chart_bar", description = "Render a simple bar chart.")]
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct RenderChartBarTool {
-    #[serde(flatten)]
-    pub input: RenderToolInput,
+    #[serde(deserialize_with = "deserialize_json_string")]
+    pub data: String,
+    #[serde(default, deserialize_with = "deserialize_optional_json")]
+    pub configuration: Option<ChartBarConfigurationInput>,
 }
 
 #[mcp_tool(name = "render_sparkline", description = "Render a sparkline chart.")]
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct RenderSparklineTool {
-    #[serde(flatten)]
-    pub input: RenderToolInput,
+    #[serde(deserialize_with = "deserialize_json_string")]
+    pub data: String,
+    #[serde(default, deserialize_with = "deserialize_optional_json")]
+    pub configuration: Option<SparklineConfigurationInput>,
 }
 
 #[mcp_tool(name = "render_timeline", description = "Render a timeline view.")]
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct RenderTimelineTool {
-    #[serde(flatten)]
-    pub input: RenderToolInput,
+    #[serde(deserialize_with = "deserialize_json_string")]
+    pub data: String,
+    #[serde(default, deserialize_with = "deserialize_optional_json")]
+    pub configuration: Option<TimelineConfigurationInput>,
 }
 
 fn default_sort() -> String {
@@ -7520,73 +7741,103 @@ impl ProjectManagementSkillTool {
 
 impl RenderTableTool {
     fn call(&self, _context: &McpContext) -> Result<CallToolResult, CallToolError> {
-        call_render_tool("render_table", &self.input)
+        call_render_tool(
+            "render_table",
+            &self.data,
+            self.format.as_deref(),
+            self.configuration.as_ref(),
+        )
     }
 }
 
 impl RenderKvTool {
     fn call(&self, _context: &McpContext) -> Result<CallToolResult, CallToolError> {
-        call_render_tool("render_kv", &self.input)
+        call_render_tool("render_kv", &self.data, None, self.configuration.as_ref())
     }
 }
 
 impl RenderStatsTool {
     fn call(&self, _context: &McpContext) -> Result<CallToolResult, CallToolError> {
-        call_render_tool("render_stats", &self.input)
+        call_render_tool("render_stats", &self.data, None, self.configuration.as_ref())
     }
 }
 
 impl RenderListTool {
     fn call(&self, _context: &McpContext) -> Result<CallToolResult, CallToolError> {
-        call_render_tool("render_list", &self.input)
+        call_render_tool("render_list", &self.data, None, self.configuration.as_ref())
     }
 }
 
 impl RenderProgressTool {
     fn call(&self, _context: &McpContext) -> Result<CallToolResult, CallToolError> {
-        call_render_tool("render_progress", &self.input)
+        call_render_tool(
+            "render_progress",
+            &self.data,
+            None,
+            self.configuration.as_ref(),
+        )
     }
 }
 
 impl RenderTreeTool {
     fn call(&self, _context: &McpContext) -> Result<CallToolResult, CallToolError> {
-        call_render_tool("render_tree", &self.input)
+        call_render_tool("render_tree", &self.data, None, self.configuration.as_ref())
     }
 }
 
 impl RenderDiffTool {
     fn call(&self, _context: &McpContext) -> Result<CallToolResult, CallToolError> {
-        call_render_tool("render_diff", &self.input)
+        call_render_tool("render_diff", &self.data, None, self.configuration.as_ref())
     }
 }
 
 impl RenderLogsTool {
     fn call(&self, _context: &McpContext) -> Result<CallToolResult, CallToolError> {
-        call_render_tool("render_logs", &self.input)
+        call_render_tool("render_logs", &self.data, None, self.configuration.as_ref())
     }
 }
 
 impl RenderAlertsTool {
     fn call(&self, _context: &McpContext) -> Result<CallToolResult, CallToolError> {
-        call_render_tool("render_alerts", &self.input)
+        call_render_tool(
+            "render_alerts",
+            &self.data,
+            None,
+            self.configuration.as_ref(),
+        )
     }
 }
 
 impl RenderChartBarTool {
     fn call(&self, _context: &McpContext) -> Result<CallToolResult, CallToolError> {
-        call_render_tool("render_chart_bar", &self.input)
+        call_render_tool(
+            "render_chart_bar",
+            &self.data,
+            None,
+            self.configuration.as_ref(),
+        )
     }
 }
 
 impl RenderSparklineTool {
     fn call(&self, _context: &McpContext) -> Result<CallToolResult, CallToolError> {
-        call_render_tool("render_sparkline", &self.input)
+        call_render_tool(
+            "render_sparkline",
+            &self.data,
+            None,
+            self.configuration.as_ref(),
+        )
     }
 }
 
 impl RenderTimelineTool {
     fn call(&self, _context: &McpContext) -> Result<CallToolResult, CallToolError> {
-        call_render_tool("render_timeline", &self.input)
+        call_render_tool(
+            "render_timeline",
+            &self.data,
+            None,
+            self.configuration.as_ref(),
+        )
     }
 }
 
@@ -8017,6 +8268,8 @@ Definition of Done:\n\
             project_id: Some("alpha".to_string()),
             feature: Some("Alpha Integration".to_string()),
             objective: Some("Ship alpha".to_string()),
+            tasks_root: None,
+            state_root: None,
             format: "json".to_string(),
         }
         .call(&context)
@@ -8025,8 +8278,8 @@ Definition of Done:\n\
         let parsed: serde_json::Value = serde_json::from_str(&text_payload(result)).expect("json");
         assert_eq!(parsed["state"].as_str(), Some("new_repo"));
         assert_eq!(parsed["project_id"].as_str(), Some("alpha"));
-        assert!(temp.path().join("workmesh").join("tasks").is_dir());
-        assert!(temp.path().join("workmesh").join("context.json").is_file());
+        assert!(temp.path().join("tasks").is_dir());
+        assert!(temp.path().join(".workmesh").join("context.json").is_file());
     }
 
     #[test]
@@ -8342,6 +8595,53 @@ Definition of Done:\n\
         .expect("list");
         let parsed: serde_json::Value = serde_json::from_str(&text_payload(listed)).expect("json");
         assert!(!parsed.as_array().unwrap().is_empty());
+    }
+
+    #[test]
+    fn render_tool_schema_uses_string_data_and_typed_configuration() {
+        let tool = sdk_tool_definition("render_tree").expect("tool definition");
+        let input_schema = tool
+            .get("inputSchema")
+            .or_else(|| tool.get("input_schema"))
+            .expect("input schema");
+        let data_type = input_schema
+            .get("properties")
+            .and_then(|value| value.get("data"))
+            .and_then(|value| value.get("type"))
+            .and_then(|value| value.as_str());
+        assert_eq!(
+            data_type,
+            Some("string"),
+            "tool schema: {}",
+            serde_json::to_string_pretty(&tool).expect("tool json")
+        );
+        let configuration_type = input_schema
+            .get("properties")
+            .and_then(|value| value.get("configuration"))
+            .and_then(|value| value.get("type"))
+            .and_then(|value| value.as_str());
+        assert_eq!(
+            configuration_type,
+            Some("object"),
+            "tool schema: {}",
+            serde_json::to_string_pretty(&tool).expect("tool json")
+        );
+    }
+
+    #[test]
+    fn render_tool_accepts_legacy_object_payloads() {
+        let (_, _, context) = init_repo();
+        let tool: RenderTreeTool = serde_json::from_value(serde_json::json!({
+            "data": [{"label": "Root", "children": []}],
+            "configuration": {"maxDepth": 1}
+        }))
+        .expect("legacy payload");
+        let parsed_data: serde_json::Value = serde_json::from_str(&tool.data).expect("stored data json");
+        assert!(parsed_data.is_array());
+
+        let result = tool.call(&context).expect("render tree");
+        let body = text_payload(result);
+        assert!(body.contains("Root"));
     }
 
     #[test]
