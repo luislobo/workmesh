@@ -34,6 +34,10 @@ Project config:
 Keys:
 - `tasks_root = "<path>"` (repo-relative or absolute; default for new repos: `tasks/`)
 - `state_root = "<path>"` (repo-relative or absolute; default for new repos: `.workmesh/`)
+- `task_require_description = true|false` (default: `true`)
+- `task_require_acceptance_criteria = true|false` (default: `true`)
+- `task_require_definition_of_done = true|false` (default: `true`)
+- `task_require_outcome_based_definition_of_done = true|false` (default: `true`)
 - `worktrees_default = true|false`
 - `worktrees_dir = "<path>"` (absolute or repo-relative; used for auto-provisioned worktrees; default: `<repo_parent>/<repo_name>.worktrees/`)
 - `auto_session_default = true|false`
@@ -53,8 +57,8 @@ Environment overrides:
 ## Config
 CLI:
 - `config show [--json]`
-- `config set --scope project|global --key tasks_root|state_root|worktrees_default|worktrees_dir|auto_session_default|root_dir|do_not_migrate --value <value> [--json]`
-- `config unset --scope project|global --key tasks_root|state_root|worktrees_default|worktrees_dir|auto_session_default|root_dir|do_not_migrate [--json]`
+- `config set --scope project|global --key tasks_root|state_root|task_require_description|task_require_acceptance_criteria|task_require_definition_of_done|task_require_outcome_based_definition_of_done|worktrees_default|worktrees_dir|auto_session_default|root_dir|do_not_migrate --value <value> [--json]`
+- `config unset --scope project|global --key tasks_root|state_root|task_require_description|task_require_acceptance_criteria|task_require_definition_of_done|task_require_outcome_based_definition_of_done|worktrees_default|worktrees_dir|auto_session_default|root_dir|do_not_migrate [--json]`
 
 MCP:
 - `config_show`
@@ -143,8 +147,8 @@ MCP:
 
 ## Task mutations
 CLI:
-- `add --title "..." [--id task-...] [--status "..."] [--priority P2] [--phase Phase1] [--labels "..."] [--dependencies "..."] [--assignee "..."] [--json]`
-- `add-discovered --from <task-id> --title "..." ...`
+- `add --title "..." --description "..." --acceptance-criteria "..." --definition-of-done "..." [--id task-...] [--status "..."] [--priority P2] [--phase Phase1] [--labels "..."] [--dependencies "..."] [--assignee "..."] [--draft] [--json]`
+- `add-discovered --from <task-id> --title "..." --description "..." --acceptance-criteria "..." --definition-of-done "..." ... [--draft]`
 - `set-status <task-id> "In Progress"|"To Do"|Done`
 - `set-field <task-id> <field> <value>`
 - `label-add <task-id> <label>` / `label-remove <task-id> <label>`
@@ -176,16 +180,31 @@ MCP mutation response contract:
   - `add_task` verbose: includes `task`, `hints`, and `next_steps`
 
 Task quality guardrails:
-- Required task-body sections: `Description`, `Acceptance Criteria`, `Definition of Done`.
-- `Definition of Done` must include outcome-based criteria (not only hygiene bullets).
+- Default required task-body sections: `Description`, `Acceptance Criteria`, `Definition of Done`.
+- Default `Definition of Done` policy: include outcome-based criteria, not only hygiene bullets.
+- Repos can override the required fields with:
+  - `task_require_description`
+  - `task_require_acceptance_criteria`
+  - `task_require_definition_of_done`
+  - `task_require_outcome_based_definition_of_done`
+- Actionable statuses are `To Do` and `In Progress`.
+- Incomplete tasks must be created explicitly as `Draft` or `Needs Refinement` via the draft flag.
+- `config show` / `config_show` reports the effective task-quality policy and where each value came from.
+- `add` / `add_task` and discovered-task creation require the repo’s configured task-body sections unless draft mode is requested.
+- `next_task`, `next_tasks`, and `ready_tasks` only return actionable tasks that already meet the configured task-quality gate.
 - `Done` transitions are gated across all status mutation paths:
   - `set-status ... Done`
   - `set-field ... status Done`
   - `bulk set-status --status Done`
   - `bulk set-field --field status --value Done`
+- Actionable status transitions are also gated across the same mutation paths:
+  - `set-status ... "To Do"|"In Progress"`
+  - `set-field ... status "To Do"|"In Progress"`
+  - `bulk set-status --status "To Do"|"In Progress"`
+  - `bulk set-field --field status --value "To Do"|"In Progress"`
 - `validate` behavior:
-  - non-`Done` tasks with missing/incomplete sections produce warnings
-  - `Done` tasks with missing/incomplete sections (or hygiene-only DoD) produce errors
+  - `Draft` / `Needs Refinement` tasks with missing/incomplete sections produce warnings
+  - actionable and `Done` tasks with missing/incomplete sections (or hygiene-only DoD) produce errors
 
 ## Bulk operations
 CLI:

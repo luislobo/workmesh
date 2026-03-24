@@ -1,6 +1,10 @@
 use workmesh_core::task::Task;
 use workmesh_core::task_ops::validate_tasks;
 
+fn complete_task_body() -> String {
+    "Description:\n--------------------------------------------------\n- Example task.\n\nAcceptance Criteria:\n--------------------------------------------------\n- Expected behavior is validated.\n\nDefinition of Done:\n--------------------------------------------------\n- The task outcome is verified.\n- Code/config committed.\n".to_string()
+}
+
 fn task(id: &str, status: &str, deps: Vec<&str>) -> Task {
     Task {
         id: id.to_string(),
@@ -21,7 +25,7 @@ fn task(id: &str, status: &str, deps: Vec<&str>) -> Task {
         updated_date: None,
         extra: Default::default(),
         file_path: None,
-        body: String::new(),
+        body: complete_task_body(),
     }
 }
 

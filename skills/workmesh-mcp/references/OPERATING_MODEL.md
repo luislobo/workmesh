@@ -16,8 +16,8 @@ The durable layers are:
 - sessions/workstreams: continuity across terminals, worktrees, and restarts
 
 ## Non-negotiable rules
-- Keep task metadata complete: `Description`, `Acceptance Criteria`, `Definition of Done`.
-- `Definition of Done` must be outcome-based, not hygiene-only.
+- Respect the repo's configured task-quality policy. The strict default requires `Description`, `Acceptance Criteria`, and `Definition of Done`.
+- If configured, `Definition of Done` must be outcome-based, not hygiene-only.
 - Mark `Done` only when description goals and acceptance criteria are actually satisfied.
 - Treat all status mutation paths as equivalent for `Done` gating, including field writes and bulk updates.
 - Do not commit derived artifacts like `workmesh/.index/`.
@@ -48,8 +48,9 @@ Minimum restore objective:
 Before coding or making structural changes:
 - claim the task if coordination matters
 - set task status to `In Progress` if appropriate
-- validate that the active task has complete `Description`, `Acceptance Criteria`, and `Definition of Done`
-- if the task is missing those sections or they are weak, fix the task first
+- inspect the effective task-quality policy with config before assuming which fields are required
+- validate that the active task satisfies the repo's configured task-quality requirements
+- if the task is missing required sections or they are weak, fix the task first
 - if the current work does not fit an existing task, create or split tasks before continuing
 
 ### 3. During work
@@ -117,6 +118,7 @@ Use the right mechanism.
 - the task is wrong, incomplete, or too broad
 - acceptance criteria changed
 - definition of done changed
+- task-quality policy changed and the task no longer matches the repo contract
 - dependencies/blockers changed
 - the work needs to be split or newly discovered follow-up work should be created
 

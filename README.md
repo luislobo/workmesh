@@ -8,6 +8,8 @@ It keeps planning state next to the code:
 - durable decisions in `.workmesh/truth/`
 - global continuity in `~/.workmesh/`
 
+By default, actionable tasks must include `Description`, `Acceptance Criteria`, and `Definition of Done`, and `Definition of Done` must be outcome-based. Those task-quality requirements are configurable in `.workmesh.toml` or global config when a repo wants a looser or stricter policy. Incomplete work should stay in `Draft` or `Needs Refinement` until it is ready for `To Do` or `In Progress`.
+
 ## Install
 
 Verify installed binaries:

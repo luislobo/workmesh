@@ -17,8 +17,9 @@ use workmesh_core::config::{
     global_config_path, load_config, load_config_with_path, load_global_config,
     load_global_config_with_path, resolve_auto_session_default,
     resolve_auto_session_default_with_source, resolve_worktrees_default,
-    resolve_worktrees_default_with_source, resolve_worktrees_dir_with_source,
-    update_do_not_migrate, write_config, write_global_config,
+    resolve_task_validation_rules, resolve_task_validation_rules_with_source,
+    resolve_worktrees_default_with_source, resolve_worktrees_dir_with_source, update_do_not_migrate,
+    write_config, write_global_config,
 };
 use workmesh_core::context::{
     clear_context, context_path, extract_task_id_from_branch, infer_project_id, load_context,
@@ -63,12 +64,13 @@ use workmesh_core::skills::{
 };
 use workmesh_core::task::{load_tasks, load_tasks_with_archive, tasks_dir_for_root, Lease, Task};
 use workmesh_core::task_ops::{
-    append_note, create_task_file, ensure_can_mark_done, filter_tasks, graph_export,
-    is_lease_active, now_timestamp, ready_tasks, recommend_next_tasks_with_context,
-    render_task_line, replace_section, set_list_field, sort_tasks, status_counts,
-    task_to_json_value, tasks_to_json, tasks_to_jsonl, timestamp_plus_minutes, update_body,
-    update_lease_fields, update_task_field, update_task_field_or_section, validate_tasks,
-    FieldValue,
+    append_note, create_task_file_with_sections, ensure_can_set_status_with_rules, filter_tasks,
+    graph_export, is_lease_active, now_timestamp, ready_tasks_with_rules,
+    recommend_next_tasks_with_context_and_rules, render_task_line, replace_section,
+    set_list_field, sort_tasks, status_counts, task_to_json_value, tasks_to_json, tasks_to_jsonl,
+    timestamp_plus_minutes, update_body, update_lease_fields, update_task_field,
+    update_task_field_or_section, validate_task_creation_with_rules, validate_tasks_with_rules,
+    FieldValue, TaskSectionContent,
 };
 use workmesh_core::truth::{
     accept_truth, apply_truth_migration, list_truths, propose_truth, reject_truth, show_truth,
@@ -670,6 +672,14 @@ enum Command {
         id: Option<String>,
         #[arg(long)]
         title: String,
+        #[arg(long)]
+        description: Option<String>,
+        #[arg(long)]
+        acceptance_criteria: Option<String>,
+        #[arg(long)]
+        definition_of_done: Option<String>,
+        #[arg(long, action = ArgAction::SetTrue)]
+        draft: bool,
         #[arg(long, default_value = "To Do")]
         status: String,
         #[arg(long, default_value = "P2")]
@@ -693,6 +703,14 @@ enum Command {
         id: Option<String>,
         #[arg(long)]
         title: String,
+        #[arg(long)]
+        description: Option<String>,
+        #[arg(long)]
+        acceptance_criteria: Option<String>,
+        #[arg(long)]
+        definition_of_done: Option<String>,
+        #[arg(long, action = ArgAction::SetTrue)]
+        draft: bool,
         #[arg(long, default_value = "To Do")]
         status: String,
         #[arg(long, default_value = "P2")]
@@ -2807,6 +2825,8 @@ fn main() -> Result<()> {
     let resolution = resolve_backlog(&cli.root)?;
     let backlog_dir = maybe_prompt_migration(&resolution)?;
     let tasks = load_tasks(&backlog_dir);
+    let repo_root = repo_root_from_backlog(&backlog_dir);
+    let task_rules = resolve_task_validation_rules(&repo_root);
     let auto_checkpoint = auto_checkpoint_enabled(&cli);
     let auto_session = auto_session_enabled(&cli, &resolution.repo_root);
 
@@ -2964,7 +2984,8 @@ fn main() -> Result<()> {
         }
         Command::Next { json } => {
             let context = load_context_state(&backlog_dir);
-            let recommended = recommend_next_tasks_with_context(&tasks, context.as_ref());
+            let recommended =
+                recommend_next_tasks_with_context_and_rules(&tasks, context.as_ref(), &task_rules);
             let task = recommended.first().map(|t| (*t).clone());
             if json {
                 if let Some(task) = task {
@@ -2979,7 +3000,11 @@ fn main() -> Result<()> {
         }
         Command::NextTasks { json, limit } => {
             let context = load_context_state(&backlog_dir);
-            let mut recommended = recommend_next_tasks_with_context(&tasks, context.as_ref());
+            let mut recommended = recommend_next_tasks_with_context_and_rules(
+                &tasks,
+                context.as_ref(),
+                &task_rules,
+            );
             if let Some(limit) = limit {
                 recommended.truncate(limit);
             }
@@ -2996,7 +3021,7 @@ fn main() -> Result<()> {
             }
         }
         Command::Ready { json, limit } => {
-            let mut ready = ready_tasks(&tasks);
+            let mut ready = ready_tasks_with_rules(&tasks, &task_rules);
             if let Some(limit) = limit {
                 ready.truncate(limit);
             }
@@ -4222,10 +4247,9 @@ fn main() -> Result<()> {
             let task = find_task(&tasks, &task_id).unwrap_or_else(|| {
                 die(&format!("Task not found: {}", task_id));
             });
-            if is_done_status(&status) {
-                if let Err(err) = ensure_can_mark_done(&tasks, task) {
-                    die(&err);
-                }
+            if let Err(err) = ensure_can_set_status_with_rules(&tasks, task, &status, &task_rules)
+            {
+                die(&err);
             }
             let path = task.file_path.as_ref().unwrap_or_else(|| {
                 die(&format!("Task not found: {}", task_id));
@@ -4323,6 +4347,7 @@ fn main() -> Result<()> {
             } => handle_bulk_set_status(
                 &backlog_dir,
                 &tasks,
+                &task_rules,
                 task_ids,
                 status,
                 effective_touch(touch, no_touch),
@@ -4340,6 +4365,7 @@ fn main() -> Result<()> {
             } => handle_bulk_set_field(
                 &backlog_dir,
                 &tasks,
+                &task_rules,
                 task_ids,
                 field,
                 value,
@@ -4441,6 +4467,7 @@ fn main() -> Result<()> {
             handle_bulk_set_status(
                 &backlog_dir,
                 &tasks,
+                &task_rules,
                 task_ids,
                 status,
                 effective_touch(touch, no_touch),
@@ -4460,6 +4487,7 @@ fn main() -> Result<()> {
             handle_bulk_set_field(
                 &backlog_dir,
                 &tasks,
+                &task_rules,
                 task_ids,
                 field,
                 value,
@@ -4571,8 +4599,10 @@ fn main() -> Result<()> {
             let task = find_task(&tasks, &task_id).unwrap_or_else(|| {
                 die(&format!("Task not found: {}", task_id));
             });
-            if is_status_field(&field) && is_done_status(&value) {
-                if let Err(err) = ensure_can_mark_done(&tasks, task) {
+            if is_status_field(&field) {
+                if let Err(err) =
+                    ensure_can_set_status_with_rules(&tasks, task, &value, &task_rules)
+                {
                     die(&err);
                 }
             }
@@ -4754,6 +4784,10 @@ fn main() -> Result<()> {
         Command::Add {
             id,
             title,
+            description,
+            acceptance_criteria,
+            definition_of_done,
+            draft,
             status,
             priority,
             phase,
@@ -4775,22 +4809,28 @@ fn main() -> Result<()> {
             let labels = split_csv(&labels);
             let dependencies = split_csv(&dependencies);
             let assignee = split_csv(&assignee);
-            let path = create_task_file(
+            let sections =
+                build_task_sections(description, acceptance_criteria, definition_of_done);
+            let effective_status =
+                validate_task_creation_with_rules(&status, draft, &sections, &task_rules)
+                    .unwrap_or_else(|err| die(&err));
+            let path = create_task_file_with_sections(
                 &tasks_dir,
                 &task_id,
                 &title,
-                &status,
+                &effective_status,
                 &priority,
                 &phase,
                 &dependencies,
                 &labels,
                 &assignee,
+                &sections,
             )?;
             audit_event(
                 &backlog_dir,
                 "add_task",
                 Some(&task_id),
-                serde_json::json!({ "title": title }),
+                serde_json::json!({ "title": title, "status": effective_status }),
             )?;
             refresh_index_best_effort(&backlog_dir);
             maybe_auto_checkpoint(&backlog_dir, auto_checkpoint, auto_session);
@@ -4805,6 +4845,10 @@ fn main() -> Result<()> {
             from,
             id,
             title,
+            description,
+            acceptance_criteria,
+            definition_of_done,
+            draft,
             status,
             priority,
             phase,
@@ -4826,16 +4870,22 @@ fn main() -> Result<()> {
             let labels = split_csv(&labels);
             let dependencies = split_csv(&dependencies);
             let assignee = split_csv(&assignee);
-            let path = create_task_file(
+            let sections =
+                build_task_sections(description, acceptance_criteria, definition_of_done);
+            let effective_status =
+                validate_task_creation_with_rules(&status, draft, &sections, &task_rules)
+                    .unwrap_or_else(|err| die(&err));
+            let path = create_task_file_with_sections(
                 &tasks_dir,
                 &task_id,
                 &title,
-                &status,
+                &effective_status,
                 &priority,
                 &phase,
                 &dependencies,
                 &labels,
                 &assignee,
+                &sections,
             )?;
             update_task_field(
                 &path,
@@ -4846,7 +4896,7 @@ fn main() -> Result<()> {
                 &backlog_dir,
                 "add_discovered",
                 Some(&task_id),
-                serde_json::json!({ "from": from, "title": title }),
+                serde_json::json!({ "from": from, "title": title, "status": effective_status }),
             )?;
             refresh_index_best_effort(&backlog_dir);
             maybe_auto_checkpoint(&backlog_dir, auto_checkpoint, auto_session);
@@ -4870,7 +4920,7 @@ fn main() -> Result<()> {
             println!("{}", path.display());
         }
         Command::Validate { json } => {
-            let report = validate_tasks(&tasks, Some(&backlog_dir));
+            let report = validate_tasks_with_rules(&tasks, Some(&backlog_dir), &task_rules);
             let truth_report = validate_truth_store(&backlog_dir).ok();
             if json {
                 let payload = serde_json::json!({
@@ -5071,6 +5121,18 @@ fn split_csv(value: &str) -> Vec<String> {
         .map(|val| val.trim().to_string())
         .filter(|val| !val.is_empty())
         .collect()
+}
+
+fn build_task_sections(
+    description: Option<String>,
+    acceptance_criteria: Option<String>,
+    definition_of_done: Option<String>,
+) -> TaskSectionContent {
+    TaskSectionContent {
+        description: description.unwrap_or_default(),
+        acceptance_criteria: acceptance_criteria.unwrap_or_default(),
+        definition_of_done: definition_of_done.unwrap_or_default(),
+    }
 }
 
 fn find_task<'a>(tasks: &'a [Task], task_id: &str) -> Option<&'a Task> {
@@ -6940,6 +7002,8 @@ fn handle_config_command(repo_root: &Path, command: &ConfigCommand) -> Result<()
                 resolve_worktrees_dir_with_source(repo_root);
             let (auto_session_default, auto_session_default_source) =
                 resolve_auto_session_default_with_source(repo_root);
+            let (task_validation, task_validation_sources) =
+                resolve_task_validation_rules_with_source(repo_root);
 
             let payload = serde_json::json!({
                 "project": project,
@@ -6948,11 +7012,19 @@ fn handle_config_command(repo_root: &Path, command: &ConfigCommand) -> Result<()
                     "worktrees_default": worktrees_default,
                     "worktrees_dir": worktrees_dir.as_ref().map(|p| p.to_string_lossy().to_string()),
                     "auto_session_default": auto_session_default,
+                    "task_require_description": task_validation.require_description,
+                    "task_require_acceptance_criteria": task_validation.require_acceptance_criteria,
+                    "task_require_definition_of_done": task_validation.require_definition_of_done,
+                    "task_require_outcome_based_definition_of_done": task_validation.require_outcome_based_definition_of_done,
                 },
                 "sources": {
                     "worktrees_default": worktrees_default_source,
                     "worktrees_dir": worktrees_dir_source,
                     "auto_session_default": auto_session_default_source,
+                    "task_require_description": task_validation_sources.require_description,
+                    "task_require_acceptance_criteria": task_validation_sources.require_acceptance_criteria,
+                    "task_require_definition_of_done": task_validation_sources.require_definition_of_done,
+                    "task_require_outcome_based_definition_of_done": task_validation_sources.require_outcome_based_definition_of_done,
                 },
                 "paths": {
                     "project_default": workmesh_core::config::config_path(repo_root),
@@ -6975,10 +7047,45 @@ fn handle_config_command(repo_root: &Path, command: &ConfigCommand) -> Result<()
                     if let Some(value) = config.state_root.as_ref() {
                         println!("- state_root: {} (project)", value);
                     }
+                    if let Some(value) = config.task_require_description {
+                        println!("- task_require_description: {} (project)", value);
+                    }
+                    if let Some(value) = config.task_require_acceptance_criteria {
+                        println!("- task_require_acceptance_criteria: {} (project)", value);
+                    }
+                    if let Some(value) = config.task_require_definition_of_done {
+                        println!("- task_require_definition_of_done: {} (project)", value);
+                    }
+                    if let Some(value) = config.task_require_outcome_based_definition_of_done {
+                        println!(
+                            "- task_require_outcome_based_definition_of_done: {} (project)",
+                            value
+                        );
+                    }
                     if let Some(value) = config.root_dir.as_ref() {
                         println!("- root_dir: {} (project, deprecated)", value);
                     }
                 }
+                println!(
+                    "- task_require_description: {} ({})",
+                    task_validation.require_description,
+                    task_validation_sources.require_description
+                );
+                println!(
+                    "- task_require_acceptance_criteria: {} ({})",
+                    task_validation.require_acceptance_criteria,
+                    task_validation_sources.require_acceptance_criteria
+                );
+                println!(
+                    "- task_require_definition_of_done: {} ({})",
+                    task_validation.require_definition_of_done,
+                    task_validation_sources.require_definition_of_done
+                );
+                println!(
+                    "- task_require_outcome_based_definition_of_done: {} ({})",
+                    task_validation.require_outcome_based_definition_of_done,
+                    task_validation_sources.require_outcome_based_definition_of_done
+                );
                 if let Some(dir) = worktrees_dir.as_ref() {
                     println!(
                         "- worktrees_dir: {} ({})",
@@ -7063,6 +7170,30 @@ fn handle_config_command(repo_root: &Path, command: &ConfigCommand) -> Result<()
                     }
                     config.state_root = Some(value.to_string());
                 }
+                "task_require_description" => {
+                    let parsed = parse_boolish(value).unwrap_or_else(|| {
+                        die("Invalid bool value for task_require_description (expected true/false/1/0)");
+                    });
+                    config.task_require_description = Some(parsed);
+                }
+                "task_require_acceptance_criteria" => {
+                    let parsed = parse_boolish(value).unwrap_or_else(|| {
+                        die("Invalid bool value for task_require_acceptance_criteria (expected true/false/1/0)");
+                    });
+                    config.task_require_acceptance_criteria = Some(parsed);
+                }
+                "task_require_definition_of_done" => {
+                    let parsed = parse_boolish(value).unwrap_or_else(|| {
+                        die("Invalid bool value for task_require_definition_of_done (expected true/false/1/0)");
+                    });
+                    config.task_require_definition_of_done = Some(parsed);
+                }
+                "task_require_outcome_based_definition_of_done" => {
+                    let parsed = parse_boolish(value).unwrap_or_else(|| {
+                        die("Invalid bool value for task_require_outcome_based_definition_of_done (expected true/false/1/0)");
+                    });
+                    config.task_require_outcome_based_definition_of_done = Some(parsed);
+                }
                 "root_dir" => {
                     if value.is_empty() {
                         die("root_dir cannot be blank (use config unset to remove)");
@@ -7114,6 +7245,12 @@ fn handle_config_command(repo_root: &Path, command: &ConfigCommand) -> Result<()
                 "auto_session_default" => config.auto_session_default = None,
                 "tasks_root" => config.tasks_root = None,
                 "state_root" => config.state_root = None,
+                "task_require_description" => config.task_require_description = None,
+                "task_require_acceptance_criteria" => config.task_require_acceptance_criteria = None,
+                "task_require_definition_of_done" => config.task_require_definition_of_done = None,
+                "task_require_outcome_based_definition_of_done" => {
+                    config.task_require_outcome_based_definition_of_done = None
+                }
                 "root_dir" => config.root_dir = None,
                 "do_not_migrate" => config.do_not_migrate = None,
                 _ => die(&format!("Unknown config key: {}", key)),
@@ -7473,6 +7610,7 @@ fn infer_context_state(repo_root: &Path, backlog_dir: &Path) -> Option<ContextSt
 fn handle_bulk_set_status(
     backlog_dir: &Path,
     tasks: &[Task],
+    task_rules: &workmesh_core::config::TaskValidationRules,
     task_ids: Vec<String>,
     status: String,
     touch: bool,
@@ -7487,10 +7625,8 @@ fn handle_bulk_set_status(
     let (selected, missing) = select_tasks_with_missing(tasks, &ids);
     let mut updated = Vec::new();
     for task in selected {
-        if is_done_status(&status) {
-            if let Err(err) = ensure_can_mark_done(tasks, task) {
-                die(&err);
-            }
+        if let Err(err) = ensure_can_set_status_with_rules(tasks, task, &status, task_rules) {
+            die(&err);
         }
         let path = task.file_path.as_ref().unwrap_or_else(|| {
             die(&format!("Task not found: {}", task.id));
@@ -7516,6 +7652,7 @@ fn handle_bulk_set_status(
 fn handle_bulk_set_field(
     backlog_dir: &Path,
     tasks: &[Task],
+    task_rules: &workmesh_core::config::TaskValidationRules,
     task_ids: Vec<String>,
     field: String,
     value: String,
@@ -7531,8 +7668,8 @@ fn handle_bulk_set_field(
     let (selected, missing) = select_tasks_with_missing(tasks, &ids);
     let mut updated = Vec::new();
     for task in selected {
-        if is_status_field(&field) && is_done_status(&value) {
-            if let Err(err) = ensure_can_mark_done(tasks, task) {
+        if is_status_field(&field) {
+            if let Err(err) = ensure_can_set_status_with_rules(tasks, task, &value, task_rules) {
                 die(&err);
             }
         }

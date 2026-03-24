@@ -42,6 +42,12 @@ fn add_discovered_sets_relationship() {
         .arg("task-001")
         .arg("--title")
         .arg("Found bug")
+        .arg("--description")
+        .arg("Investigate the discovered bug.")
+        .arg("--acceptance-criteria")
+        .arg("The bug is reproduced and the required outcome is defined.")
+        .arg("--definition-of-done")
+        .arg("The bug is triaged with a clear resolution path.\nDocs updated if needed.")
         .output()
         .expect("add discovered");
     assert!(output.status.success());

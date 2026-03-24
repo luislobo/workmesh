@@ -23,6 +23,14 @@ pub struct WorkmeshConfig {
     pub tasks_root: Option<String>,
     /// Repo-relative or absolute path for repo-local WorkMesh state.
     pub state_root: Option<String>,
+    /// Whether actionable and done tasks must include a substantive Description section.
+    pub task_require_description: Option<bool>,
+    /// Whether actionable and done tasks must include substantive Acceptance Criteria.
+    pub task_require_acceptance_criteria: Option<bool>,
+    /// Whether actionable and done tasks must include a substantive Definition of Done section.
+    pub task_require_definition_of_done: Option<bool>,
+    /// Whether Definition of Done must include outcome-based criteria instead of hygiene-only items.
+    pub task_require_outcome_based_definition_of_done: Option<bool>,
     pub do_not_migrate: Option<bool>,
     /// Default behavior for promoting worktree-based parallel workflows.
     /// true = promote worktrees by default, false = suppress default worktree guidance.
@@ -40,6 +48,33 @@ pub struct WorkmeshConfig {
     pub initiatives: Option<Vec<String>>,
     /// Map of git branch name -> initiative slug frozen for that branch
     pub branch_initiatives: Option<HashMap<String, String>>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+pub struct TaskValidationRules {
+    pub require_description: bool,
+    pub require_acceptance_criteria: bool,
+    pub require_definition_of_done: bool,
+    pub require_outcome_based_definition_of_done: bool,
+}
+
+impl Default for TaskValidationRules {
+    fn default() -> Self {
+        Self {
+            require_description: true,
+            require_acceptance_criteria: true,
+            require_definition_of_done: true,
+            require_outcome_based_definition_of_done: true,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
+pub struct TaskValidationRuleSources {
+    pub require_description: &'static str,
+    pub require_acceptance_criteria: &'static str,
+    pub require_definition_of_done: &'static str,
+    pub require_outcome_based_definition_of_done: &'static str,
 }
 
 pub fn config_filename_candidates() -> [&'static str; 2] {
@@ -187,6 +222,85 @@ pub fn resolve_auto_session_default(repo_root: &Path) -> Option<bool> {
     resolve_auto_session_default_with_source(repo_root).0
 }
 
+fn resolve_bool_with_source(
+    project_value: Option<bool>,
+    global_value: Option<bool>,
+    default: bool,
+) -> (bool, &'static str) {
+    if let Some(value) = project_value {
+        return (value, "project");
+    }
+    if let Some(value) = global_value {
+        return (value, "global");
+    }
+    (default, "default")
+}
+
+pub fn resolve_task_validation_rules_with_source(
+    repo_root: &Path,
+) -> (TaskValidationRules, TaskValidationRuleSources) {
+    let project = load_config(repo_root);
+    let global = load_global_config();
+
+    let (require_description, require_description_source) = resolve_bool_with_source(
+        project.as_ref().and_then(|cfg| cfg.task_require_description),
+        global.as_ref().and_then(|cfg| cfg.task_require_description),
+        true,
+    );
+    let (require_acceptance_criteria, require_acceptance_criteria_source) =
+        resolve_bool_with_source(
+            project
+                .as_ref()
+                .and_then(|cfg| cfg.task_require_acceptance_criteria),
+            global
+                .as_ref()
+                .and_then(|cfg| cfg.task_require_acceptance_criteria),
+            true,
+        );
+    let (require_definition_of_done, require_definition_of_done_source) =
+        resolve_bool_with_source(
+            project
+                .as_ref()
+                .and_then(|cfg| cfg.task_require_definition_of_done),
+            global
+                .as_ref()
+                .and_then(|cfg| cfg.task_require_definition_of_done),
+            true,
+        );
+    let (
+        require_outcome_based_definition_of_done,
+        require_outcome_based_definition_of_done_source,
+    ) = resolve_bool_with_source(
+        project
+            .as_ref()
+            .and_then(|cfg| cfg.task_require_outcome_based_definition_of_done),
+        global
+            .as_ref()
+            .and_then(|cfg| cfg.task_require_outcome_based_definition_of_done),
+        true,
+    );
+
+    (
+        TaskValidationRules {
+            require_description,
+            require_acceptance_criteria,
+            require_definition_of_done,
+            require_outcome_based_definition_of_done,
+        },
+        TaskValidationRuleSources {
+            require_description: require_description_source,
+            require_acceptance_criteria: require_acceptance_criteria_source,
+            require_definition_of_done: require_definition_of_done_source,
+            require_outcome_based_definition_of_done:
+                require_outcome_based_definition_of_done_source,
+        },
+    )
+}
+
+pub fn resolve_task_validation_rules(repo_root: &Path) -> TaskValidationRules {
+    resolve_task_validation_rules_with_source(repo_root).0
+}
+
 pub fn write_config(repo_root: &Path, config: &WorkmeshConfig) -> Result<PathBuf, ConfigError> {
     let path = config_path(repo_root);
     let body = toml::to_string_pretty(config)?;
@@ -227,6 +341,12 @@ pub fn update_do_not_migrate(
             .as_ref()
             .map(|value| !value.trim().is_empty())
             .unwrap_or(false)
+        || config.task_require_description.is_some()
+        || config.task_require_acceptance_criteria.is_some()
+        || config.task_require_definition_of_done.is_some()
+        || config
+            .task_require_outcome_based_definition_of_done
+            .is_some()
         || config.worktrees_default.is_some()
         || config
             .worktrees_dir
@@ -310,6 +430,10 @@ mod tests {
             root_dir: Some("workmesh".to_string()),
             tasks_root: None,
             state_root: None,
+            task_require_description: Some(true),
+            task_require_acceptance_criteria: Some(true),
+            task_require_definition_of_done: Some(true),
+            task_require_outcome_based_definition_of_done: Some(true),
             do_not_migrate: Some(true),
             worktrees_default: Some(true),
             worktrees_dir: None,
@@ -322,6 +446,13 @@ mod tests {
         assert_eq!(loaded.root_dir.as_deref(), Some("workmesh"));
         assert_eq!(loaded.tasks_root, None);
         assert_eq!(loaded.state_root, None);
+        assert_eq!(loaded.task_require_description, Some(true));
+        assert_eq!(loaded.task_require_acceptance_criteria, Some(true));
+        assert_eq!(loaded.task_require_definition_of_done, Some(true));
+        assert_eq!(
+            loaded.task_require_outcome_based_definition_of_done,
+            Some(true)
+        );
         assert_eq!(loaded.do_not_migrate, Some(true));
         assert_eq!(loaded.worktrees_default, Some(true));
         assert_eq!(loaded.auto_session_default, Some(true));
@@ -334,6 +465,10 @@ mod tests {
             root_dir: None,
             tasks_root: None,
             state_root: None,
+            task_require_description: None,
+            task_require_acceptance_criteria: None,
+            task_require_definition_of_done: None,
+            task_require_outcome_based_definition_of_done: None,
             do_not_migrate: Some(true),
             worktrees_default: None,
             worktrees_dir: None,
@@ -354,6 +489,10 @@ mod tests {
             root_dir: None,
             tasks_root: None,
             state_root: None,
+            task_require_description: None,
+            task_require_acceptance_criteria: None,
+            task_require_definition_of_done: None,
+            task_require_outcome_based_definition_of_done: None,
             do_not_migrate: Some(true),
             worktrees_default: Some(false),
             worktrees_dir: None,
@@ -439,6 +578,59 @@ mod tests {
             let (value, source) = resolve_auto_session_default_with_source(repo.path());
             assert_eq!(value, Some(true));
             assert_eq!(source, "project");
+        });
+    }
+
+    #[test]
+    fn resolve_task_validation_rules_prefers_project_over_global_then_default() {
+        with_env_lock(|| {
+            let _env = EnvGuard::capture();
+            let repo = TempDir::new().expect("repo tempdir");
+            let home = TempDir::new().expect("home tempdir");
+            std::env::set_var("WORKMESH_HOME", home.path());
+
+            let (rules, sources) = resolve_task_validation_rules_with_source(repo.path());
+            assert_eq!(rules, TaskValidationRules::default());
+            assert_eq!(sources.require_description, "default");
+            assert_eq!(sources.require_acceptance_criteria, "default");
+            assert_eq!(sources.require_definition_of_done, "default");
+            assert_eq!(sources.require_outcome_based_definition_of_done, "default");
+
+            std::fs::create_dir_all(home.path()).expect("home dir");
+            std::fs::write(
+                home.path().join("config.toml"),
+                "task_require_description = false\n\
+task_require_acceptance_criteria = false\n\
+task_require_definition_of_done = true\n\
+task_require_outcome_based_definition_of_done = true\n",
+            )
+            .expect("global config");
+            let (rules, sources) = resolve_task_validation_rules_with_source(repo.path());
+            assert!(!rules.require_description);
+            assert!(!rules.require_acceptance_criteria);
+            assert!(rules.require_definition_of_done);
+            assert!(rules.require_outcome_based_definition_of_done);
+            assert_eq!(sources.require_description, "global");
+            assert_eq!(sources.require_acceptance_criteria, "global");
+
+            std::fs::write(
+                repo.path().join(".workmesh.toml"),
+                "task_require_acceptance_criteria = true\n\
+task_require_definition_of_done = false\n",
+            )
+            .expect("project config");
+            let (rules, sources) = resolve_task_validation_rules_with_source(repo.path());
+            assert!(!rules.require_description);
+            assert!(rules.require_acceptance_criteria);
+            assert!(!rules.require_definition_of_done);
+            assert!(rules.require_outcome_based_definition_of_done);
+            assert_eq!(sources.require_description, "global");
+            assert_eq!(sources.require_acceptance_criteria, "project");
+            assert_eq!(sources.require_definition_of_done, "project");
+            assert_eq!(
+                sources.require_outcome_based_definition_of_done,
+                "global"
+            );
         });
     }
 }

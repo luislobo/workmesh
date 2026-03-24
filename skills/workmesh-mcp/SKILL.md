@@ -9,6 +9,7 @@ Read `references/OPERATING_MODEL.md` first. It is the canonical shared doctrine 
 
 ## MCP mode rules
 - Prefer MCP tools over shell commands when parity exists.
+- Read `config_show` when task-quality policy or storage roots might matter.
 - Use `render_*` tools for human-friendly structured output.
 - Treat mutation tools as acknowledgement-first APIs.
 

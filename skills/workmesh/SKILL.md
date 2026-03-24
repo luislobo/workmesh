@@ -23,5 +23,6 @@ When the user says `bootstrap workmesh` or equivalent:
 ## Runtime expectations
 - Enforce the operating procedure from `OPERATING_MODEL.md`.
 - Keep WorkMesh continuously updated during feature work.
+- Discover the repo's effective task-quality policy with `config show` / `config_show` before assuming which task fields are required.
 - Use workstream restore for deterministic reboot recovery.
 - Use render tools for structured output.

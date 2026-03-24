@@ -10,6 +10,7 @@ Read `references/OPERATING_MODEL.md` first. It is the canonical shared doctrine 
 ## CLI mode rules
 - Always pass `--root <repo>`.
 - Prefer `--json` when parsing output.
+- Read `config show --json` when task-quality policy or storage roots might matter.
 - Use `workmesh --root <repo> render ...` before hand-formatting structured output.
 
 ## Bootstrap contract

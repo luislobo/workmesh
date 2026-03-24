@@ -11,7 +11,7 @@ use crate::initiative::{
 };
 use crate::project::{ensure_project_docs, write_repo_root_metadata};
 use crate::task::load_tasks;
-use crate::task_ops::create_task_file;
+use crate::task_ops::{create_task_file_with_sections, TaskSectionContent};
 
 #[derive(Debug, Error)]
 pub enum QuickstartError {
@@ -168,7 +168,7 @@ fn create_sample_task_if_missing(
     if has_tasks {
         return Ok(None);
     }
-    let path = create_task_file(
+    let path = create_task_file_with_sections(
         tasks_dir,
         task_id,
         "Initial setup",
@@ -178,6 +178,15 @@ fn create_sample_task_if_missing(
         &[],
         &[],
         &[],
+        &TaskSectionContent {
+            description:
+                "- Establish the initial WorkMesh scaffold and verify the repository is ready for task-driven work."
+                    .to_string(),
+            acceptance_criteria:
+                "- WorkMesh task and state directories exist in the configured locations.\n- Repo-local docs and context are initialized for this repository.".to_string(),
+            definition_of_done:
+                "- Bootstrap or quickstart completed successfully.\n- The initial repository workflow is ready for the next actionable task.".to_string(),
+        },
     )?;
     Ok(Some(path))
 }

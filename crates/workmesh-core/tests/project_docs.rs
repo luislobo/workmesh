@@ -4,6 +4,10 @@ use workmesh_core::project::{ensure_project_docs, project_docs_dir, repo_root_fr
 use workmesh_core::task::Task;
 use workmesh_core::task_ops::validate_tasks;
 
+fn complete_task_body() -> String {
+    "Description:\n--------------------------------------------------\n- Example task.\n\nAcceptance Criteria:\n--------------------------------------------------\n- Expected behavior is validated.\n\nDefinition of Done:\n--------------------------------------------------\n- The task outcome is verified.\n- Code/config committed.\n".to_string()
+}
+
 fn task_with_project(project: &str) -> Task {
     Task {
         id: "task-001".to_string(),
@@ -24,7 +28,7 @@ fn task_with_project(project: &str) -> Task {
         updated_date: None,
         extra: Default::default(),
         file_path: None,
-        body: String::new(),
+        body: complete_task_body(),
     }
 }
 

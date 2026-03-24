@@ -114,12 +114,22 @@ Legacy layouts remain readable:
 - `backlog/tasks/`
 - `project/tasks/`
 
-Required task sections:
+Default task-quality requirements:
 - `Description`
 - `Acceptance Criteria`
 - `Definition of Done`
+- outcome-based `Definition of Done` content, not only hygiene lines like “code committed” or “docs updated”
 
-`Definition of Done` must be outcome-based. It cannot be only hygiene lines like “code committed” or “docs updated”.
+These defaults are configurable through project or global config:
+- `task_require_description`
+- `task_require_acceptance_criteria`
+- `task_require_definition_of_done`
+- `task_require_outcome_based_definition_of_done`
+
+Actionable tasks:
+- `To Do` and `In Progress` tasks must already satisfy the required section quality gate.
+- Incomplete work must stay in `Draft` or `Needs Refinement` until the task is properly specified.
+- `next_task`, `next_tasks`, and `ready_tasks` ignore tasks that are not yet actionable.
 
 ### Context
 
@@ -162,7 +172,7 @@ workmesh --root . worktree adopt-clone --from <path-to-clone> --apply --json
 A good WorkMesh-driven feature flow looks like this:
 1. create or update the PRD
 2. create tasks that support the real work
-3. keep `Description`, `Acceptance Criteria`, and `Definition of Done` complete
+3. keep the repo’s configured task-quality requirements complete before moving work into `To Do` or `In Progress`
 4. keep repo-local context current
 5. capture durable feature truths when a decision should persist
 6. make atomic commits per task or coherent task slice

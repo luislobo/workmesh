@@ -79,7 +79,22 @@
       "Acceptance Criteria",
       "Definition of Done"
     ],
-    "definition_of_done": "Outcome-based, not hygiene-only.",
+    "actionable_statuses": [
+      "To Do",
+      "In Progress"
+    ],
+    "draft_statuses": [
+      "Draft",
+      "Needs Refinement"
+    ],
+    "task_creation": "By default, new actionable tasks must provide description, acceptance criteria, and definition of done. Use explicit draft mode for incomplete tasks. Repos can override the required task-quality fields in config.",
+    "definition_of_done": "By default, Definition of Done must be outcome-based, not hygiene-only. This requirement is configurable.",
+    "task_quality_config_keys": [
+      "task_require_description",
+      "task_require_acceptance_criteria",
+      "task_require_definition_of_done",
+      "task_require_outcome_based_definition_of_done"
+    ],
     "mutation_responses": "Compact by default; use verbose=true only when richer post-write state is required.",
     "resume_checklist": [
       "restore current context",

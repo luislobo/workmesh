@@ -1044,6 +1044,12 @@ async fn cli_and_mcp_write_and_session_parity() {
         .arg("task-003")
         .arg("--title")
         .arg("Gamma")
+        .arg("--description")
+        .arg("Deliver Gamma.")
+        .arg("--acceptance-criteria")
+        .arg("Gamma behavior is validated.")
+        .arg("--definition-of-done")
+        .arg("Gamma outcome is verified.\nCode/config committed.")
         .arg("--labels")
         .arg("seed")
         .output()
@@ -1071,6 +1077,9 @@ async fn cli_and_mcp_write_and_session_parity() {
             "root": temp.path().display().to_string(),
             "task_id": "task-004",
             "title": "Delta",
+            "description": "- Deliver Delta.",
+            "acceptance_criteria": "- Delta behavior is validated.",
+            "definition_of_done": "- Delta outcome is verified.\n- Code/config committed.",
             "labels": ["seed2"]
         }),
     )
@@ -1259,7 +1268,7 @@ async fn cli_and_mcp_write_and_session_parity() {
         .arg("set-body")
         .arg("task-001")
         .arg("--text")
-        .arg("Body via CLI")
+        .arg("Description:\n--------------------------------------------------\nBody via CLI.\n\nAcceptance Criteria:\n--------------------------------------------------\nThe CLI body update keeps the task actionable.\n\nDefinition of Done:\n--------------------------------------------------\nThe CLI body update is validated.\nCode/config committed.\n")
         .output()
         .expect("cli set-body");
     assert_output_ok!(cli_body);
@@ -1352,6 +1361,12 @@ async fn cli_and_mcp_write_and_session_parity() {
         .arg("task-001")
         .arg("--title")
         .arg("Discovered CLI")
+        .arg("--description")
+        .arg("Investigate the discovered CLI task.")
+        .arg("--acceptance-criteria")
+        .arg("The discovered CLI task is clearly specified.")
+        .arg("--definition-of-done")
+        .arg("The next action is documented.\nDocs updated if needed.")
         .arg("--labels")
         .arg("discovered")
         .output()
@@ -1365,6 +1380,9 @@ async fn cli_and_mcp_write_and_session_parity() {
             "root": temp.path().display().to_string(),
             "from": "task-002",
             "title": "Discovered MCP",
+            "description": "- Investigate the discovered MCP task.",
+            "acceptance_criteria": "- The discovered MCP task is clearly specified.",
+            "definition_of_done": "- The next action is documented.\n- Docs updated if needed.",
             "labels": ["discovered"]
         }),
     )

@@ -38,9 +38,10 @@ pub fn recommended_kinds() -> &'static [&'static str] {
 
 pub fn best_practice_hints() -> &'static [&'static str] {
     &[
-        "Fill Description, Acceptance Criteria, and Definition of Done for every task.",
-        "Definition of Done must include outcome-based criteria, not only hygiene checks.",
-        "Done transitions are gated by task quality requirements.",
+        "Check config_show first if you are not sure which task-quality fields this repo requires.",
+        "By default, actionable tasks use Description, Acceptance Criteria, and Definition of Done.",
+        "By default, Definition of Done should include outcome-based criteria, not only hygiene checks.",
+        "Actionable and Done transitions are gated by the repo's configured task quality requirements.",
         "Always record dependencies for tasks that are blocked by other work.",
         "Use dependencies to power next-task selection and blocked/ready views.",
         "If unsure, start with an empty list and add dependencies as soon as blockers appear.",
@@ -117,8 +118,8 @@ pub fn tool_catalog() -> Vec<Value> {
         serde_json::json!({"name": "add_note", "summary": "Append a note to Notes or Implementation Notes."}),
         serde_json::json!({"name": "set_body", "summary": "Replace full task body (all content after front matter)."}),
         serde_json::json!({"name": "set_section", "summary": "Replace a named section in the task body."}),
-        serde_json::json!({"name": "add_task", "summary": "Create a new task file."}),
-        serde_json::json!({"name": "add_discovered", "summary": "Create a task discovered from another task."}),
+        serde_json::json!({"name": "add_task", "summary": "Create a new task file with actionable content or explicit draft status."}),
+        serde_json::json!({"name": "add_discovered", "summary": "Create a discovered task with actionable content or explicit draft status."}),
         serde_json::json!({"name": "archive_tasks", "summary": "Archive terminal tasks into date-based folders."}),
         serde_json::json!({"name": "migrate_backlog", "summary": "Migrate legacy backlog to workmesh/."}),
         serde_json::json!({"name": "migrate_audit", "summary": "Detect deprecated structures and report migration findings."}),
@@ -276,11 +277,11 @@ pub fn tool_examples(name: &str) -> Vec<Value> {
             serde_json::json!({"tool": "bulk_add_note", "arguments": { "tasks": ["task-001", "task-002"], "section": "Notes", "note": "Follow up with vendor", "touch": true, "verbose": true }}),
         ],
         "add_task" => vec![
-            serde_json::json!({"tool": "add_task", "arguments": { "title": "Investigate flaky test", "priority": "P2", "phase": "Phase1" }}),
-            serde_json::json!({"tool": "add_task", "arguments": { "title": "Investigate flaky test", "priority": "P2", "phase": "Phase1", "verbose": true }}),
+            serde_json::json!({"tool": "add_task", "arguments": { "title": "Investigate flaky test", "description": "- Investigate the flaky failure and identify the triggering condition.", "acceptance_criteria": "- The flaky scenario is reproducible or ruled out with evidence.", "definition_of_done": "- The root cause or next action is documented.\n- Code/config committed if changed.", "priority": "P2", "phase": "Phase1" }}),
+            serde_json::json!({"tool": "add_task", "arguments": { "title": "Explore a rough idea", "draft": true, "status": "Draft", "priority": "P3", "phase": "Phase1", "verbose": true }}),
         ],
         "add_discovered" => vec![
-            serde_json::json!({"tool": "add_discovered", "arguments": { "from": "task-001", "title": "New edge case discovered", "priority": "P2", "phase": "Phase1" }}),
+            serde_json::json!({"tool": "add_discovered", "arguments": { "from": "task-001", "title": "New edge case discovered", "description": "- Capture the newly discovered edge case and required follow-up.", "acceptance_criteria": "- The edge case and expected handling are documented.", "definition_of_done": "- Follow-up work is clearly defined.\n- Docs updated if needed.", "priority": "P2", "phase": "Phase1" }}),
         ],
         "graph_export" => {
             vec![serde_json::json!({"tool": "graph_export", "arguments": { "pretty": true }})]
@@ -393,6 +394,10 @@ pub fn build_tool_info_payload(name: &str, tool_def: Value) -> Option<Value> {
     if name == "add_task" || name == "add_discovered" {
         notes.push(
             "New tasks default to kind=task in front matter. You can set kind later with set_field."
+                .to_string(),
+        );
+        notes.push(
+            "By default, actionable tasks must include description, acceptance criteria, and definition of done. Repos can override those requirements in config. Use draft=true for incomplete draft tasks."
                 .to_string(),
         );
     }

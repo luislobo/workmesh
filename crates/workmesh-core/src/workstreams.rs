@@ -1118,7 +1118,7 @@ mod tests {
                 .join("workmesh")
                 .join("tasks")
                 .join("task-001 - seed.md"),
-            "---\nid: task-001\ntitle: Seed\nstatus: To Do\npriority: P2\nphase: Phase3\ndependencies: []\nlabels: []\nassignee: []\n---\n\n## Notes\n- seed\n",
+            "---\nid: task-001\ntitle: Seed\nstatus: To Do\npriority: P2\nphase: Phase3\ndependencies: []\nlabels: []\nassignee: []\n---\n\nDescription:\n--------------------------------------------------\n- Restore the workstream and continue the seeded task.\n\nAcceptance Criteria:\n--------------------------------------------------\n- The restore plan can identify the seeded task as actionable.\n\nDefinition of Done:\n--------------------------------------------------\n- The seeded task is ready for continuation.\n- Code/config committed.\n",
         )
         .expect("write task");
 

@@ -7,6 +7,7 @@ use regex::Regex;
 use serde::Serialize;
 use ulid::Ulid;
 
+use crate::config::TaskValidationRules;
 use crate::context::{context_from_legacy_focus, ContextScopeMode, ContextState};
 use crate::focus::FocusState;
 use crate::project::{project_docs_dir, repo_root_from_backlog};
@@ -47,6 +48,13 @@ pub struct TaskQualityReport {
     pub definition_of_done_hygiene_only: bool,
 }
 
+#[derive(Debug, Clone)]
+pub struct TaskSectionContent {
+    pub description: String,
+    pub acceptance_criteria: String,
+    pub definition_of_done: String,
+}
+
 impl TaskQualityReport {
     pub fn is_done_ready(&self) -> bool {
         self.missing_sections.is_empty()
@@ -55,8 +63,9 @@ impl TaskQualityReport {
     }
 }
 
-const REQUIRED_TASK_SECTIONS: [&str; 3] =
-    ["Description", "Acceptance Criteria", "Definition of Done"];
+const DESCRIPTION_SECTION: &str = "Description";
+const ACCEPTANCE_CRITERIA_SECTION: &str = "Acceptance Criteria";
+const DEFINITION_OF_DONE_SECTION: &str = "Definition of Done";
 const HYGIENE_DOD_ITEMS: [&str; 4] = [
     "code config committed",
     "code or config committed",
@@ -101,8 +110,26 @@ pub fn is_done(task: &Task) -> bool {
     task.status.trim().eq_ignore_ascii_case("done")
 }
 
+pub fn is_draft_status(status: &str) -> bool {
+    let normalized = status.trim();
+    normalized.eq_ignore_ascii_case("draft") || normalized.eq_ignore_ascii_case("needs refinement")
+}
+
+pub fn is_actionable_status(status: &str) -> bool {
+    let normalized = status.trim();
+    normalized.eq_ignore_ascii_case("to do") || normalized.eq_ignore_ascii_case("in progress")
+}
+
 pub fn ensure_can_mark_done(tasks: &[Task], task: &Task) -> Result<(), String> {
-    ensure_task_quality_for_done(task)?;
+    ensure_can_mark_done_with_rules(tasks, task, &TaskValidationRules::default())
+}
+
+pub fn ensure_can_mark_done_with_rules(
+    tasks: &[Task],
+    task: &Task,
+    rules: &TaskValidationRules,
+) -> Result<(), String> {
+    ensure_task_quality_for_done_with_rules(task, rules)?;
     if !task.kind.trim().eq_ignore_ascii_case("epic") {
         return Ok(());
     }
@@ -187,11 +214,33 @@ pub fn ensure_can_mark_done(tasks: &[Task], task: &Task) -> Result<(), String> {
 }
 
 pub fn evaluate_task_quality(task: &Task) -> TaskQualityReport {
+    evaluate_task_quality_with_rules(task, &TaskValidationRules::default())
+}
+
+pub fn evaluate_task_quality_with_rules(
+    task: &Task,
+    rules: &TaskValidationRules,
+) -> TaskQualityReport {
     let mut missing_sections = Vec::new();
     let mut incomplete_sections = Vec::new();
     let mut definition_of_done_hygiene_only = false;
 
-    for section in REQUIRED_TASK_SECTIONS {
+    let required_sections = [
+        (rules.require_description, DESCRIPTION_SECTION),
+        (
+            rules.require_acceptance_criteria,
+            ACCEPTANCE_CRITERIA_SECTION,
+        ),
+        (
+            rules.require_definition_of_done,
+            DEFINITION_OF_DONE_SECTION,
+        ),
+    ];
+
+    for (required, section) in required_sections {
+        if !required {
+            continue;
+        }
         let content = extract_section_content(&task.body, section);
         let Some(content) = content else {
             missing_sections.push(section.to_string());
@@ -200,7 +249,10 @@ pub fn evaluate_task_quality(task: &Task) -> TaskQualityReport {
         if !section_has_substantive_content(&content) {
             incomplete_sections.push(section.to_string());
         }
-        if section == "Definition of Done" && definition_of_done_is_hygiene_only(&content) {
+        if section == DEFINITION_OF_DONE_SECTION
+            && rules.require_outcome_based_definition_of_done
+            && definition_of_done_is_hygiene_only(&content)
+        {
             definition_of_done_hygiene_only = true;
         }
     }
@@ -213,7 +265,52 @@ pub fn evaluate_task_quality(task: &Task) -> TaskQualityReport {
 }
 
 pub fn ensure_task_quality_for_done(task: &Task) -> Result<(), String> {
-    let quality = evaluate_task_quality(task);
+    ensure_task_quality_for_done_with_rules(task, &TaskValidationRules::default())
+}
+
+pub fn ensure_task_quality_for_actionable(task: &Task) -> Result<(), String> {
+    ensure_task_quality_for_actionable_with_rules(task, &TaskValidationRules::default())
+}
+
+pub fn ensure_can_set_status(tasks: &[Task], task: &Task, status: &str) -> Result<(), String> {
+    ensure_can_set_status_with_rules(tasks, task, status, &TaskValidationRules::default())
+}
+
+pub fn ensure_task_quality_for_done_with_rules(
+    task: &Task,
+    rules: &TaskValidationRules,
+) -> Result<(), String> {
+    ensure_task_quality(task, "Done", rules)
+}
+
+pub fn ensure_task_quality_for_actionable_with_rules(
+    task: &Task,
+    rules: &TaskValidationRules,
+) -> Result<(), String> {
+    ensure_task_quality(task, "actionable", rules)
+}
+
+pub fn ensure_can_set_status_with_rules(
+    tasks: &[Task],
+    task: &Task,
+    status: &str,
+    rules: &TaskValidationRules,
+) -> Result<(), String> {
+    if status.trim().eq_ignore_ascii_case("done") {
+        return ensure_can_mark_done_with_rules(tasks, task, rules);
+    }
+    if is_actionable_status(status) {
+        return ensure_task_quality_for_actionable_with_rules(task, rules);
+    }
+    Ok(())
+}
+
+fn ensure_task_quality(
+    task: &Task,
+    target_status: &str,
+    rules: &TaskValidationRules,
+) -> Result<(), String> {
+    let quality = evaluate_task_quality_with_rules(task, rules);
     if quality.is_done_ready() {
         return Ok(());
     }
@@ -236,8 +333,9 @@ pub fn ensure_task_quality_for_done(task: &Task) -> Result<(), String> {
         );
     }
     Err(format!(
-        "Refusing to mark {} Done until task quality requirements are met ({})",
+        "Refusing to mark {} {} until task quality requirements are met ({})",
         task.id,
+        target_status,
         parts.join("; ")
     ))
 }
@@ -247,7 +345,11 @@ pub fn normalize_task_required_sections(path: &Path) -> Result<Vec<String>, Task
     mutate_task_file(path, |text| {
         let (front, body) = split_front_matter(text)?;
         let mut updated_body = body.clone();
-        for section in REQUIRED_TASK_SECTIONS {
+        for section in [
+            DESCRIPTION_SECTION,
+            ACCEPTANCE_CRITERIA_SECTION,
+            DEFINITION_OF_DONE_SECTION,
+        ] {
             if extract_section_content(&updated_body, section).is_none() {
                 updated_body = replace_section(&updated_body, section, "- ");
                 added.push(section.to_string());
@@ -618,6 +720,58 @@ pub fn create_task_file(
     labels: &[String],
     assignee: &[String],
 ) -> Result<PathBuf, TaskParseError> {
+    create_task_file_internal(
+        tasks_dir,
+        task_id,
+        title,
+        status,
+        priority,
+        phase,
+        dependencies,
+        labels,
+        assignee,
+        None,
+    )
+}
+
+pub fn create_task_file_with_sections(
+    tasks_dir: &Path,
+    task_id: &str,
+    title: &str,
+    status: &str,
+    priority: &str,
+    phase: &str,
+    dependencies: &[String],
+    labels: &[String],
+    assignee: &[String],
+    sections: &TaskSectionContent,
+) -> Result<PathBuf, TaskParseError> {
+    create_task_file_internal(
+        tasks_dir,
+        task_id,
+        title,
+        status,
+        priority,
+        phase,
+        dependencies,
+        labels,
+        assignee,
+        Some(sections),
+    )
+}
+
+fn create_task_file_internal(
+    tasks_dir: &Path,
+    task_id: &str,
+    title: &str,
+    status: &str,
+    priority: &str,
+    phase: &str,
+    dependencies: &[String],
+    labels: &[String],
+    assignee: &[String],
+    sections: Option<&TaskSectionContent>,
+) -> Result<PathBuf, TaskParseError> {
     // Filenames are part of the git merge surface. Include a short UID suffix to avoid collisions
     // when multiple branches create tasks with the same numeric id.
     let uid = Ulid::new().to_string();
@@ -635,6 +789,7 @@ pub fn create_task_file(
         dependencies,
         labels,
         assignee,
+        sections,
     );
     write_string_atomic_locked(&path, &content)?;
     Ok(path)
@@ -653,6 +808,10 @@ where
 }
 
 pub fn next_task(tasks: &[Task]) -> Option<Task> {
+    next_task_with_rules(tasks, &TaskValidationRules::default())
+}
+
+pub fn next_task_with_rules(tasks: &[Task], rules: &TaskValidationRules) -> Option<Task> {
     let done_ids: HashSet<String> = tasks
         .iter()
         .filter(|task| is_done(task))
@@ -662,6 +821,7 @@ pub fn next_task(tasks: &[Task]) -> Option<Task> {
         .iter()
         .filter(|task| task.status.eq_ignore_ascii_case("to do"))
         .filter(|task| blockers_satisfied(task, &done_ids))
+        .filter(|task| evaluate_task_quality_with_rules(task, rules).is_done_ready())
         .collect();
     if ready.is_empty() {
         return None;
@@ -679,6 +839,13 @@ fn priority_rank(priority: &str) -> i32 {
 }
 
 pub fn ready_tasks<'a>(tasks: &'a [Task]) -> Vec<&'a Task> {
+    ready_tasks_with_rules(tasks, &TaskValidationRules::default())
+}
+
+pub fn ready_tasks_with_rules<'a>(
+    tasks: &'a [Task],
+    rules: &TaskValidationRules,
+) -> Vec<&'a Task> {
     let done_ids: HashSet<String> = tasks
         .iter()
         .filter(|task| is_done(task))
@@ -688,18 +855,27 @@ pub fn ready_tasks<'a>(tasks: &'a [Task]) -> Vec<&'a Task> {
         .iter()
         .filter(|task| task.status.eq_ignore_ascii_case("to do"))
         .filter(|task| blockers_satisfied(task, &done_ids))
+        .filter(|task| evaluate_task_quality_with_rules(task, rules).is_done_ready())
         .collect();
     ready.sort_by_key(|task| task.id_num());
     ready
 }
 
 pub fn recommend_next_tasks<'a>(tasks: &'a [Task]) -> Vec<&'a Task> {
-    recommend_next_tasks_with_context(tasks, None)
+    recommend_next_tasks_with_context_and_rules(tasks, None, &TaskValidationRules::default())
 }
 
 pub fn recommend_next_tasks_with_context<'a>(
     tasks: &'a [Task],
     context: Option<&ContextState>,
+) -> Vec<&'a Task> {
+    recommend_next_tasks_with_context_and_rules(tasks, context, &TaskValidationRules::default())
+}
+
+pub fn recommend_next_tasks_with_context_and_rules<'a>(
+    tasks: &'a [Task],
+    context: Option<&ContextState>,
+    rules: &TaskValidationRules,
 ) -> Vec<&'a Task> {
     let done_ids: HashSet<String> = tasks
         .iter()
@@ -713,9 +889,10 @@ pub fn recommend_next_tasks_with_context<'a>(
     let mut candidates: Vec<&Task> = tasks
         .iter()
         .filter(|task| {
-            task.status.eq_ignore_ascii_case("in progress")
-                || is_lease_active(task)
+            ((task.status.eq_ignore_ascii_case("in progress") || is_lease_active(task))
+                && evaluate_task_quality_with_rules(task, rules).is_done_ready())
                 || (task.status.eq_ignore_ascii_case("to do")
+                    && evaluate_task_quality_with_rules(task, rules).is_done_ready()
                     && blockers_satisfied(task, &done_ids))
         })
         .collect();
@@ -811,7 +988,7 @@ pub fn recommend_next_tasks_with_focus<'a>(
             f.working_set.clone(),
         )
     });
-    recommend_next_tasks_with_context(tasks, context.as_ref())
+    recommend_next_tasks_with_context_and_rules(tasks, context.as_ref(), &TaskValidationRules::default())
 }
 
 pub fn is_lease_active(task: &Task) -> bool {
@@ -831,6 +1008,14 @@ pub fn is_lease_active(task: &Task) -> bool {
 }
 
 pub fn validate_tasks(tasks: &[Task], backlog_dir: Option<&Path>) -> ValidationResult {
+    validate_tasks_with_rules(tasks, backlog_dir, &TaskValidationRules::default())
+}
+
+pub fn validate_tasks_with_rules(
+    tasks: &[Task],
+    backlog_dir: Option<&Path>,
+    rules: &TaskValidationRules,
+) -> ValidationResult {
     let mut errors = Vec::new();
     let mut warnings = Vec::new();
     let repo_root = backlog_dir.map(repo_root_from_backlog);
@@ -946,14 +1131,14 @@ pub fn validate_tasks(tasks: &[Task], backlog_dir: Option<&Path>) -> ValidationR
                 errors.push(format!("{} project docs missing: {}", task.id, project));
             }
         }
-        let quality = evaluate_task_quality(task);
+        let quality = evaluate_task_quality_with_rules(task, rules);
         if !quality.missing_sections.is_empty() {
             let msg = format!(
                 "{} missing required sections: {}",
                 task.id,
                 quality.missing_sections.join(", ")
             );
-            if is_done(task) {
+            if is_done(task) || is_actionable_status(&task.status) {
                 errors.push(msg);
             } else {
                 warnings.push(msg);
@@ -965,7 +1150,7 @@ pub fn validate_tasks(tasks: &[Task], backlog_dir: Option<&Path>) -> ValidationR
                 task.id,
                 quality.incomplete_sections.join(", ")
             );
-            if is_done(task) {
+            if is_done(task) || is_actionable_status(&task.status) {
                 errors.push(msg);
             } else {
                 warnings.push(msg);
@@ -976,7 +1161,7 @@ pub fn validate_tasks(tasks: &[Task], backlog_dir: Option<&Path>) -> ValidationR
                 "{} Definition of Done is hygiene-only; include outcome-based criteria",
                 task.id
             );
-            if is_done(task) {
+            if is_done(task) || is_actionable_status(&task.status) {
                 errors.push(msg);
             } else {
                 warnings.push(msg);
@@ -1215,7 +1400,7 @@ pub fn task_to_json_value(task: &Task, include_body: bool) -> serde_json::Value 
 }
 
 fn should_warn_missing_dependencies(task: &Task) -> bool {
-    if task.status.trim().eq_ignore_ascii_case("done") {
+    if task.status.trim().eq_ignore_ascii_case("done") || !is_actionable_status(&task.status) {
         return false;
     }
     task.dependencies.is_empty()
@@ -1369,6 +1554,7 @@ fn task_template(
     dependencies: &[String],
     labels: &[String],
     assignee: &[String],
+    sections: Option<&TaskSectionContent>,
 ) -> String {
     let mut front = Vec::new();
     front.push("---".to_string());
@@ -1398,20 +1584,38 @@ fn task_template(
     front.push("  discovered_from: []".to_string());
     front.push("---".to_string());
     front.push(String::new());
-    front.push("Description:".to_string());
-    front.push("--------------------------------------------------".to_string());
-    front.push("- ".to_string());
-    front.push(String::new());
-    front.push("Acceptance Criteria:".to_string());
-    front.push("--------------------------------------------------".to_string());
-    front.push("- ".to_string());
-    front.push(String::new());
-    front.push("Definition of Done:".to_string());
-    front.push("--------------------------------------------------".to_string());
-    front.push("- Description goals met and acceptance criteria satisfied.".to_string());
-    front.push("- Code/config committed.".to_string());
-    front.push("- Docs updated if needed.".to_string());
-    front.push(String::new());
+    match sections {
+        Some(sections) => {
+            front.push("Description:".to_string());
+            front.push("--------------------------------------------------".to_string());
+            front.extend(normalize_section_content(&sections.description));
+            front.push(String::new());
+            front.push("Acceptance Criteria:".to_string());
+            front.push("--------------------------------------------------".to_string());
+            front.extend(normalize_section_content(&sections.acceptance_criteria));
+            front.push(String::new());
+            front.push("Definition of Done:".to_string());
+            front.push("--------------------------------------------------".to_string());
+            front.extend(normalize_section_content(&sections.definition_of_done));
+            front.push(String::new());
+        }
+        None => {
+            front.push("Description:".to_string());
+            front.push("--------------------------------------------------".to_string());
+            front.push("- ".to_string());
+            front.push(String::new());
+            front.push("Acceptance Criteria:".to_string());
+            front.push("--------------------------------------------------".to_string());
+            front.push("- ".to_string());
+            front.push(String::new());
+            front.push("Definition of Done:".to_string());
+            front.push("--------------------------------------------------".to_string());
+            front.push("- Description goals met and acceptance criteria satisfied.".to_string());
+            front.push("- Code/config committed.".to_string());
+            front.push("- Docs updated if needed.".to_string());
+            front.push(String::new());
+        }
+    }
     front.join("\n")
 }
 
@@ -1421,6 +1625,88 @@ fn normalize_section_content(content: &str) -> Vec<String> {
         return Vec::new();
     }
     trimmed.lines().map(|line| line.to_string()).collect()
+}
+
+pub fn validate_task_creation(
+    status: &str,
+    draft: bool,
+    sections: &TaskSectionContent,
+) -> Result<String, String> {
+    validate_task_creation_with_rules(
+        status,
+        draft,
+        sections,
+        &TaskValidationRules::default(),
+    )
+}
+
+pub fn validate_task_creation_with_rules(
+    status: &str,
+    draft: bool,
+    sections: &TaskSectionContent,
+    rules: &TaskValidationRules,
+) -> Result<String, String> {
+    if draft {
+        let normalized = status.trim();
+        if normalized.is_empty()
+            || normalized.eq_ignore_ascii_case("to do")
+            || normalized.eq_ignore_ascii_case("draft")
+        {
+            return Ok("Draft".to_string());
+        }
+        if normalized.eq_ignore_ascii_case("needs refinement") {
+            return Ok("Needs Refinement".to_string());
+        }
+        return Err(
+            "Draft task creation must use Draft or Needs Refinement status".to_string(),
+        );
+    }
+    if is_draft_status(status) {
+        return Err(
+            "Use the explicit draft flag to create incomplete Draft or Needs Refinement tasks"
+                .to_string(),
+        );
+    }
+
+    let task = Task {
+        id: "task-temp".to_string(),
+        uid: None,
+        kind: "task".to_string(),
+        title: "temp".to_string(),
+        status: status.trim().to_string(),
+        priority: "P2".to_string(),
+        phase: "Phase1".to_string(),
+        dependencies: Vec::new(),
+        labels: Vec::new(),
+        assignee: Vec::new(),
+        relationships: Default::default(),
+        lease: None,
+        project: None,
+        initiative: None,
+        created_date: None,
+        updated_date: None,
+        extra: HashMap::new(),
+        file_path: None,
+        body: {
+            let mut lines = Vec::new();
+            lines.push("Description:".to_string());
+            lines.push("--------------------------------------------------".to_string());
+            lines.extend(normalize_section_content(&sections.description));
+            lines.push(String::new());
+            lines.push("Acceptance Criteria:".to_string());
+            lines.push("--------------------------------------------------".to_string());
+            lines.extend(normalize_section_content(&sections.acceptance_criteria));
+            lines.push(String::new());
+            lines.push("Definition of Done:".to_string());
+            lines.push("--------------------------------------------------".to_string());
+            lines.extend(normalize_section_content(&sections.definition_of_done));
+            lines.push(String::new());
+            lines.join("\n")
+        },
+    };
+
+    ensure_task_quality_for_actionable_with_rules(&task, rules)?;
+    Ok(status.trim().to_string())
 }
 
 fn is_dash_line(line: &str) -> bool {
@@ -1770,7 +2056,7 @@ Description:\n\
                 updated_date: None,
                 extra: HashMap::new(),
                 file_path: None,
-                body: String::new(),
+                body: complete_task_body(),
             },
             Task {
                 id: "task-002".to_string(),
@@ -1791,7 +2077,7 @@ Description:\n\
                 updated_date: None,
                 extra: HashMap::new(),
                 file_path: None,
-                body: String::new(),
+                body: complete_task_body(),
             },
             Task {
                 id: "task-003".to_string(),
@@ -1812,7 +2098,7 @@ Description:\n\
                 updated_date: None,
                 extra: HashMap::new(),
                 file_path: None,
-                body: String::new(),
+                body: complete_task_body(),
             },
         ];
 
@@ -2051,7 +2337,7 @@ Description:\n\
             updated_date: None,
             extra: HashMap::new(),
             file_path: None,
-            body: String::new(),
+            body: complete_task_body(),
         };
         let report = validate_tasks(&[task_a, task_b], None);
         assert!(report.errors.is_empty());
@@ -2082,7 +2368,7 @@ Description:\n\
             updated_date: None,
             extra: HashMap::new(),
             file_path: None,
-            body: String::new(),
+            body: complete_task_body(),
         };
         let task_b = Task {
             id: "task-002".to_string(),
@@ -2103,7 +2389,7 @@ Description:\n\
             updated_date: None,
             extra: HashMap::new(),
             file_path: None,
-            body: String::new(),
+            body: complete_task_body(),
         };
         let report = validate_tasks(&[task_a, task_b], None);
         assert!(report
@@ -2201,7 +2487,7 @@ Description:\n\
             updated_date: None,
             extra: HashMap::new(),
             file_path: None,
-            body: String::new(),
+            body: complete_task_body(),
         };
         let ready = Task {
             id: "task-002".to_string(),
@@ -2222,7 +2508,7 @@ Description:\n\
             updated_date: None,
             extra: HashMap::new(),
             file_path: None,
-            body: String::new(),
+            body: complete_task_body(),
         };
         let blocked = Task {
             id: "task-003".to_string(),
@@ -2243,7 +2529,7 @@ Description:\n\
             updated_date: None,
             extra: HashMap::new(),
             file_path: None,
-            body: String::new(),
+            body: complete_task_body(),
         };
         let tasks = vec![done, ready, blocked];
 
@@ -2299,7 +2585,7 @@ Description:\n\
             updated_date: None,
             extra: HashMap::new(),
             file_path: None,
-            body: String::new(),
+            body: complete_task_body(),
         };
         let task_b = Task {
             id: "task-001".to_string(),
@@ -2467,6 +2753,102 @@ Description:\n\
     }
 
     #[test]
+    fn validate_task_creation_requires_quality_unless_draft() {
+        let incomplete = TaskSectionContent {
+            description: String::new(),
+            acceptance_criteria: String::new(),
+            definition_of_done: String::new(),
+        };
+        let err = validate_task_creation("To Do", false, &incomplete).expect_err("should fail");
+        assert!(err.contains("task quality requirements"));
+
+        let draft_status = validate_task_creation("To Do", true, &incomplete).expect("draft");
+        assert_eq!(draft_status, "Draft");
+    }
+
+    #[test]
+    fn validate_task_creation_respects_relaxed_rules() {
+        let incomplete = TaskSectionContent {
+            description: "Document the work.".to_string(),
+            acceptance_criteria: String::new(),
+            definition_of_done: "Code/config committed.".to_string(),
+        };
+        let rules = TaskValidationRules {
+            require_description: true,
+            require_acceptance_criteria: false,
+            require_definition_of_done: true,
+            require_outcome_based_definition_of_done: false,
+        };
+
+        let status = validate_task_creation_with_rules("To Do", false, &incomplete, &rules)
+            .expect("relaxed rules should allow creation");
+        assert_eq!(status, "To Do");
+    }
+
+    #[test]
+    fn ensure_can_set_status_rejects_incomplete_actionable_task() {
+        let task = Task {
+            id: "task-100".to_string(),
+            uid: None,
+            kind: "task".to_string(),
+            title: "Incomplete".to_string(),
+            status: "Draft".to_string(),
+            priority: "P2".to_string(),
+            phase: "Phase1".to_string(),
+            dependencies: Vec::new(),
+            labels: Vec::new(),
+            assignee: Vec::new(),
+            relationships: Default::default(),
+            lease: None,
+            project: None,
+            initiative: None,
+            created_date: None,
+            updated_date: None,
+            extra: HashMap::new(),
+            file_path: None,
+            body: String::new(),
+        };
+        let err = ensure_can_set_status(std::slice::from_ref(&task), &task, "To Do")
+            .expect_err("should fail");
+        assert!(err.contains("task quality requirements"));
+    }
+
+    #[test]
+    fn ensure_can_set_status_respects_relaxed_rules() {
+        let task = Task {
+            id: "task-101".to_string(),
+            uid: None,
+            kind: "task".to_string(),
+            title: "Looser".to_string(),
+            status: "Draft".to_string(),
+            priority: "P2".to_string(),
+            phase: "Phase1".to_string(),
+            dependencies: Vec::new(),
+            labels: Vec::new(),
+            assignee: Vec::new(),
+            relationships: Default::default(),
+            lease: None,
+            project: None,
+            initiative: None,
+            created_date: None,
+            updated_date: None,
+            extra: HashMap::new(),
+            file_path: None,
+            body: "Description:\n--------------------------------------------------\n- Investigate.\n"
+                .to_string(),
+        };
+        let rules = TaskValidationRules {
+            require_description: true,
+            require_acceptance_criteria: false,
+            require_definition_of_done: false,
+            require_outcome_based_definition_of_done: false,
+        };
+
+        ensure_can_set_status_with_rules(std::slice::from_ref(&task), &task, "To Do", &rules)
+            .expect("relaxed rules should allow actionable status");
+    }
+
+    #[test]
     fn next_task_picks_lowest_ready_task() {
         let tasks = vec![
             Task {
@@ -2488,7 +2870,7 @@ Description:\n\
                 updated_date: None,
                 extra: HashMap::new(),
                 file_path: None,
-                body: String::new(),
+                body: complete_task_body(),
             },
             Task {
                 id: "task-002".to_string(),
@@ -2509,7 +2891,7 @@ Description:\n\
                 updated_date: None,
                 extra: HashMap::new(),
                 file_path: None,
-                body: String::new(),
+                body: complete_task_body(),
             },
         ];
         let next = next_task(&tasks).expect("next");
@@ -2538,7 +2920,7 @@ Description:\n\
                 updated_date: None,
                 extra: HashMap::new(),
                 file_path: None,
-                body: String::new(),
+                body: complete_task_body(),
             },
             Task {
                 id: "task-002".to_string(),
@@ -2559,7 +2941,7 @@ Description:\n\
                 updated_date: None,
                 extra: HashMap::new(),
                 file_path: None,
-                body: String::new(),
+                body: complete_task_body(),
             },
             Task {
                 id: "task-001".to_string(),
@@ -2580,7 +2962,7 @@ Description:\n\
                 updated_date: None,
                 extra: HashMap::new(),
                 file_path: None,
-                body: String::new(),
+                body: complete_task_body(),
             },
         ];
         let ordered = recommend_next_tasks(&tasks);
@@ -2611,7 +2993,7 @@ Description:\n\
                 updated_date: None,
                 extra: HashMap::new(),
                 file_path: None,
-                body: String::new(),
+                body: complete_task_body(),
             },
             Task {
                 id: "task-010".to_string(),
@@ -2632,7 +3014,7 @@ Description:\n\
                 updated_date: None,
                 extra: HashMap::new(),
                 file_path: None,
-                body: String::new(),
+                body: complete_task_body(),
             },
         ];
         let focus = FocusState {
@@ -2669,7 +3051,7 @@ Description:\n\
                 updated_date: None,
                 extra: HashMap::new(),
                 file_path: None,
-                body: String::new(),
+                body: complete_task_body(),
             },
             Task {
                 id: "task-031".to_string(),
@@ -2690,7 +3072,7 @@ Description:\n\
                 updated_date: None,
                 extra: HashMap::new(),
                 file_path: None,
-                body: String::new(),
+                body: complete_task_body(),
             },
         ];
         let focus = FocusState {

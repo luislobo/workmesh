@@ -19,7 +19,10 @@ use workmesh_core::archive::{archive_tasks, ArchiveOptions};
 use workmesh_core::audit::{append_audit_event, AuditEvent};
 use workmesh_core::backlog::{locate_backlog_dir, resolve_backlog};
 use workmesh_core::bootstrap::{bootstrap_repo, BootstrapOptions, BootstrapResult};
-use workmesh_core::config::{resolve_auto_session_default, resolve_worktrees_default};
+use workmesh_core::config::{
+    resolve_auto_session_default, resolve_task_validation_rules,
+    resolve_task_validation_rules_with_source, resolve_worktrees_default,
+};
 use workmesh_core::context::{
     clear_context, context_path, extract_task_id_from_branch, infer_project_id, load_context,
     save_context, ContextScope, ContextScopeMode, ContextState,
@@ -53,11 +56,13 @@ use workmesh_core::session::{
 };
 use workmesh_core::task::{load_tasks, load_tasks_with_archive, tasks_dir_for_root, Lease, Task};
 use workmesh_core::task_ops::{
-    append_note, create_task_file, ensure_can_mark_done, filter_tasks, graph_export,
-    is_lease_active, now_timestamp, ready_tasks, recommend_next_tasks_with_context,
-    render_task_line, replace_section, set_list_field, sort_tasks, status_counts,
-    task_to_json_value, tasks_to_jsonl, timestamp_plus_minutes, update_body, update_lease_fields,
-    update_task_field, update_task_field_or_section, validate_tasks, FieldValue,
+    append_note, create_task_file_with_sections, ensure_can_set_status_with_rules, filter_tasks,
+    graph_export, is_lease_active, now_timestamp, ready_tasks_with_rules,
+    recommend_next_tasks_with_context_and_rules, render_task_line, replace_section,
+    set_list_field, sort_tasks, status_counts, task_to_json_value, tasks_to_jsonl,
+    timestamp_plus_minutes, update_body, update_lease_fields, update_task_field,
+    update_task_field_or_section, validate_task_creation_with_rules, validate_tasks_with_rules,
+    FieldValue, TaskSectionContent,
 };
 use workmesh_core::truth::{
     accept_truth, apply_truth_migration, list_truths, propose_truth, reject_truth, show_truth,
@@ -165,6 +170,18 @@ fn parse_list_string(value: &str) -> Vec<String> {
         .map(|item| item.trim().to_string())
         .filter(|item| !item.is_empty())
         .collect()
+}
+
+fn build_task_sections(
+    description: Option<String>,
+    acceptance_criteria: Option<String>,
+    definition_of_done: Option<String>,
+) -> TaskSectionContent {
+    TaskSectionContent {
+        description: description.unwrap_or_default(),
+        acceptance_criteria: acceptance_criteria.unwrap_or_default(),
+        definition_of_done: definition_of_done.unwrap_or_default(),
+    }
 }
 
 fn parse_before_date(value: &str) -> Result<NaiveDate, CallToolError> {
@@ -1397,8 +1414,13 @@ pub struct SetSectionTool {
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct AddTaskTool {
     pub title: String,
+    pub description: Option<String>,
+    pub acceptance_criteria: Option<String>,
+    pub definition_of_done: Option<String>,
     pub root: Option<String>,
     pub task_id: Option<String>,
+    #[serde(default)]
+    pub draft: bool,
     #[serde(default = "default_status")]
     pub status: String,
     #[serde(default = "default_priority")]
@@ -1420,8 +1442,13 @@ pub struct AddTaskTool {
 pub struct AddDiscoveredTool {
     pub from: String,
     pub title: String,
+    pub description: Option<String>,
+    pub acceptance_criteria: Option<String>,
+    pub definition_of_done: Option<String>,
     pub root: Option<String>,
     pub task_id: Option<String>,
+    #[serde(default)]
+    pub draft: bool,
     #[serde(default = "default_status")]
     pub status: String,
     #[serde(default = "default_priority")]
@@ -2282,6 +2309,8 @@ impl ConfigShowTool {
             workmesh_core::config::resolve_worktrees_dir_with_source(&repo_root);
         let (auto_session_default, auto_session_default_source) =
             workmesh_core::config::resolve_auto_session_default_with_source(&repo_root);
+        let (task_validation, task_validation_sources) =
+            resolve_task_validation_rules_with_source(&repo_root);
 
         let payload = serde_json::json!({
             "project": project,
@@ -2290,11 +2319,19 @@ impl ConfigShowTool {
                 "worktrees_default": worktrees_default,
                 "worktrees_dir": worktrees_dir.as_ref().map(|p| p.to_string_lossy().to_string()),
                 "auto_session_default": auto_session_default,
+                "task_require_description": task_validation.require_description,
+                "task_require_acceptance_criteria": task_validation.require_acceptance_criteria,
+                "task_require_definition_of_done": task_validation.require_definition_of_done,
+                "task_require_outcome_based_definition_of_done": task_validation.require_outcome_based_definition_of_done,
             },
             "sources": {
                 "worktrees_default": worktrees_default_source,
                 "worktrees_dir": worktrees_dir_source,
                 "auto_session_default": auto_session_default_source,
+                "task_require_description": task_validation_sources.require_description,
+                "task_require_acceptance_criteria": task_validation_sources.require_acceptance_criteria,
+                "task_require_definition_of_done": task_validation_sources.require_definition_of_done,
+                "task_require_outcome_based_definition_of_done": task_validation_sources.require_outcome_based_definition_of_done,
             },
             "paths": {
                 "project_default": workmesh_core::config::config_path(&repo_root),
@@ -2316,10 +2353,51 @@ impl ConfigShowTool {
                 if let Some(value) = config.state_root.as_ref() {
                     lines.push(format!("- state_root: {} (project)", value));
                 }
+                if let Some(value) = config.task_require_description {
+                    lines.push(format!("- task_require_description: {} (project)", value));
+                }
+                if let Some(value) = config.task_require_acceptance_criteria {
+                    lines.push(format!(
+                        "- task_require_acceptance_criteria: {} (project)",
+                        value
+                    ));
+                }
+                if let Some(value) = config.task_require_definition_of_done {
+                    lines.push(format!(
+                        "- task_require_definition_of_done: {} (project)",
+                        value
+                    ));
+                }
+                if let Some(value) = config.task_require_outcome_based_definition_of_done {
+                    lines.push(format!(
+                        "- task_require_outcome_based_definition_of_done: {} (project)",
+                        value
+                    ));
+                }
                 if let Some(value) = config.root_dir.as_ref() {
                     lines.push(format!("- root_dir: {} (project, deprecated)", value));
                 }
             }
+            lines.push(format!(
+                "- task_require_description: {} ({})",
+                task_validation.require_description,
+                task_validation_sources.require_description
+            ));
+            lines.push(format!(
+                "- task_require_acceptance_criteria: {} ({})",
+                task_validation.require_acceptance_criteria,
+                task_validation_sources.require_acceptance_criteria
+            ));
+            lines.push(format!(
+                "- task_require_definition_of_done: {} ({})",
+                task_validation.require_definition_of_done,
+                task_validation_sources.require_definition_of_done
+            ));
+            lines.push(format!(
+                "- task_require_outcome_based_definition_of_done: {} ({})",
+                task_validation.require_outcome_based_definition_of_done,
+                task_validation_sources.require_outcome_based_definition_of_done
+            ));
             if let Some(dir) = worktrees_dir.as_ref() {
                 lines.push(format!(
                     "- worktrees_dir: {} ({})",
@@ -2424,6 +2502,42 @@ impl ConfigSetTool {
                 }
                 config.state_root = Some(value.to_string());
             }
+            "task_require_description" => {
+                let parsed = parse_boolish(value).ok_or_else(|| {
+                    CallToolError::from_message(
+                        "Invalid bool value for task_require_description (expected true/false/1/0)"
+                            .to_string(),
+                    )
+                })?;
+                config.task_require_description = Some(parsed);
+            }
+            "task_require_acceptance_criteria" => {
+                let parsed = parse_boolish(value).ok_or_else(|| {
+                    CallToolError::from_message(
+                        "Invalid bool value for task_require_acceptance_criteria (expected true/false/1/0)"
+                            .to_string(),
+                    )
+                })?;
+                config.task_require_acceptance_criteria = Some(parsed);
+            }
+            "task_require_definition_of_done" => {
+                let parsed = parse_boolish(value).ok_or_else(|| {
+                    CallToolError::from_message(
+                        "Invalid bool value for task_require_definition_of_done (expected true/false/1/0)"
+                            .to_string(),
+                    )
+                })?;
+                config.task_require_definition_of_done = Some(parsed);
+            }
+            "task_require_outcome_based_definition_of_done" => {
+                let parsed = parse_boolish(value).ok_or_else(|| {
+                    CallToolError::from_message(
+                        "Invalid bool value for task_require_outcome_based_definition_of_done (expected true/false/1/0)"
+                            .to_string(),
+                    )
+                })?;
+                config.task_require_outcome_based_definition_of_done = Some(parsed);
+            }
             "root_dir" => {
                 if value.is_empty() {
                     return Err(CallToolError::from_message(
@@ -2500,6 +2614,12 @@ impl ConfigUnsetTool {
             "auto_session_default" => config.auto_session_default = None,
             "tasks_root" => config.tasks_root = None,
             "state_root" => config.state_root = None,
+            "task_require_description" => config.task_require_description = None,
+            "task_require_acceptance_criteria" => config.task_require_acceptance_criteria = None,
+            "task_require_definition_of_done" => config.task_require_definition_of_done = None,
+            "task_require_outcome_based_definition_of_done" => {
+                config.task_require_outcome_based_definition_of_done = None
+            }
             "root_dir" => config.root_dir = None,
             "do_not_migrate" => config.do_not_migrate = None,
             _ => {
@@ -5076,7 +5196,12 @@ impl NextTaskTool {
         };
         let tasks = load_tasks(&backlog_dir);
         let context_state = load_context_state(&backlog_dir);
-        let recommended = recommend_next_tasks_with_context(&tasks, context_state.as_ref());
+        let task_rules = resolve_task_validation_rules(&repo_root_from_backlog(&backlog_dir));
+        let recommended = recommend_next_tasks_with_context_and_rules(
+            &tasks,
+            context_state.as_ref(),
+            &task_rules,
+        );
         let Some(task) = recommended.first() else {
             return ok_json(serde_json::json!({"error": "No ready tasks"}));
         };
@@ -5095,7 +5220,12 @@ impl NextTasksTool {
         };
         let tasks = load_tasks(&backlog_dir);
         let context_state = load_context_state(&backlog_dir);
-        let mut next_tasks = recommend_next_tasks_with_context(&tasks, context_state.as_ref());
+        let task_rules = resolve_task_validation_rules(&repo_root_from_backlog(&backlog_dir));
+        let mut next_tasks = recommend_next_tasks_with_context_and_rules(
+            &tasks,
+            context_state.as_ref(),
+            &task_rules,
+        );
         if next_tasks.is_empty() {
             return ok_json(serde_json::json!({"error": "No ready tasks"}));
         }
@@ -5125,7 +5255,8 @@ impl ReadyTasksTool {
             Err(err) => return ok_json(err),
         };
         let tasks = load_tasks(&backlog_dir);
-        let mut ready = ready_tasks(&tasks);
+        let task_rules = resolve_task_validation_rules(&repo_root_from_backlog(&backlog_dir));
+        let mut ready = ready_tasks_with_rules(&tasks, &task_rules);
         if let Some(limit) = self.limit {
             ready.truncate(limit as usize);
         }
@@ -5322,10 +5453,10 @@ impl SetStatusTool {
                 serde_json::json!({"error": format!("Task not found: {}", self.task_id)}),
             );
         };
-        if is_done_status(&self.status) {
-            if let Err(err) = ensure_can_mark_done(&tasks, task) {
-                return ok_json(serde_json::json!({"error": err}));
-            }
+        let task_rules = resolve_task_validation_rules(&repo_root_from_backlog(&backlog_dir));
+        if let Err(err) = ensure_can_set_status_with_rules(&tasks, task, &self.status, &task_rules)
+        {
+            return ok_json(serde_json::json!({"error": err}));
         }
         let path = task
             .file_path
@@ -5371,8 +5502,11 @@ impl SetFieldTool {
                 serde_json::json!({"error": format!("Task not found: {}", self.task_id)}),
             );
         };
-        if is_status_field(&self.field) && is_done_status(&self.value) {
-            if let Err(err) = ensure_can_mark_done(&tasks, task) {
+        let task_rules = resolve_task_validation_rules(&repo_root_from_backlog(&backlog_dir));
+        if is_status_field(&self.field) {
+            if let Err(err) =
+                ensure_can_set_status_with_rules(&tasks, task, &self.value, &task_rules)
+            {
                 return ok_json(serde_json::json!({"error": err}));
             }
         }
@@ -5481,11 +5615,12 @@ impl BulkSetStatusTool {
         };
         let (selected, missing) = select_tasks_with_missing(&tasks, &ids);
         let mut updated = Vec::new();
+        let task_rules = resolve_task_validation_rules(&repo_root_from_backlog(&backlog_dir));
         for task in selected {
-            if is_done_status(&self.status) {
-                if let Err(err) = ensure_can_mark_done(&tasks, task) {
-                    return ok_json(serde_json::json!({"error": err}));
-                }
+            if let Err(err) =
+                ensure_can_set_status_with_rules(&tasks, task, &self.status, &task_rules)
+            {
+                return ok_json(serde_json::json!({"error": err}));
             }
             let path = task
                 .file_path
@@ -5526,9 +5661,12 @@ impl BulkSetFieldTool {
         };
         let (selected, missing) = select_tasks_with_missing(&tasks, &ids);
         let mut updated = Vec::new();
+        let task_rules = resolve_task_validation_rules(&repo_root_from_backlog(&backlog_dir));
         for task in selected {
-            if is_status_field(&self.field) && is_done_status(&self.value) {
-                if let Err(err) = ensure_can_mark_done(&tasks, task) {
+            if is_status_field(&self.field) {
+                if let Err(err) =
+                    ensure_can_set_status_with_rules(&tasks, task, &self.value, &task_rules)
+                {
                     return ok_json(serde_json::json!({"error": err}));
                 }
             }
@@ -6135,23 +6273,37 @@ impl AddTaskTool {
         let labels = parse_list_input(self.labels.clone());
         let dependencies = parse_list_input(self.dependencies.clone());
         let assignee = parse_list_input(self.assignee.clone());
-        let path = create_task_file(
+        let sections = build_task_sections(
+            self.description.clone(),
+            self.acceptance_criteria.clone(),
+            self.definition_of_done.clone(),
+        );
+        let task_rules = resolve_task_validation_rules(&repo_root_from_backlog(&backlog_dir));
+        let effective_status = validate_task_creation_with_rules(
+            &self.status,
+            self.draft,
+            &sections,
+            &task_rules,
+        )
+        .map_err(CallToolError::from_message)?;
+        let path = create_task_file_with_sections(
             &tasks_dir,
             &task_id,
             &self.title,
-            &self.status,
+            &effective_status,
             &self.priority,
             &self.phase,
             &dependencies,
             &labels,
             &assignee,
+            &sections,
         )
         .map_err(CallToolError::new)?;
         audit_event(
             &backlog_dir,
             "add_task",
             Some(&task_id),
-            serde_json::json!({ "title": self.title.clone() }),
+            serde_json::json!({ "title": self.title.clone(), "status": effective_status.clone() }),
         )?;
         refresh_index_best_effort(&backlog_dir);
         maybe_auto_checkpoint(&backlog_dir);
@@ -6170,11 +6322,13 @@ impl AddTaskTool {
                 "ok": true,
                 "id": task_id,
                 "path": path,
+                "status": effective_status,
             }),
             serde_json::json!({
                 "ok": true,
                 "id": task_id,
                 "path": path,
+                "status": effective_status,
                 "task": refreshed_task_value(&backlog_dir, &task_id),
                 "hints": hints,
                 "next_steps": [
@@ -6208,16 +6362,30 @@ impl AddDiscoveredTool {
         let labels = parse_list_input(self.labels.clone());
         let dependencies = parse_list_input(self.dependencies.clone());
         let assignee = parse_list_input(self.assignee.clone());
-        let path = create_task_file(
+        let sections = build_task_sections(
+            self.description.clone(),
+            self.acceptance_criteria.clone(),
+            self.definition_of_done.clone(),
+        );
+        let task_rules = resolve_task_validation_rules(&repo_root_from_backlog(&backlog_dir));
+        let effective_status = validate_task_creation_with_rules(
+            &self.status,
+            self.draft,
+            &sections,
+            &task_rules,
+        )
+        .map_err(CallToolError::from_message)?;
+        let path = create_task_file_with_sections(
             &tasks_dir,
             &task_id,
             &self.title,
-            &self.status,
+            &effective_status,
             &self.priority,
             &self.phase,
             &dependencies,
             &labels,
             &assignee,
+            &sections,
         )
         .map_err(CallToolError::new)?;
         update_task_field(
@@ -6230,7 +6398,7 @@ impl AddDiscoveredTool {
             &backlog_dir,
             "add_discovered",
             Some(&task_id),
-            serde_json::json!({ "from": self.from.clone(), "title": self.title.clone() }),
+            serde_json::json!({ "from": self.from.clone(), "title": self.title.clone(), "status": effective_status.clone() }),
         )?;
         refresh_index_best_effort(&backlog_dir);
         maybe_auto_checkpoint(&backlog_dir);
@@ -6241,12 +6409,14 @@ impl AddDiscoveredTool {
                 "id": task_id,
                 "path": path,
                 "from": self.from.clone(),
+                "status": effective_status,
             }),
             serde_json::json!({
                 "ok": true,
                 "id": task_id,
                 "path": path,
                 "from": self.from.clone(),
+                "status": effective_status,
                 "task": refreshed_task_value(&backlog_dir, &task_id),
             }),
         )
@@ -6366,7 +6536,8 @@ impl ValidateTool {
             Err(err) => return ok_json(err),
         };
         let tasks = load_tasks(&backlog_dir);
-        let report = validate_tasks(&tasks, Some(&backlog_dir));
+        let task_rules = resolve_task_validation_rules(&repo_root_from_backlog(&backlog_dir));
+        let report = validate_tasks_with_rules(&tasks, Some(&backlog_dir), &task_rules);
         ok_json(serde_json::to_value(report).unwrap_or_default())
     }
 }
@@ -7749,7 +7920,7 @@ Acceptance Criteria:\n\
 \n\
 Definition of Done:\n\
 --------------------------------------------------\n\
-- Description goals met and acceptance criteria satisfied.\n\
+- {title} behavior matches the expected outcome.\n\
 - Code/config committed.\n\
 - Docs updated if needed.\n\
 ",
@@ -7782,7 +7953,19 @@ dependencies: []\n\
 labels: []\n\
 assignee: []\n\
 ---\n\n\
-Body\n",
+Description:\n\
+--------------------------------------------------\n\
+- Deliver {title}.\n\
+\n\
+Acceptance Criteria:\n\
+--------------------------------------------------\n\
+- Expected behavior is validated.\n\
+\n\
+Definition of Done:\n\
+--------------------------------------------------\n\
+- {title} behavior matches the expected outcome.\n\
+- Code/config committed.\n\
+- Docs updated if needed.\n",
             id = id,
             title = title,
             status = status,
@@ -8119,8 +8302,12 @@ Body\n",
         let (temp, root_arg, context) = init_repo();
         let tool = AddTaskTool {
             title: "New task".to_string(),
+            description: Some("- Investigate and resolve the new task.".to_string()),
+            acceptance_criteria: Some("- The task outcome is clearly verified.".to_string()),
+            definition_of_done: Some("- The investigation result is documented.\n- Code/config committed.".to_string()),
             root: Some(root_arg),
             task_id: None,
+            draft: false,
             status: "To Do".to_string(),
             priority: "P2".to_string(),
             phase: "Phase1".to_string(),
