@@ -11,6 +11,7 @@ Read `references/OPERATING_MODEL.md` first. It is the canonical shared doctrine 
 - Always pass `--root <repo>`.
 - Prefer `--json` when parsing output.
 - Read `config show --json` when task-quality policy or storage roots might matter.
+- Keep one active implementation task at a time and update the task notes before/during coding.
 - Use `workmesh --root <repo> render ...` before hand-formatting structured output.
 
 ## Bootstrap contract

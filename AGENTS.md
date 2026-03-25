@@ -20,3 +20,11 @@
 - Build CLI: `cargo build -p workmesh`
 - Build MCP: `cargo build -p workmesh-mcp`
 - Tests: `cargo test -p workmesh-core && cargo test -p workmesh-mcp`
+
+## Task-driven TDD default
+- Drive implementation from one active task at a time and prefer TDD when the slice is testable.
+- Do not work multiple active implementation tasks in parallel.
+- Before coding, write down the current hypothesis, target slice, and expected checks in the task notes.
+- When the slice is unit/integration-testable, add or update the failing test first, then implement until it passes.
+- Keep adding discoveries to the same task while the work is happening so the task is the live execution log.
+- When a task is resolved, wrap the verified code + tests + task note updates into the same atomic commit before moving on.

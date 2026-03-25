@@ -24,6 +24,7 @@ When the user says `bootstrap workmesh` or equivalent:
 - Enforce the operating procedure from `OPERATING_MODEL.md`.
 - Keep WorkMesh continuously updated during feature work.
 - Discover the repo's effective task-quality policy with `config show` / `config_show` before assuming which task fields are required.
+- Keep one active implementation task at a time and treat the task as the live execution log.
 - Use workstream restore for deterministic reboot recovery.
 - Use render tools for structured output.
 - For MCP render tools, send `data` as a JSON-encoded string and use the typed `configuration` object when needed.

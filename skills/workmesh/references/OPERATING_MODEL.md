@@ -18,6 +18,7 @@ The durable layers are:
 ## Non-negotiable rules
 - Respect the repo's configured task-quality policy. The strict default requires `Description`, `Acceptance Criteria`, and `Definition of Done`.
 - If configured, `Definition of Done` must be outcome-based, not hygiene-only.
+- Drive implementation from one active task at a time. Do not work multiple active implementation tasks in parallel.
 - Mark `Done` only when description goals and acceptance criteria are actually satisfied.
 - Treat all status mutation paths as equivalent for `Done` gating, including field writes and bulk updates.
 - Do not commit derived artifacts like `workmesh/.index/`.
@@ -51,7 +52,9 @@ Before coding or making structural changes:
 - inspect the effective task-quality policy with config before assuming which fields are required
 - validate that the active task satisfies the repo's configured task-quality requirements
 - if the task is missing required sections or they are weak, fix the task first
+- record the current hypothesis, target slice, and expected checks in task notes before coding
 - if the current work does not fit an existing task, create or split tasks before continuing
+- if the slice is unit/integration-testable, add or update the failing test first and then implement until it passes
 
 ### 3. During work
 When the work changes, WorkMesh must change with it.
@@ -69,6 +72,10 @@ Use the right persistence layer:
 - notes: when recording progress, breadcrumbs, or temporary reasoning
 - truths: when a decision or invariant should survive compaction, handoff, restart, worktree changes, or agent changes
 - context: when current repo-local objective/scope/working set changes
+
+Task execution discipline:
+- keep discoveries, checkpoints, and implementation observations on the active task while the work is happening
+- treat the task as the live execution log for the current slice
 
 ### 4. Compaction-safe discipline
 Assume context compaction or session loss is normal.
@@ -96,6 +103,7 @@ Before setting a task to `Done`:
 - verify that acceptance criteria are satisfied
 - verify that definition of done is satisfied
 - if needed, update task notes or sections to reflect the final state
+- wrap verified code, tests, and task note updates into the same atomic commit before moving to the next task when the work is resolved
 - only then mark `Done`
 - archive terminal tasks when appropriate
 

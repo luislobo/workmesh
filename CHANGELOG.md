@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.8] - 2026-03-24
+
+### Changed
+- Added task-driven execution guidance to repo and embedded agent instructions:
+  - one active implementation task at a time
+  - capture hypothesis, slice, and expected checks in task notes before coding
+  - prefer failing-test-first flow when the slice is testable
+  - keep discoveries on the active task as the live execution log
+  - finish resolved work with code, tests, and task note updates in the same atomic commit
+- Updated the shared WorkMesh operating doctrine plus router/CLI/MCP skill entrypoints so the task-driven TDD discipline is part of default agent behavior.
+
 ## [0.3.7] - 2026-03-24
 
 ### Changed
@@ -341,7 +352,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Gantt support and best-practices command.
   - Docs-first project model and initial PRDs.
 
-[Unreleased]: https://github.com/luislobo/workmesh/compare/v0.3.7...HEAD
+[Unreleased]: https://github.com/luislobo/workmesh/compare/v0.3.8...HEAD
+[0.3.8]: https://github.com/luislobo/workmesh/compare/v0.3.7...v0.3.8
 [0.3.7]: https://github.com/luislobo/workmesh/compare/v0.3.6...v0.3.7
 [0.3.6]: https://github.com/luislobo/workmesh/compare/v0.3.5...v0.3.6
 [0.3.5]: https://github.com/luislobo/workmesh/compare/v0.3.4...v0.3.5
