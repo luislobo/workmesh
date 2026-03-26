@@ -91,11 +91,13 @@ fn migrate_to_split(resolution: &BacklogResolution) -> Result<MigrationResult, M
     let target_state_conflicts = target_state.exists() && resolution.state_root != target_state;
     let target_tasks_conflicts = target_tasks.exists() && resolution.tasks_root != target_tasks;
     if target_state_conflicts || target_tasks_conflicts {
-        return Err(MigrationError::DestinationExists(if target_state.exists() {
-            target_state
-        } else {
-            target_tasks
-        }));
+        return Err(MigrationError::DestinationExists(
+            if target_state.exists() {
+                target_state
+            } else {
+                target_tasks
+            },
+        ));
     }
 
     fs::create_dir_all(&target_state)?;
@@ -234,8 +236,11 @@ mod tests {
         let temp = TempDir::new().expect("tempdir");
         let state_root = temp.path().join(".workmesh");
         fs::create_dir_all(state_root.join("tasks")).expect("tasks");
-        fs::write(state_root.join("tasks").join("task-001.md"), "---\nid: task-001\n---\n")
-            .expect("task");
+        fs::write(
+            state_root.join("tasks").join("task-001.md"),
+            "---\nid: task-001\n---\n",
+        )
+        .expect("task");
         fs::write(state_root.join("context.json"), "{}").expect("context");
 
         let resolution = resolve_backlog(&state_root).expect("resolve");

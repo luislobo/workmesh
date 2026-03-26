@@ -16,17 +16,17 @@ use workmesh_core::bootstrap::{bootstrap_repo, BootstrapOptions};
 use workmesh_core::config::{
     global_config_path, load_config, load_config_with_path, load_global_config,
     load_global_config_with_path, resolve_auto_session_default,
-    resolve_auto_session_default_with_source, resolve_worktrees_default,
-    resolve_task_validation_rules, resolve_task_validation_rules_with_source,
-    resolve_worktrees_default_with_source, resolve_worktrees_dir_with_source, update_do_not_migrate,
-    write_config, write_global_config,
+    resolve_auto_session_default_with_source, resolve_task_validation_rules,
+    resolve_task_validation_rules_with_source, resolve_worktrees_default,
+    resolve_worktrees_default_with_source, resolve_worktrees_dir_with_source,
+    update_do_not_migrate, write_config, write_global_config,
 };
 use workmesh_core::context::{
     clear_context, context_path, extract_task_id_from_branch, infer_project_id, load_context,
     save_context, ContextScope, ContextScopeMode, ContextState,
 };
 use workmesh_core::doctor::{doctor_report, doctor_report_with_options};
-use workmesh_core::fix::{backfill_missing_uids, fix_dependencies, FixerKind};
+use workmesh_core::fix::{backfill_missing_uids, fix_dependencies, fix_task_filenames, FixerKind};
 use workmesh_core::focus::load_focus;
 use workmesh_core::gantt::{
     plantuml_gantt, render_plantuml_svg, write_text_file, PlantumlRenderError,
@@ -66,8 +66,8 @@ use workmesh_core::task::{load_tasks, load_tasks_with_archive, tasks_dir_for_roo
 use workmesh_core::task_ops::{
     append_note, create_task_file_with_sections, ensure_can_set_status_with_rules, filter_tasks,
     graph_export, is_lease_active, now_timestamp, ready_tasks_with_rules,
-    recommend_next_tasks_with_context_and_rules, render_task_line, replace_section,
-    set_list_field, sort_tasks, status_counts, task_to_json_value, tasks_to_json, tasks_to_jsonl,
+    recommend_next_tasks_with_context_and_rules, render_task_line, replace_section, set_list_field,
+    sort_tasks, status_counts, task_to_json_value, tasks_to_json, tasks_to_jsonl,
     timestamp_plus_minutes, update_body, update_lease_fields, update_task_field,
     update_task_field_or_section, validate_task_creation_with_rules, validate_tasks_with_rules,
     FieldValue, TaskSectionContent,
@@ -969,10 +969,10 @@ enum FixCommand {
         /// Explicitly run in check mode (default if --apply is not set)
         #[arg(long, action = ArgAction::SetTrue)]
         check: bool,
-        /// Comma-separated list of fixers to include (uid,deps,ids)
+        /// Comma-separated list of fixers to include (uid,deps,ids,filenames)
         #[arg(long, value_delimiter = ',', value_enum)]
         only: Vec<FixTargetArg>,
-        /// Comma-separated list of fixers to exclude (uid,deps,ids)
+        /// Comma-separated list of fixers to exclude (uid,deps,ids,filenames)
         #[arg(long, value_delimiter = ',', value_enum)]
         exclude: Vec<FixTargetArg>,
         #[arg(long, action = ArgAction::SetTrue)]
@@ -1011,6 +1011,17 @@ enum FixCommand {
         #[arg(long, action = ArgAction::SetTrue)]
         json: bool,
     },
+    /// Normalize task filenames from task id/title/uid metadata
+    Filenames {
+        /// Apply changes (default is check/dry-run)
+        #[arg(long, action = ArgAction::SetTrue)]
+        apply: bool,
+        /// Explicitly run in check mode (default if --apply is not set)
+        #[arg(long, action = ArgAction::SetTrue)]
+        check: bool,
+        #[arg(long, action = ArgAction::SetTrue)]
+        json: bool,
+    },
 }
 
 #[derive(Debug, Copy, Clone, ValueEnum, PartialEq, Eq, Hash)]
@@ -1018,6 +1029,7 @@ enum FixTargetArg {
     Uid,
     Deps,
     Ids,
+    Filenames,
 }
 
 #[derive(Debug, Copy, Clone, ValueEnum)]
@@ -1135,7 +1147,12 @@ fn parse_fix_mode(apply: bool, check: bool) -> Result<bool> {
 }
 
 fn all_fix_targets() -> Vec<FixTargetArg> {
-    vec![FixTargetArg::Uid, FixTargetArg::Deps, FixTargetArg::Ids]
+    vec![
+        FixTargetArg::Uid,
+        FixTargetArg::Deps,
+        FixTargetArg::Ids,
+        FixTargetArg::Filenames,
+    ]
 }
 
 fn select_fix_targets(only: &[FixTargetArg], exclude: &[FixTargetArg]) -> Vec<FixTargetArg> {
@@ -1158,6 +1175,7 @@ fn as_fixer_kind(target: FixTargetArg) -> FixerKind {
         FixTargetArg::Uid => FixerKind::Uid,
         FixTargetArg::Deps => FixerKind::Deps,
         FixTargetArg::Ids => FixerKind::Ids,
+        FixTargetArg::Filenames => FixerKind::Filenames,
     }
 }
 
@@ -1321,6 +1339,7 @@ fn command_alias(command: &str) -> Option<Vec<String>> {
         "bulk-remove-dependency" => vec!["bulk-dep-remove"],
         "bulk-add-note" => vec!["bulk-note"],
         "fix-ids" => vec!["fix", "ids"],
+        "fix-filenames" => vec!["fix", "filenames"],
         "render-table" => vec!["render", "table"],
         "render-kv" => vec!["render", "kv"],
         "render-stats" => vec!["render", "stats"],
@@ -1382,6 +1401,17 @@ fn run_fix_target(backlog_dir: &Path, target: FixTargetArg, apply: bool) -> Resu
                         "uid": change.uid,
                     }))
                     .collect::<Vec<_>>()),
+            })
+        }
+        FixTargetArg::Filenames => {
+            let report = fix_task_filenames(&tasks, apply)?;
+            Ok(FixRunReport {
+                fixer: FixerKind::Filenames.as_str().to_string(),
+                detected: report.detected,
+                fixed: report.fixed,
+                skipped: report.skipped,
+                warnings: report.warnings,
+                details: serde_json::json!(report.changes),
             })
         }
     }
@@ -3000,11 +3030,8 @@ fn main() -> Result<()> {
         }
         Command::NextTasks { json, limit } => {
             let context = load_context_state(&backlog_dir);
-            let mut recommended = recommend_next_tasks_with_context_and_rules(
-                &tasks,
-                context.as_ref(),
-                &task_rules,
-            );
+            let mut recommended =
+                recommend_next_tasks_with_context_and_rules(&tasks, context.as_ref(), &task_rules);
             if let Some(limit) = limit {
                 recommended.truncate(limit);
             }
@@ -3219,6 +3246,36 @@ fn main() -> Result<()> {
                     audit_event(
                         &backlog_dir,
                         "fix_ids",
+                        None,
+                        serde_json::json!({ "fixed": run.fixed }),
+                    )?;
+                    refresh_index_best_effort(&backlog_dir);
+                    maybe_auto_checkpoint(&backlog_dir, auto_checkpoint, auto_session);
+                }
+                if json {
+                    let run_json = fix_run_to_json(&run);
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(&serde_json::json!({
+                            "ok": true,
+                            "mode": if apply_mode { "apply" } else { "check" },
+                            "run": run_json
+                        }))?
+                    );
+                } else {
+                    print_fix_report(&run, apply_mode);
+                    if !apply_mode {
+                        println!("Dry-run: re-run with --apply to write changes.");
+                    }
+                }
+            }
+            FixCommand::Filenames { apply, check, json } => {
+                let apply_mode = parse_fix_mode(apply, check)?;
+                let run = run_fix_target(&backlog_dir, FixTargetArg::Filenames, apply_mode)?;
+                if apply_mode {
+                    audit_event(
+                        &backlog_dir,
+                        "fix_filenames",
                         None,
                         serde_json::json!({ "fixed": run.fixed }),
                     )?;
@@ -4247,8 +4304,7 @@ fn main() -> Result<()> {
             let task = find_task(&tasks, &task_id).unwrap_or_else(|| {
                 die(&format!("Task not found: {}", task_id));
             });
-            if let Err(err) = ensure_can_set_status_with_rules(&tasks, task, &status, &task_rules)
-            {
+            if let Err(err) = ensure_can_set_status_with_rules(&tasks, task, &status, &task_rules) {
                 die(&err);
             }
             let path = task.file_path.as_ref().unwrap_or_else(|| {
@@ -7246,7 +7302,9 @@ fn handle_config_command(repo_root: &Path, command: &ConfigCommand) -> Result<()
                 "tasks_root" => config.tasks_root = None,
                 "state_root" => config.state_root = None,
                 "task_require_description" => config.task_require_description = None,
-                "task_require_acceptance_criteria" => config.task_require_acceptance_criteria = None,
+                "task_require_acceptance_criteria" => {
+                    config.task_require_acceptance_criteria = None
+                }
                 "task_require_definition_of_done" => config.task_require_definition_of_done = None,
                 "task_require_outcome_based_definition_of_done" => {
                     config.task_require_outcome_based_definition_of_done = None

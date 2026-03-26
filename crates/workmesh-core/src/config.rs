@@ -243,7 +243,9 @@ pub fn resolve_task_validation_rules_with_source(
     let global = load_global_config();
 
     let (require_description, require_description_source) = resolve_bool_with_source(
-        project.as_ref().and_then(|cfg| cfg.task_require_description),
+        project
+            .as_ref()
+            .and_then(|cfg| cfg.task_require_description),
         global.as_ref().and_then(|cfg| cfg.task_require_description),
         true,
     );
@@ -257,28 +259,25 @@ pub fn resolve_task_validation_rules_with_source(
                 .and_then(|cfg| cfg.task_require_acceptance_criteria),
             true,
         );
-    let (require_definition_of_done, require_definition_of_done_source) =
+    let (require_definition_of_done, require_definition_of_done_source) = resolve_bool_with_source(
+        project
+            .as_ref()
+            .and_then(|cfg| cfg.task_require_definition_of_done),
+        global
+            .as_ref()
+            .and_then(|cfg| cfg.task_require_definition_of_done),
+        true,
+    );
+    let (require_outcome_based_definition_of_done, require_outcome_based_definition_of_done_source) =
         resolve_bool_with_source(
             project
                 .as_ref()
-                .and_then(|cfg| cfg.task_require_definition_of_done),
+                .and_then(|cfg| cfg.task_require_outcome_based_definition_of_done),
             global
                 .as_ref()
-                .and_then(|cfg| cfg.task_require_definition_of_done),
+                .and_then(|cfg| cfg.task_require_outcome_based_definition_of_done),
             true,
         );
-    let (
-        require_outcome_based_definition_of_done,
-        require_outcome_based_definition_of_done_source,
-    ) = resolve_bool_with_source(
-        project
-            .as_ref()
-            .and_then(|cfg| cfg.task_require_outcome_based_definition_of_done),
-        global
-            .as_ref()
-            .and_then(|cfg| cfg.task_require_outcome_based_definition_of_done),
-        true,
-    );
 
     (
         TaskValidationRules {
@@ -627,10 +626,7 @@ task_require_definition_of_done = false\n",
             assert_eq!(sources.require_description, "global");
             assert_eq!(sources.require_acceptance_criteria, "project");
             assert_eq!(sources.require_definition_of_done, "project");
-            assert_eq!(
-                sources.require_outcome_based_definition_of_done,
-                "global"
-            );
+            assert_eq!(sources.require_outcome_based_definition_of_done, "global");
         });
     }
 }

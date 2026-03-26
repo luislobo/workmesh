@@ -10,6 +10,8 @@ It keeps planning state next to the code:
 
 By default, actionable tasks must include `Description`, `Acceptance Criteria`, and `Definition of Done`, and `Definition of Done` must be outcome-based. Those task-quality requirements are configurable in `.workmesh.toml` or global config when a repo wants a looser or stricter policy. Incomplete work should stay in `Draft` or `Needs Refinement` until it is ready for `To Do` or `In Progress`.
 
+Maintenance fixers can backfill missing task UIDs, remove broken dependencies, repair duplicate task IDs, and normalize drifted task filenames from task metadata.
+
 ## Install
 
 Verify installed binaries:

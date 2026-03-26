@@ -48,7 +48,10 @@ pub fn repo_root_metadata_path(state_root: &Path) -> PathBuf {
 
 pub fn write_repo_root_metadata(state_root: &Path, repo_root: &Path) -> Result<(), std::io::Error> {
     fs::create_dir_all(state_root)?;
-    fs::write(repo_root_metadata_path(state_root), repo_root.to_string_lossy().as_bytes())
+    fs::write(
+        repo_root_metadata_path(state_root),
+        repo_root.to_string_lossy().as_bytes(),
+    )
 }
 
 pub fn read_repo_root_metadata(state_root: &Path) -> Option<PathBuf> {
@@ -139,7 +142,13 @@ mod tests {
         let state = TempDir::new().expect("state");
 
         write_repo_root_metadata(state.path(), repo.path()).expect("write metadata");
-        assert_eq!(read_repo_root_metadata(state.path()).as_deref(), Some(repo.path()));
-        assert_eq!(repo_root_from_state_root(state.path()), repo.path().to_path_buf());
+        assert_eq!(
+            read_repo_root_metadata(state.path()).as_deref(),
+            Some(repo.path())
+        );
+        assert_eq!(
+            repo_root_from_state_root(state.path()),
+            repo.path().to_path_buf()
+        );
     }
 }

@@ -30,6 +30,7 @@ use workmesh_core::context::{
     save_context, ContextScope, ContextScopeMode, ContextState,
 };
 use workmesh_core::doctor::{doctor_report, doctor_report_with_options};
+use workmesh_core::fix::fix_task_filenames;
 use workmesh_core::focus::load_focus;
 use workmesh_core::gantt::{plantuml_gantt, render_plantuml_svg, write_text_file};
 use workmesh_core::global_sessions::{
@@ -60,11 +61,10 @@ use workmesh_core::task::{load_tasks, load_tasks_with_archive, tasks_dir_for_roo
 use workmesh_core::task_ops::{
     append_note, create_task_file_with_sections, ensure_can_set_status_with_rules, filter_tasks,
     graph_export, is_lease_active, now_timestamp, ready_tasks_with_rules,
-    recommend_next_tasks_with_context_and_rules, render_task_line, replace_section,
-    set_list_field, sort_tasks, status_counts, task_to_json_value, tasks_to_jsonl,
-    timestamp_plus_minutes, update_body, update_lease_fields, update_task_field,
-    update_task_field_or_section, validate_task_creation_with_rules, validate_tasks_with_rules,
-    FieldValue, TaskSectionContent,
+    recommend_next_tasks_with_context_and_rules, render_task_line, replace_section, set_list_field,
+    sort_tasks, status_counts, task_to_json_value, tasks_to_jsonl, timestamp_plus_minutes,
+    update_body, update_lease_fields, update_task_field, update_task_field_or_section,
+    validate_task_creation_with_rules, validate_tasks_with_rules, FieldValue, TaskSectionContent,
 };
 use workmesh_core::truth::{
     accept_truth, apply_truth_migration, list_truths, propose_truth, reject_truth, show_truth,
@@ -306,10 +306,12 @@ where
     let value = Option::<serde_json::Value>::deserialize(deserializer)?;
     match value {
         None => Ok(None),
-        Some(serde_json::Value::String(raw)) => {
-            serde_json::from_str(&raw).map(Some).map_err(D::Error::custom)
-        }
-        Some(other) => serde_json::from_value(other).map(Some).map_err(D::Error::custom),
+        Some(serde_json::Value::String(raw)) => serde_json::from_str(&raw)
+            .map(Some)
+            .map_err(D::Error::custom),
+        Some(other) => serde_json::from_value(other)
+            .map(Some)
+            .map_err(D::Error::custom),
     }
 }
 
@@ -603,6 +605,8 @@ fn tool_catalog() -> Vec<serde_json::Value> {
         serde_json::json!({"name": "project_init", "summary": "Create project docs scaffold."}),
         serde_json::json!({"name": "quickstart", "summary": "Scaffold docs + task/state roots + seed task."}),
         serde_json::json!({"name": "validate", "summary": "Validate task metadata and dependencies."}),
+        serde_json::json!({"name": "fix_ids", "summary": "Repair duplicate task ids after merges."}),
+        serde_json::json!({"name": "fix_filenames", "summary": "Normalize non-canonical task filenames from task metadata."}),
         serde_json::json!({"name": "graph_export", "summary": "Export task graph as JSON."}),
         serde_json::json!({"name": "issues_export", "summary": "Export tasks as JSONL."}),
         serde_json::json!({"name": "index_rebuild", "summary": "Rebuild JSONL task index."}),
@@ -1718,6 +1722,17 @@ pub struct FixIdsTool {
 }
 
 #[mcp_tool(
+    name = "fix_filenames",
+    description = "Normalize task filenames from task id/title/uid metadata (dry-run unless apply=true)."
+)]
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct FixFilenamesTool {
+    pub root: Option<String>,
+    #[serde(default)]
+    pub apply: bool,
+}
+
+#[mcp_tool(
     name = "rekey_prompt",
     description = "Generate an agent prompt to propose a task-id rekey mapping (and reference rewrites)."
 )]
@@ -2264,6 +2279,7 @@ tool_box!(
         QuickstartTool,
         ValidateTool,
         FixIdsTool,
+        FixFilenamesTool,
         RekeyPromptTool,
         RekeyApplyTool,
         GraphExportTool,
@@ -2403,6 +2419,7 @@ impl ServerHandler for WorkmeshServerHandler {
             WorkmeshTools::QuickstartTool(tool) => tool.call(&self.context),
             WorkmeshTools::ValidateTool(tool) => tool.call(&self.context),
             WorkmeshTools::FixIdsTool(tool) => tool.call(&self.context),
+            WorkmeshTools::FixFilenamesTool(tool) => tool.call(&self.context),
             WorkmeshTools::RekeyPromptTool(tool) => tool.call(&self.context),
             WorkmeshTools::RekeyApplyTool(tool) => tool.call(&self.context),
             WorkmeshTools::GraphExportTool(tool) => tool.call(&self.context),
@@ -2601,8 +2618,7 @@ impl ConfigShowTool {
             }
             lines.push(format!(
                 "- task_require_description: {} ({})",
-                task_validation.require_description,
-                task_validation_sources.require_description
+                task_validation.require_description, task_validation_sources.require_description
             ));
             lines.push(format!(
                 "- task_require_acceptance_criteria: {} ({})",
@@ -6500,13 +6516,9 @@ impl AddTaskTool {
             self.definition_of_done.clone(),
         );
         let task_rules = resolve_task_validation_rules(&repo_root_from_backlog(&backlog_dir));
-        let effective_status = validate_task_creation_with_rules(
-            &self.status,
-            self.draft,
-            &sections,
-            &task_rules,
-        )
-        .map_err(CallToolError::from_message)?;
+        let effective_status =
+            validate_task_creation_with_rules(&self.status, self.draft, &sections, &task_rules)
+                .map_err(CallToolError::from_message)?;
         let path = create_task_file_with_sections(
             &tasks_dir,
             &task_id,
@@ -6589,13 +6601,9 @@ impl AddDiscoveredTool {
             self.definition_of_done.clone(),
         );
         let task_rules = resolve_task_validation_rules(&repo_root_from_backlog(&backlog_dir));
-        let effective_status = validate_task_creation_with_rules(
-            &self.status,
-            self.draft,
-            &sections,
-            &task_rules,
-        )
-        .map_err(CallToolError::from_message)?;
+        let effective_status =
+            validate_task_creation_with_rules(&self.status, self.draft, &sections, &task_rules)
+                .map_err(CallToolError::from_message)?;
         let path = create_task_file_with_sections(
             &tasks_dir,
             &task_id,
@@ -6795,6 +6803,38 @@ impl FixIdsTool {
                 "new_path": c.new_path,
                 "uid": c.uid,
             })).collect::<Vec<_>>(),
+            "warnings": report.warnings,
+        }))
+    }
+}
+
+impl FixFilenamesTool {
+    fn call(&self, context: &McpContext) -> Result<CallToolResult, CallToolError> {
+        let backlog_dir = match resolve_root(context, self.root.as_deref()) {
+            Ok(dir) => dir,
+            Err(err) => return ok_json(err),
+        };
+        let tasks = load_tasks(&backlog_dir);
+        let report = fix_task_filenames(&tasks, self.apply).map_err(CallToolError::new)?;
+
+        if self.apply {
+            audit_event(
+                &backlog_dir,
+                "fix_filenames",
+                None,
+                serde_json::json!({ "changes": report.fixed }),
+            )?;
+            refresh_index_best_effort(&backlog_dir);
+            maybe_auto_checkpoint(&backlog_dir);
+        }
+
+        ok_json(serde_json::json!({
+            "ok": true,
+            "apply": self.apply,
+            "detected": report.detected,
+            "fixed": report.fixed,
+            "skipped": report.skipped,
+            "changes": report.changes,
             "warnings": report.warnings,
         }))
     }
@@ -7758,7 +7798,12 @@ impl RenderKvTool {
 
 impl RenderStatsTool {
     fn call(&self, _context: &McpContext) -> Result<CallToolResult, CallToolError> {
-        call_render_tool("render_stats", &self.data, None, self.configuration.as_ref())
+        call_render_tool(
+            "render_stats",
+            &self.data,
+            None,
+            self.configuration.as_ref(),
+        )
     }
 }
 
@@ -8557,7 +8602,9 @@ Definition of Done:\n\
             title: "New task".to_string(),
             description: Some("- Investigate and resolve the new task.".to_string()),
             acceptance_criteria: Some("- The task outcome is clearly verified.".to_string()),
-            definition_of_done: Some("- The investigation result is documented.\n- Code/config committed.".to_string()),
+            definition_of_done: Some(
+                "- The investigation result is documented.\n- Code/config committed.".to_string(),
+            ),
             root: Some(root_arg),
             task_id: None,
             draft: false,
@@ -8636,7 +8683,8 @@ Definition of Done:\n\
             "configuration": {"maxDepth": 1}
         }))
         .expect("legacy payload");
-        let parsed_data: serde_json::Value = serde_json::from_str(&tool.data).expect("stored data json");
+        let parsed_data: serde_json::Value =
+            serde_json::from_str(&tool.data).expect("stored data json");
         assert!(parsed_data.is_array());
 
         let result = tool.call(&context).expect("render tree");

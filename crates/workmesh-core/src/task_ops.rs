@@ -231,10 +231,7 @@ pub fn evaluate_task_quality_with_rules(
             rules.require_acceptance_criteria,
             ACCEPTANCE_CRITERIA_SECTION,
         ),
-        (
-            rules.require_definition_of_done,
-            DEFINITION_OF_DONE_SECTION,
-        ),
+        (rules.require_definition_of_done, DEFINITION_OF_DONE_SECTION),
     ];
 
     for (required, section) in required_sections {
@@ -775,9 +772,7 @@ fn create_task_file_internal(
     // Filenames are part of the git merge surface. Include a short UID suffix to avoid collisions
     // when multiple branches create tasks with the same numeric id.
     let uid = Ulid::new().to_string();
-    let uid_short: String = uid.chars().take(8).collect();
-    let filename_title = slug_title(title);
-    let filename = format!("{} - {} - {}.md", task_id, filename_title, uid_short);
+    let filename = canonical_task_filename(task_id, title, &uid);
     let path = tasks_dir.join(filename);
     let content = task_template(
         task_id,
@@ -793,6 +788,12 @@ fn create_task_file_internal(
     );
     write_string_atomic_locked(&path, &content)?;
     Ok(path)
+}
+
+pub fn canonical_task_filename(task_id: &str, title: &str, uid: &str) -> String {
+    let uid_short: String = uid.chars().take(8).collect();
+    let filename_title = slug_title(title);
+    format!("{} - {} - {}.md", task_id, filename_title, uid_short)
 }
 
 fn mutate_task_file<F>(path: &Path, mutator: F) -> Result<(), TaskParseError>
@@ -842,10 +843,7 @@ pub fn ready_tasks<'a>(tasks: &'a [Task]) -> Vec<&'a Task> {
     ready_tasks_with_rules(tasks, &TaskValidationRules::default())
 }
 
-pub fn ready_tasks_with_rules<'a>(
-    tasks: &'a [Task],
-    rules: &TaskValidationRules,
-) -> Vec<&'a Task> {
+pub fn ready_tasks_with_rules<'a>(tasks: &'a [Task], rules: &TaskValidationRules) -> Vec<&'a Task> {
     let done_ids: HashSet<String> = tasks
         .iter()
         .filter(|task| is_done(task))
@@ -988,7 +986,11 @@ pub fn recommend_next_tasks_with_focus<'a>(
             f.working_set.clone(),
         )
     });
-    recommend_next_tasks_with_context_and_rules(tasks, context.as_ref(), &TaskValidationRules::default())
+    recommend_next_tasks_with_context_and_rules(
+        tasks,
+        context.as_ref(),
+        &TaskValidationRules::default(),
+    )
 }
 
 pub fn is_lease_active(task: &Task) -> bool {
@@ -1530,8 +1532,9 @@ fn definition_of_done_is_hygiene_only(content: &str) -> bool {
 }
 
 fn slug_title(title: &str) -> String {
+    let decoded = decode_percent_escapes(title);
     let re = Regex::new(r"[^a-zA-Z0-9\s\-]").expect("regex");
-    let cleaned = re.replace_all(title, "");
+    let cleaned = re.replace_all(&decoded, "");
     let cleaned = cleaned.trim().to_lowercase();
     let cleaned = Regex::new(r"\s+")
         .expect("regex")
@@ -1542,6 +1545,33 @@ fn slug_title(title: &str) -> String {
     } else {
         cleaned
     }
+}
+
+fn decode_percent_escapes(input: &str) -> String {
+    if !input.contains('%') {
+        return input.to_string();
+    }
+
+    let bytes = input.as_bytes();
+    let mut decoded = Vec::with_capacity(bytes.len());
+    let mut index = 0;
+
+    while index < bytes.len() {
+        if bytes[index] == b'%' && index + 2 < bytes.len() {
+            let hi = (bytes[index + 1] as char).to_digit(16);
+            let lo = (bytes[index + 2] as char).to_digit(16);
+            if let (Some(hi), Some(lo)) = (hi, lo) {
+                decoded.push(((hi << 4) | lo) as u8);
+                index += 3;
+                continue;
+            }
+        }
+
+        decoded.push(bytes[index]);
+        index += 1;
+    }
+
+    String::from_utf8_lossy(&decoded).to_string()
 }
 
 fn task_template(
@@ -1632,12 +1662,7 @@ pub fn validate_task_creation(
     draft: bool,
     sections: &TaskSectionContent,
 ) -> Result<String, String> {
-    validate_task_creation_with_rules(
-        status,
-        draft,
-        sections,
-        &TaskValidationRules::default(),
-    )
+    validate_task_creation_with_rules(status, draft, sections, &TaskValidationRules::default())
 }
 
 pub fn validate_task_creation_with_rules(
@@ -1657,9 +1682,7 @@ pub fn validate_task_creation_with_rules(
         if normalized.eq_ignore_ascii_case("needs refinement") {
             return Ok("Needs Refinement".to_string());
         }
-        return Err(
-            "Draft task creation must use Draft or Needs Refinement status".to_string(),
-        );
+        return Err("Draft task creation must use Draft or Needs Refinement status".to_string());
     }
     if is_draft_status(status) {
         return Err(
@@ -2834,8 +2857,9 @@ Description:\n\
             updated_date: None,
             extra: HashMap::new(),
             file_path: None,
-            body: "Description:\n--------------------------------------------------\n- Investigate.\n"
-                .to_string(),
+            body:
+                "Description:\n--------------------------------------------------\n- Investigate.\n"
+                    .to_string(),
         };
         let rules = TaskValidationRules {
             require_description: true,

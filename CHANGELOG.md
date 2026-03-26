@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.9] - 2026-03-25
+
+### Added
+- Added task filename normalization as a first-class maintenance fixer:
+  - CLI: `fix filenames`
+  - MCP: `fix_filenames`
+- `fix all` can now include filename normalization alongside UID backfill, dependency cleanup, and duplicate-ID repair.
+
+### Changed
+- Task creation and filename repair now share the same canonical filename builder so future task files follow the same naming rule as the repair path.
+- Filename slugging now decodes percent-escaped text before normalizing, which repairs `%20`-style drifted filenames into the canonical WorkMesh format.
+- Updated the human and agent-readable docs to include the filename fixer in the maintenance surface.
+
 ## [0.3.8] - 2026-03-24
 
 ### Changed
@@ -352,7 +365,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Gantt support and best-practices command.
   - Docs-first project model and initial PRDs.
 
-[Unreleased]: https://github.com/luislobo/workmesh/compare/v0.3.8...HEAD
+[Unreleased]: https://github.com/luislobo/workmesh/compare/v0.3.9...HEAD
+[0.3.9]: https://github.com/luislobo/workmesh/compare/v0.3.8...v0.3.9
 [0.3.8]: https://github.com/luislobo/workmesh/compare/v0.3.7...v0.3.8
 [0.3.7]: https://github.com/luislobo/workmesh/compare/v0.3.6...v0.3.7
 [0.3.6]: https://github.com/luislobo/workmesh/compare/v0.3.5...v0.3.6

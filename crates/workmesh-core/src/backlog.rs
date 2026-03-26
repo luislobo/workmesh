@@ -143,7 +143,9 @@ fn resolve_explicit_root(
     config: Option<&WorkmeshConfig>,
 ) -> Option<BacklogResolution> {
     if let Some((state_root, tasks_root)) = configured_roots(repo_root, config) {
-        if path_matches(root, &state_root) || path_matches(root, &tasks_root) || path_matches(root, repo_root)
+        if path_matches(root, &state_root)
+            || path_matches(root, &tasks_root)
+            || path_matches(root, repo_root)
         {
             if tasks_root.is_dir() || state_root.is_dir() {
                 return Some(resolution_for_roots(
@@ -163,7 +165,12 @@ fn resolve_explicit_root(
             || is_named(&parent, "backlog")
             || is_named(&parent, "project")
         {
-            return Some(resolution_for_roots(root.parent().unwrap_or(root), root, repo_root, config));
+            return Some(resolution_for_roots(
+                root.parent().unwrap_or(root),
+                root,
+                repo_root,
+                config,
+            ));
         }
         let split_state = parent.join(".workmesh");
         if split_state.is_dir() {
@@ -172,10 +179,20 @@ fn resolve_explicit_root(
         return Some(resolution_for_roots(&parent, root, repo_root, config));
     }
     if is_named(root, "workmesh") && root.join("tasks").is_dir() {
-        return Some(resolution_for_roots(root, &root.join("tasks"), repo_root, config));
+        return Some(resolution_for_roots(
+            root,
+            &root.join("tasks"),
+            repo_root,
+            config,
+        ));
     }
     if is_named(root, ".workmesh") && root.join("tasks").is_dir() {
-        return Some(resolution_for_roots(root, &root.join("tasks"), repo_root, config));
+        return Some(resolution_for_roots(
+            root,
+            &root.join("tasks"),
+            repo_root,
+            config,
+        ));
     }
     if is_named(root, ".workmesh") && root.parent().unwrap_or(root).join("tasks").is_dir() {
         return Some(resolution_for_roots(
@@ -186,10 +203,20 @@ fn resolve_explicit_root(
         ));
     }
     if is_named(root, "backlog") && root.join("tasks").is_dir() {
-        return Some(resolution_for_roots(root, &root.join("tasks"), repo_root, config));
+        return Some(resolution_for_roots(
+            root,
+            &root.join("tasks"),
+            repo_root,
+            config,
+        ));
     }
     if is_named(root, "project") && root.join("tasks").is_dir() {
-        return Some(resolution_for_roots(root, &root.join("tasks"), repo_root, config));
+        return Some(resolution_for_roots(
+            root,
+            &root.join("tasks"),
+            repo_root,
+            config,
+        ));
     }
     if root.join("tasks").is_dir() {
         let split_state = root.join(".workmesh");
@@ -201,7 +228,12 @@ fn resolve_explicit_root(
                 config,
             ));
         }
-        return Some(resolution_for_roots(root, &root.join("tasks"), repo_root, config));
+        return Some(resolution_for_roots(
+            root,
+            &root.join("tasks"),
+            repo_root,
+            config,
+        ));
     }
     None
 }
@@ -277,7 +309,12 @@ fn resolve_default_dirs(
         ));
     }
     if split_tasks.is_dir() {
-        return Some(resolution_for_roots(repo_root, &split_tasks, repo_root, config));
+        return Some(resolution_for_roots(
+            repo_root,
+            &split_tasks,
+            repo_root,
+            config,
+        ));
     }
     None
 }
@@ -287,12 +324,12 @@ fn configured_roots(
     config: Option<&WorkmeshConfig>,
 ) -> Option<(PathBuf, PathBuf)> {
     let config = config?;
-    let legacy_root = trim_config_value(config.root_dir.as_deref())
-        .map(|value| rooted_path(repo_root, value));
-    let explicit_tasks = trim_config_value(config.tasks_root.as_deref())
-        .map(|value| rooted_path(repo_root, value));
-    let explicit_state = trim_config_value(config.state_root.as_deref())
-        .map(|value| rooted_path(repo_root, value));
+    let legacy_root =
+        trim_config_value(config.root_dir.as_deref()).map(|value| rooted_path(repo_root, value));
+    let explicit_tasks =
+        trim_config_value(config.tasks_root.as_deref()).map(|value| rooted_path(repo_root, value));
+    let explicit_state =
+        trim_config_value(config.state_root.as_deref()).map(|value| rooted_path(repo_root, value));
 
     if legacy_root.is_none() && explicit_tasks.is_none() && explicit_state.is_none() {
         return None;
@@ -391,7 +428,12 @@ fn layout_from_roots(state_root: &Path, tasks_root: &Path, repo_root: &Path) -> 
 
 fn path_matches(left: &Path, right: &Path) -> bool {
     left == right
-        || left.canonicalize().ok().zip(right.canonicalize().ok()).map(|(a, b)| a == b).unwrap_or(false)
+        || left
+            .canonicalize()
+            .ok()
+            .zip(right.canonicalize().ok())
+            .map(|(a, b)| a == b)
+            .unwrap_or(false)
 }
 
 fn is_named(path: &Path, name: &str) -> bool {
@@ -430,7 +472,10 @@ mod tests {
         let resolution = resolve_backlog(temp.path()).expect("resolve");
         assert_eq!(resolution.layout, BacklogLayout::Backlog);
         assert_eq!(resolution.state_root, temp.path().join("backlog"));
-        assert_eq!(resolution.tasks_root, temp.path().join("backlog").join("tasks"));
+        assert_eq!(
+            resolution.tasks_root,
+            temp.path().join("backlog").join("tasks")
+        );
     }
 
     #[test]
@@ -481,8 +526,14 @@ mod tests {
 
         let resolution = resolve_backlog(temp.path()).expect("resolve");
         assert_eq!(resolution.layout, BacklogLayout::Custom);
-        assert_eq!(canon(&resolution.state_root), canon(&temp.path().join("state")));
-        assert_eq!(canon(&resolution.tasks_root), canon(&temp.path().join("tracker")));
+        assert_eq!(
+            canon(&resolution.state_root),
+            canon(&temp.path().join("state"))
+        );
+        assert_eq!(
+            canon(&resolution.tasks_root),
+            canon(&temp.path().join("tracker"))
+        );
         assert!(resolution.config.is_some());
     }
 

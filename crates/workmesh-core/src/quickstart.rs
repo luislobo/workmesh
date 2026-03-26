@@ -280,18 +280,27 @@ mod tests {
         let repo = temp.path();
 
         // When missing, it writes a new file.
-        assert!(write_agents_snippet(repo, &repo.join("tasks"), &repo.join(".workmesh")).expect("write"));
+        assert!(
+            write_agents_snippet(repo, &repo.join("tasks"), &repo.join(".workmesh"))
+                .expect("write")
+        );
         let content = fs::read_to_string(repo.join("AGENTS.md")).expect("read");
         assert!(content.contains(snippet_marker()));
 
         // When marker already present, it does not modify.
-        assert!(!write_agents_snippet(repo, &repo.join("tasks"), &repo.join(".workmesh")).expect("idempotent"));
+        assert!(
+            !write_agents_snippet(repo, &repo.join("tasks"), &repo.join(".workmesh"))
+                .expect("idempotent")
+        );
 
         // When file exists without marker, it appends.
         let temp2 = TempDir::new().expect("tempdir");
         let repo2 = temp2.path();
         fs::write(repo2.join("AGENTS.md"), "existing\n").expect("write");
-        assert!(write_agents_snippet(repo2, &repo2.join("tasks"), &repo2.join(".workmesh")).expect("append"));
+        assert!(
+            write_agents_snippet(repo2, &repo2.join("tasks"), &repo2.join(".workmesh"))
+                .expect("append")
+        );
         let content2 = fs::read_to_string(repo2.join("AGENTS.md")).expect("read");
         assert!(content2.starts_with("existing\n"));
         assert!(content2.contains(snippet_marker()));
@@ -315,8 +324,14 @@ mod tests {
         )
         .expect("quickstart");
 
-        assert_eq!(result.tasks_root, temp.path().join("planning").join("tasks"));
-        assert_eq!(result.state_root, temp.path().join("planning").join("state"));
+        assert_eq!(
+            result.tasks_root,
+            temp.path().join("planning").join("tasks")
+        );
+        assert_eq!(
+            result.state_root,
+            temp.path().join("planning").join("state")
+        );
         assert!(result.tasks_root.is_dir());
         assert!(result.state_root.is_dir());
     }

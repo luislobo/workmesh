@@ -56,6 +56,8 @@ pub fn tool_catalog() -> Vec<Value> {
         serde_json::json!({"name": "version", "summary": "Return WorkMesh version information."}),
         serde_json::json!({"name": "readme", "summary": "Return README.json (agent-friendly repo docs)."}),
         serde_json::json!({"name": "doctor", "summary": "Diagnostics report for repo layout, context, index, skills, and versions."}),
+        serde_json::json!({"name": "fix_ids", "summary": "Repair duplicate task ids after merges."}),
+        serde_json::json!({"name": "fix_filenames", "summary": "Normalize non-canonical task filenames from task metadata."}),
         serde_json::json!({"name": "bootstrap", "summary": "Bootstrap WorkMesh by detecting repo state and applying setup/migration."}),
         serde_json::json!({"name": "config_show", "summary": "Show project/global config and effective defaults."}),
         serde_json::json!({"name": "config_set", "summary": "Set a WorkMesh config key in project or global scope."}),

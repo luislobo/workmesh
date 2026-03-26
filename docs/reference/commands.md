@@ -411,13 +411,19 @@ CLI:
 - default status filter (when omitted): `Done`, `Cancelled`, `Canceled`, `Won't Do`, `Wont Do`
 - override behavior: pass one or more `--status` values to archive any specific state, including non-terminal states
 - `fix list [--json]`
-- `fix uid|deps|ids [--check|--apply] [--json]`
-- `fix all [--only uid,deps,ids] [--exclude uid,deps,ids] [--check|--apply] [--json]`
+- `fix uid|deps|ids|filenames [--check|--apply] [--json]`
+- `fix all [--only uid,deps,ids,filenames] [--exclude uid,deps,ids,filenames] [--check|--apply] [--json]`
 
 MCP:
 - `archive_tasks`
 - `archive_tasks` accepts optional `status` (string or list); when omitted it uses the same default terminal status filter as CLI
 - `fix_ids`
+- `fix_filenames`
+
+Filename normalization notes:
+- `fix filenames` derives the canonical filename from task `id`, `title`, and `uid`.
+- It repairs percent-encoded or otherwise non-canonical filename slugs.
+- Tasks missing `uid` are skipped; run `fix uid --apply` first, then rerun `fix filenames --apply`.
 
 MCP mutation response contract:
 - `archive_tasks` defaults to summary counts and archive path metadata

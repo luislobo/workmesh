@@ -95,6 +95,12 @@
       "task_require_definition_of_done",
       "task_require_outcome_based_definition_of_done"
     ],
+    "maintenance_fixers": [
+      "uid",
+      "deps",
+      "ids",
+      "filenames"
+    ],
     "mutation_responses": "Compact by default; use verbose=true only when richer post-write state is required.",
     "resume_checklist": [
       "restore current context",

@@ -263,7 +263,11 @@ pub fn load_tasks_with_archive(backlog_dir: &Path) -> Vec<Task> {
 
 pub fn tasks_dir_for_root(root: &Path) -> PathBuf {
     resolve_tasks_dir(root).unwrap_or_else(|_| {
-        if root.file_name().map(|name| name == "tasks").unwrap_or(false) {
+        if root
+            .file_name()
+            .map(|name| name == "tasks")
+            .unwrap_or(false)
+        {
             root.to_path_buf()
         } else {
             root.join("tasks")
